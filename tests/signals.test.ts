@@ -711,6 +711,34 @@ describe('a decision comment that explains the next declaration', () => {
   })
 })
 
+describe('a guard ladder', () => {
+  it('scores many early returns in a short function', () => {
+    // A decision table written as code: `destr` answers thirteen input shapes in
+    // sixty lines, and length, nesting and the wheel vocabulary all miss it.
+    const guards = Array.from({ length: 6 }, (_, i) => `  if (key === '${i}') return ${i}`)
+    const file = fileOf(['function pick(key: string) {', ...guards, '  return -1', '}'].join('\n'), 'src/a.ts')
+    const words = scoreFile(file, emptyIndex()).flatMap((candidate) => candidate.matched)
+    expect(words).toContain('complexity:guard-ladder')
+  })
+
+  it('does not fire on ordinary error handling', () => {
+    const file = fileOf(
+      ['function run() {', '  if (!a) return', '  if (!b) return', '  doWork()', '}'].join('\n'),
+      'src/a.ts',
+    )
+    const words = scoreFile(file, emptyIndex()).flatMap((candidate) => candidate.matched)
+    expect(words).not.toContain('complexity:guard-ladder')
+  })
+
+  it('does not count a return that only appears inside a string', () => {
+    // The rule reads the blanked source, so a quoted `return` cannot inflate it.
+    const guards = Array.from({ length: 6 }, () => '  note("return")')
+    const file = fileOf(['function f() {', ...guards, '}'].join('\n'), 'src/a.ts')
+    const words = scoreFile(file, emptyIndex()).flatMap((candidate) => candidate.matched)
+    expect(words).not.toContain('complexity:guard-ladder')
+  })
+})
+
 describe('a value declared on a later line', () => {
   it('counts a multi-line arrow function as code', () => {
     // `const replaceClose = (` … `) => …`: the arrow opens on a later line, and the

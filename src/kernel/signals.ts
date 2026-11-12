@@ -69,6 +69,16 @@ const KIND_RANK: ReadonlyMap<SignalKind, number> = new Map(
 const byCodeUnit = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
 
 /** A function body longer than this many lines is a difficulty hot spot. */
+/**
+ * How many early returns in how short a function count as a decision table.
+ *
+ * Six returns in sixty lines is a guard ladder: each line answers one shape of the
+ * input. Fewer is ordinary error handling; a longer function is already caught by
+ * the length rule, and counting both would double-weight it.
+ */
+const EARLY_RETURN_LADDER = 6
+const LADDER_MAX_LINES = 120
+
 const LONG_FUNCTION_LINES = 60
 /** Nesting *inside* a function body: 4 is ordinary, 5 is a hot spot. */
 const DEEP_NESTING = 4
@@ -1282,6 +1292,26 @@ function complexityHits(context: FileContext): Hit[] {
       hits.push(hit('complexity', span.startLine, 'long-function'))
     }
     if (span.nesting > DEEP_NESTING) hits.push(hit('complexity', span.startLine, 'deep-nesting'))
+    // A guard ladder: many early returns in few lines — a decision table written as
+    // code. `destr` answers thirteen input shapes in sixty lines, and length,
+    // nesting and the wheel vocabulary all miss it because the code is short and flat.
+    //
+    // Counted on the blanked source: the comment and string bans would otherwise
+    // delete both the `return` keyword and the value it returns.
+    // Read from the blanked source: comment and string bodies are spaces there, so a
+    // quoted `return` cannot inflate the count and a commented-out guard cannot
+    // inflate it either. The span's own line numbers index the raw lines, which is
+    // why the slice is taken by offsets.
+    const startLine = span.startLine - 1
+    const fromOffset = startLine === 0 ? 0 : (context.newlines[startLine - 1] ?? -1) + 1
+    const toOffset = context.newlines[span.endLine] === undefined
+      ? context.scan.code.length
+      : (context.newlines[span.endLine] as number)
+    const body = context.scan.code.slice(fromOffset, toOffset)
+    const earlyReturns = (body.match(/(?:^|[^\w$.])return\b/g) ?? []).length
+    if (earlyReturns >= EARLY_RETURN_LADDER && span.endLine - span.startLine + 1 <= LADDER_MAX_LINES) {
+      hits.push(hit('complexity', span.startLine, 'guard-ladder'))
+    }
   }
 
   // A type switch is where a language with no union types states its type algebra:
