@@ -17,6 +17,9 @@ completion.
 | `npm run typecheck` green | same file — printed as `typecheck clean` (both tsconfigs) |
 | `ana analyze` produces a Chinese report with line-addressed evidence on a real repository | same file — the run against `https://github.com/sindresorhus/quick-lru`, and the report sample in `README.md` |
 
+Per-requirement traceability, with the test name that proves each clause:
+`docs/superpowers/EVIDENCE.md`.
+
 To reproduce rather than read: `npm install && npm run verify` → last line `VERIFY: PASS`.
 
 ## Tasks, commits, and the review outcome for each

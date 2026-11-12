@@ -18,6 +18,7 @@ Last line must read `VERIFY: PASS (github, run <id>)`. It asserts, in order:
 The model is the committed local stub `scripts/verify-stub.mjs` (no provider key needed, deterministic);
 citations are still checked against the bytes on disk by the product's own validator.
 A committed transcript of a real run: `docs/superpowers/verify-output.txt`.
+Which test proves which acceptance clause, by name: `docs/superpowers/EVIDENCE.md`.
 
 ## Task 6-15, one line each (with the review outcome)
 
