@@ -1,7 +1,22 @@
 #!/usr/bin/env node
 import { realpathSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 
+import { runAnalyze, type AnalyzeOptions } from './commands/analyze.js'
+import {
+  INSPECT_USAGE,
+  InspectUsageError,
+  parseInspectArgs,
+  runInspect,
+} from './commands/inspect.js'
+import {
+  NoSuchRunError,
+  parseReportArgs,
+  REPORT_USAGE,
+  ReportUsageError,
+  runReport,
+} from './commands/report.js'
 import {
   parseScanArgs,
   runScan,
@@ -12,6 +27,119 @@ import {
 import { readVersion } from './version.js'
 
 export { readVersion }
+
+export const ANALYZE_USAGE = `Usage: ana analyze <repo> [options]
+
+Options:
+  --model <name>     Model name (default: $ANA_MODEL or the built-in default)
+  --api-key <key>    Overrides $ANA_API_KEY
+  --top <n>          How many candidate signals to collect
+  --budget <n>       Token budget for the writing layer
+  --lang <zh|en>     Report language (default: zh)
+  --subpath <path>   Analyse only this subtree
+  --ref <ref>        Ref to analyse, when the source is a repository
+  --json             Print the JSON report instead of the markdown path`
+
+export type AnalyzeArgs =
+  | { help: true }
+  | { help: false; input: string; json: boolean; options: AnalyzeOptions }
+
+class AnalyzeUsageError extends Error {}
+
+const VALUED_FLAGS = [
+  'model',
+  'api-key',
+  'top',
+  'budget',
+  'lang',
+  'subpath',
+  'ref',
+] as const
+
+function positiveInteger(flag: string, raw: string): number {
+  const value = Number(raw)
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new AnalyzeUsageError(`--${flag} expects a positive integer, got "${raw}"`)
+  }
+  return value
+}
+
+/** The analyze grammar, kept pure so the CLI and its tests share one parse. */
+export function parseAnalyzeArgs(argv: string[]): AnalyzeArgs {
+  const positional: string[] = []
+  const values = new Map<string, string>()
+  let json = false
+  let help = false
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index] as string
+    if (token === '--') {
+      positional.push(...argv.slice(index + 1))
+      break
+    }
+    if (token === '--help' || token === '-h') {
+      help = true
+      continue
+    }
+    if (!token.startsWith('-')) {
+      positional.push(token)
+      continue
+    }
+    const [name = '', inline] = token.replace(/^--?/, '').split('=', 2)
+    if (name === 'json') {
+      if (inline !== undefined) {
+        throw new AnalyzeUsageError('--json takes no value')
+      }
+      json = true
+      continue
+    }
+    if (!(VALUED_FLAGS as readonly string[]).includes(name)) {
+      throw new AnalyzeUsageError(`unknown option "${token}"`)
+    }
+    if (inline !== undefined) {
+      values.set(name, inline)
+      continue
+    }
+    const next = argv[index + 1]
+    if (next === undefined || next.startsWith('--')) {
+      throw new AnalyzeUsageError(`--${name} needs a value`)
+    }
+    values.set(name, next)
+    index += 1
+  }
+
+  if (help) return { help: true }
+  const [input, ...rest] = positional
+  if (input === undefined) {
+    throw new AnalyzeUsageError('missing <repo>')
+  }
+  if (rest.length > 0) {
+    throw new AnalyzeUsageError(`unexpected argument "${rest[0]}"`)
+  }
+
+  const options: AnalyzeOptions = {}
+  const model = values.get('model')
+  if (model !== undefined) options.model = model
+  const apiKey = values.get('api-key')
+  if (apiKey !== undefined) options.apiKey = apiKey
+  const top = values.get('top')
+  if (top !== undefined) options.top = positiveInteger('top', top)
+  const budget = values.get('budget')
+  if (budget !== undefined) options.budget = positiveInteger('budget', budget)
+  const subpath = values.get('subpath')
+  if (subpath !== undefined) options.subpath = subpath
+  const ref = values.get('ref')
+  if (ref !== undefined) options.ref = ref
+  const lang = values.get('lang')
+  if (lang !== undefined) {
+    if (lang !== 'zh' && lang !== 'en') {
+      throw new AnalyzeUsageError(`--lang expects "zh" or "en", got "${lang}"`)
+    }
+    options.lang = lang
+  }
+
+  return { help: false, input, json, options }
+}
 
 export type CliIo = {
   out: { write(chunk: string): unknown }
@@ -93,11 +221,79 @@ export async function runCli(
         return 1
       }
     }
-    case 'analyze':
-    case 'report':
-    case 'inspect':
-      io.err.write(`ana: "${command}" is not implemented yet\n`)
-      return 2
+    case 'analyze': {
+      let args: AnalyzeArgs
+      try {
+        args = parseAnalyzeArgs(argv.slice(1))
+      } catch (error) {
+        if (!(error instanceof AnalyzeUsageError)) throw error
+        io.err.write(`ana: ${error.message}\n\n${ANALYZE_USAGE}\n`)
+        return 2
+      }
+      if (args.help) {
+        io.out.write(`${ANALYZE_USAGE}\n`)
+        return 0
+      }
+      try {
+        const result = await runAnalyze(args.input, args.options)
+        if (args.json) {
+          const jsonPath = result.reportPath.replace(/report\.md$/, 'report.json')
+          io.out.write(`${await readFile(jsonPath, 'utf8')}\n`)
+        } else {
+          io.out.write(`${result.reportPath}\n`)
+        }
+        return 0
+      } catch (error) {
+        io.err.write(`ana: ${describeFailure(error)}\n`)
+        return 1
+      }
+    }
+    case 'report': {
+      let args
+      try {
+        args = parseReportArgs(argv.slice(1))
+      } catch (error) {
+        if (!(error instanceof ReportUsageError)) throw error
+        io.err.write(`ana: ${error.message}\n\n${REPORT_USAGE}\n`)
+        return 2
+      }
+      if (args.help) {
+        io.out.write(`${REPORT_USAGE}\n`)
+        return 0
+      }
+      try {
+        await runReport(args.runId, { out: io.out })
+        return 0
+      } catch (error) {
+        if (error instanceof NoSuchRunError) {
+          io.err.write(`ana: ${error.message}\n`)
+          return 1
+        }
+        io.err.write(`ana: ${describeFailure(error)}\n`)
+        return 1
+      }
+    }
+    case 'inspect': {
+      let args
+      try {
+        args = parseInspectArgs(argv.slice(1))
+      } catch (error) {
+        if (!(error instanceof InspectUsageError)) throw error
+        io.err.write(`ana: ${error.message}\n\n${INSPECT_USAGE}\n`)
+        return 2
+      }
+      if (args.help) {
+        io.out.write(`${INSPECT_USAGE}\n`)
+        return 0
+      }
+      try {
+        await runInspect(args.evidenceId, { out: io.out })
+        return 0
+      } catch (error) {
+        io.err.write(`ana: ${describeFailure(error)}\n`)
+        return 1
+      }
+    }
     default:
       io.err.write(`ana: unknown command "${command}"\n\n${USAGE}`)
       return 2

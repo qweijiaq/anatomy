@@ -36,8 +36,19 @@ export type Run = {
  */
 const ARTIFACT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
+/**
+ * Whether `value` can be one path segment of a run directory.
+ *
+ * Exported because a reader that must not *open* a run (opening stamps the
+ * manifest) still has to reject a traversal attempt as "no such run" rather than
+ * as a crash from somewhere deeper.
+ */
+export function isArtifactName(value: string): boolean {
+  return ARTIFACT_NAME.test(value)
+}
+
 function artifactPath(dir: string, name: string): string {
-  if (!ARTIFACT_NAME.test(name)) {
+  if (!isArtifactName(name)) {
     throw new Error(`anatomy: invalid artifact name "${name}"`)
   }
   return path.join(dir, `${name}.json`)
@@ -90,10 +101,22 @@ async function readArtifact<T>(dir: string, name: string): Promise<T | null> {
 
 /** The run directory `runId` resolves to under `baseDir`. */
 function runDirFor(baseDir: string, runId: string): string {
-  if (!ARTIFACT_NAME.test(runId)) {
+  if (!isArtifactName(runId)) {
     throw new Error(`anatomy: invalid runId "${runId}"`)
   }
   return path.join(path.resolve(baseDir), runId)
+}
+
+/**
+ * One artifact of a run that may not be open, or `null` when the run or the
+ * artifact is absent. Reads only: a renderer must not change what it renders.
+ */
+export async function readRunArtifact<T>(
+  baseDir: string,
+  runId: string,
+  name: string,
+): Promise<T | null> {
+  return readArtifact<T>(runDirFor(baseDir, runId), name)
 }
 
 /**
