@@ -21,6 +21,8 @@
  * file that measured them is the only place allowed to change them.
  */
 
+import path from 'node:path'
+
 import type { ReportInput } from '../contracts/types.js'
 
 // --- document shape -------------------------------------------------------
@@ -151,28 +153,57 @@ function judgementList(value: unknown): ReportJudgement[] {
 // --- normalisers ----------------------------------------------------------
 
 /**
+ * The largest line number a citation may name.
+ *
+ * `ana report` re-renders evidence out of a stored run, so nothing here touched
+ * the file the citation claims: the artifact may have been hand-edited or
+ * written by another build. A line number no source file could reach is a claim,
+ * not a citation. A million lines is far past any file this product reads
+ * (bounded by the kernel's shared read cap) and still catches an epoch or a
+ * `2**31` placeholder.
+ */
+const MAX_CITED_LINE = 1_000_000
+
+/**
+ * Whether a stored path is one a reader could open from the analysed root.
+ *
+ * Relative only: an absolute path points wherever the artifact's author wanted,
+ * not at the tree. No `..` segment, on either separator, because that climbs out
+ * of the tree without ever being spelled as absolute.
+ */
+function isFollowablePath(value: string): boolean {
+  if (value === '' || path.isAbsolute(value)) return false
+  // A path stored on Windows and read back on POSIX is still absolute over there.
+  if (/^[A-Za-z]:[\\/]/.test(value)) return false
+  return !value.split(/[\\/]/).includes('..')
+}
+
+/**
  * One citable piece of evidence, or `null` when a reader could not follow it.
  *
  * The check is the one the reader performs: a path that can be opened, a line
  * range that can be navigated, and text that can be compared. Anything else is
- * not evidence, however plausible it reads.
+ * not evidence, however plausible it reads. A refused item is not silently
+ * repaired into something else — the point loses that citation, and
+ * `notRendered` explains the point that is left with none.
  */
 export function normalizeEvidence(value: unknown, index: number): ReportEvidence | null {
   const raw = record(value)
-  const path = text(raw['path'])
+  const citedPath = text(raw['path'])
   const startLine = integers(raw['startLine'])
   const endLine = integers(raw['endLine'])
   const snippet = text(raw['snippet'])
 
-  if (path === '') return null
+  if (!isFollowablePath(citedPath)) return null
   if (startLine === null || endLine === null) return null
   if (startLine < 1 || endLine < startLine) return null
+  if (endLine > MAX_CITED_LINE) return null
   if (snippet.trim() === '') return null
 
   const id = text(raw['id'])
   return {
     id: id === '' ? `evidence-${index + 1}` : id,
-    path,
+    path: citedPath,
     startLine,
     endLine,
     snippet,

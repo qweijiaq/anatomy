@@ -19,7 +19,8 @@ import path from 'node:path'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Evidence, LearningPoint, Scope } from '../src/contracts/types.js'
-import { MAX_EVIDENCE_BYTES, evidenceId, validatePoints } from '../src/kernel/evidence.js'
+import { MAX_EVIDENCE_FILE_BYTES } from '../src/kernel/canonicalize.js'
+import { evidenceId, validatePoints } from '../src/kernel/evidence.js'
 
 /**
  * Counts canonicalizations. The kernel's rule is "one read per file per call",
@@ -74,8 +75,19 @@ mkdirSync(path.join(root, 'vendor'))
 symlinkSync(outside, path.join(root, 'vendor', 'link-dir'))
 symlinkSync(path.join(outside, 'secret.ts'), path.join(root, 'vendor', 'link-secret.ts'))
 symlinkSync(path.join(root, 'a.ts'), path.join(root, 'vendor', 'link-inside.ts'))
-// Larger than the evidence read cap: its bytes must never be buffered.
-writeFileSync(path.join(root, 'huge.ts'), 'const padded = 1\n'.repeat(70_000))
+// Above the old 1 MiB refusal, under the shared size policy: the judge slices
+// files this large, so a citation of a real line inside one must still verify.
+const largeLines = ['export const large = 1']
+let largeBytes = 'export const large = 1\n'.length
+while (largeBytes < 1_200_000) {
+  const line = `const filler${largeLines.length} = 1`
+  largeLines.push(line)
+  largeBytes += line.length + 1
+}
+const LARGE_CITED_LINE = largeLines.push('export const citedFromLarge = 7')
+writeFileSync(path.join(root, 'large.ts'), `${largeLines.join('\n')}\n`)
+// Larger than the shared read cap: its bytes must never be buffered.
+writeFileSync(path.join(root, 'huge.ts'), 'const padded = 1\n'.repeat(700_000))
 
 afterAll(() => {
   rmSync(root, { recursive: true, force: true })
@@ -661,7 +673,35 @@ describe('validatePoints — symlinks and read bounds', () => {
     expect(canonicalCalls.paths).toEqual([])
   })
 
+  it('verifies a citation from a file above 1 MiB that the slicer can still show', async () => {
+    const result = await validatePoints(
+      [
+        withEvidence([
+          ev({
+            path: 'large.ts',
+            startLine: LARGE_CITED_LINE,
+            endLine: LARGE_CITED_LINE,
+            snippet: 'export const citedFromLarge = 7',
+          }),
+        ]),
+      ],
+      root,
+      'run1',
+    )
+
+    // The model was shown this slice, so quoting it is honest: refusing it here
+    // would inflate droppedEvidence and blame the model for a file it read.
+    expect(result.dropped).toEqual([])
+    expect(result.kept).toHaveLength(1)
+    expect(result.kept[0]?.theirs.evidence[0]?.path).toBe('large.ts')
+    expect(result.stats).toMatchObject({ droppedEvidence: 0, evidenceRate: 1 })
+  })
+
   it('refuses a file larger than the read cap, naming the cap', async () => {
+    // The cap is one number shared with the slice reader, and it has to be
+    // roomy enough for the real source files a run quotes.
+    expect(MAX_EVIDENCE_FILE_BYTES).toBeGreaterThan(1024 * 1024)
+
     const result = await validatePoints(
       [withEvidence([ev({ path: 'huge.ts', startLine: 1, endLine: 1, snippet: 'const padded = 1' })])],
       root,
@@ -669,7 +709,7 @@ describe('validatePoints — symlinks and read bounds', () => {
     )
 
     expect(result.kept).toEqual([])
-    expect(result.dropped[0]?.reason).toContain(String(MAX_EVIDENCE_BYTES))
+    expect(result.dropped[0]?.reason).toContain(String(MAX_EVIDENCE_FILE_BYTES))
     expect(result.dropped[0]?.reason).toMatch(/cap/)
     // The cap is enforced before the read, so a huge file is never buffered.
     expect(canonicalCalls.paths).toEqual([])

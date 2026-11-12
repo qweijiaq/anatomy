@@ -8,10 +8,23 @@
  * text and every evidence line number points at the same lines.
  */
 
-import { readFile } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 
 import type { CanonicalFile, Slice } from '../contracts/types.js'
 import { DEFAULT_SLICE_MAX_LINES } from '../contracts/types.js'
+
+/**
+ * The largest file this product reads as source text.
+ *
+ * One number, one policy: the slice reader that shows a file to the model and
+ * the validator that checks the model's citation of it must refuse exactly the
+ * same files. When they disagree, an honest citation of a slice the model was
+ * shown dies as if it were fabricated, and `droppedEvidence` accuses the model
+ * of inventing something it read. 8 MiB is far above any hand-written source
+ * file and far below anything that would hurt to decode, so a lockfile, a
+ * minified bundle or a bundled dataset still never enters a run.
+ */
+export const MAX_EVIDENCE_FILE_BYTES = 8 * 1024 * 1024
 
 const UTF8_BOM = '\uFEFF'
 /**
@@ -92,7 +105,24 @@ function toLines(text: string): string[] {
   return lines
 }
 
+/**
+ * Reads and canonicalizes one file, refusing anything over
+ * `MAX_EVIDENCE_FILE_BYTES`.
+ *
+ * The cap is the shared one, checked here so the slice reader shown to the model
+ * cannot expose a file that the evidence validator would later refuse: both
+ * sides read through this function. It is enforced on `stat` before the read, so
+ * the bytes of an oversized file are never buffered.
+ */
 export async function canonicalizeFile(absPath: string): Promise<CanonicalFile> {
+  const info = await stat(absPath)
+  if (info.size > MAX_EVIDENCE_FILE_BYTES) {
+    throw new Error(
+      `${absPath} is ${info.size} bytes, over the ` +
+        `${MAX_EVIDENCE_FILE_BYTES} byte read cap`,
+    )
+  }
+
   const buffer = await readFile(absPath)
   const hadBom =
     buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf

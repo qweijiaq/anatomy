@@ -36,19 +36,10 @@ import type {
   Scope,
   ValidationResult,
 } from '../contracts/types.js'
-import { canonicalizeFile } from './canonicalize.js'
+import { canonicalizeFile, MAX_EVIDENCE_FILE_BYTES } from './canonicalize.js'
 
 /** The unknown every downgraded point carries. Shared so it stays one string. */
 export const NO_VERIFIABLE_EVIDENCE = 'no verifiable evidence'
-
-/**
- * The largest file this module will read to check a snippet.
- *
- * Evidence is a quotation from source; no snippet is worth buffering a lockfile,
- * a bundle or an excluded binary into the run. 1 MiB is far above any file a
- * point can usefully cite and far below anything that would hurt to decode.
- */
-export const MAX_EVIDENCE_BYTES = 1024 * 1024
 
 const CONFIDENCES: readonly string[] = ['high', 'medium', 'low']
 
@@ -227,12 +218,14 @@ async function readVerified(
     }
   }
 
-  // Checked before the read, so the bytes of a huge file are never buffered.
-  if (size > MAX_EVIDENCE_BYTES) {
+  // The same cap the slice reader applies, checked before the read so the bytes
+  // of an oversized file are never buffered. Sharing the number is what keeps an
+  // honest citation of a shown slice from dying here as fabricated evidence.
+  if (size > MAX_EVIDENCE_FILE_BYTES) {
     return {
       failure:
         `evidence file ${relPath} is ${size} bytes, over the ` +
-        `${MAX_EVIDENCE_BYTES} byte read cap`,
+        `${MAX_EVIDENCE_FILE_BYTES} byte read cap`,
     }
   }
 

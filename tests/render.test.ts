@@ -371,6 +371,80 @@ describe('renderJson — the same data, machine-readable', () => {
   })
 })
 
+// --- a re-rendered run re-checks its citations ---------------------------
+
+/** The reason the report gives for withholding a point nobody can follow. */
+const WITHHELD =
+  '没有可核对的证据（path:startLine-endLine 或原文片段缺失）'
+
+/**
+ * A re-rendered run trusts nothing off disk: `ana report` prints evidence it
+ * never read from a file, so a stored or hand-edited citation must still name a
+ * path a reader could open and a line range a reader could navigate.
+ */
+function citedBy(path: string, startLine: number, endLine: number): ReportInput {
+  return reportOf({
+    points: [
+      pointOf({
+        id: 'p-cited',
+        theirs: {
+          summary: 's',
+          evidence: [evidenceOf({ path, startLine, endLine })],
+        },
+      }),
+    ],
+  })
+}
+
+describe('normalizeEvidence — a stored citation is checked before it is printed', () => {
+  it('still renders a citation that names a real relative path and range', () => {
+    const parsed = JSON.parse(renderJson(citedBy('src/a.ts', 12, 14)))
+
+    expect(parsed.points).toHaveLength(1)
+    expect(parsed.points[0].theirs.evidence[0]).toMatchObject({
+      path: 'src/a.ts',
+      startLine: 12,
+      endLine: 14,
+    })
+    expect(parsed.notRendered).toEqual([])
+  })
+
+  it('refuses an absolute path', () => {
+    const parsed = JSON.parse(renderJson(citedBy('/etc/passwd', 1, 1)))
+
+    expect(parsed.points).toEqual([])
+    expect(parsed.notRendered).toEqual([{ pointId: 'p-cited', reason: WITHHELD }])
+  })
+
+  it('refuses a path that climbs out of the tree with ..', () => {
+    const parsed = JSON.parse(renderJson(citedBy('src/../../secrets.ts', 12, 14)))
+
+    expect(parsed.points).toEqual([])
+    expect(parsed.notRendered).toEqual([{ pointId: 'p-cited', reason: WITHHELD }])
+  })
+
+  it('refuses line numbers that are non-positive or reversed', () => {
+    const ranges: Array<[number, number]> = [
+      [0, 1],
+      [-3, 12],
+      [12, 4],
+    ]
+    for (const [startLine, endLine] of ranges) {
+      const parsed = JSON.parse(renderJson(citedBy('src/a.ts', startLine, endLine)))
+
+      expect(parsed.points).toEqual([])
+      expect(parsed.notRendered).toEqual([{ pointId: 'p-cited', reason: WITHHELD }])
+    }
+  })
+
+  it('refuses a line number no source file could reach', () => {
+    const parsed = JSON.parse(renderJson(citedBy('src/a.ts', 1, 10_000_000)))
+
+    expect(parsed.points).toEqual([])
+    expect(parsed.notRendered).toEqual([{ pointId: 'p-cited', reason: WITHHELD }])
+  })
+})
+
 // --- accounting for every point ------------------------------------------
 
 /** Nothing declared but the malformed points: the tail has only them to report. */
