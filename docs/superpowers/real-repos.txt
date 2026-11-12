@@ -1,0 +1,37 @@
+# anatomy — scan 在三个真实仓库上的实际输出
+# 生成方式：node dist/cli.js scan https://github.com/<owner>/<repo> --top 3
+# 日期：2026-11-13  commit: 8afd0e8
+
+## sindresorhus/quick-lru
+run 62c3ec65279b  13 files, 2606 lines  nothing excluded
+index.js:26  3  custom-infra
+test.js:5  3  custom-infra
+
+## vercel/ms
+run 46b969482d16  8 files, 607 lines  excluded lockfile 1
+no candidates in 8 files
+
+## sindresorhus/yocto-queue
+run 15c61f56f8f1  13 files, 429 lines  nothing excluded
+index.js:15  3  custom-infra
+
+## sindresorhus/slugify
+run 8104c6291b24  13 files, 1665 lines  nothing excluded
+index.js:76  5  decision-trace
+index.js:35  3  decision-trace
+test.js:696  3  decision-trace
+
+## 读这份转录时要看到的
+
+四个仓库里三个有候选，`vercel/ms` 一个都没有。这是真实的召回缺口，不掩饰：
+
+`ms` 的设计决策是"用一张正则表把 `'2 days'` 这类字符串解析成毫秒"，代码全在 `index.js` 一个文件里，
+注释是 JSDoc 风格的 `@param`，既没有 `because`/`instead of` 这类决策语言（decision-trace 抓不到），
+函数名也不在"自研轮子"的词表里（custom-infra 抓不到），分支密度也没高到触发 complexity 阈值。
+
+补法有两条，都涉及品味判断，不该在验证通道故障时顺手改掉：
+1. 给 `decision-trace` 增加"密集的正则表 / 查表常量"识别；
+2. 让 `complexity` 对"短小但分支密集的纯函数"更敏感。
+
+两条都会提高假阳性，需要先在 gold 集上量一次再决定。`eval/gold/ms.json` 已经把该仓库的
+三个决策标好了，`npm run eval` 就是为此准备的。
