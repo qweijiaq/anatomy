@@ -65,23 +65,23 @@ describe('estimateTokens', () => {
 })
 
 describe('clampBudget', () => {
-  it('refuses to spend more than the model’s own context window', () => {
-    expect(clampBudget(DEFAULT_BUDGET_TOKENS, 'gpt-4')).toBe(getModelContextSize('gpt-4'))
-    expect(clampBudget(DEFAULT_BUDGET_TOKENS, 'gpt-4')).toBeLessThan(DEFAULT_BUDGET_TOKENS)
-    expect(clampBudget(500_000, 'gpt-3.5-turbo')).toBe(getModelContextSize('gpt-3.5-turbo'))
+  it('does not cut the budget to tokenx’s placeholder window', () => {
+    // `getModelContextSize('gpt-4o')` answers 8192 and an unknown name answers
+    // 4097, so clamping on it turned a 100k batch into a four-candidate batch.
+    // The batch limit is the caller's number; the real window is unknown here.
+    expect(clampBudget(DEFAULT_BUDGET_TOKENS, 'gpt-4o')).toBe(DEFAULT_BUDGET_TOKENS)
+    expect(clampBudget(500_000, 'gpt-3.5-turbo')).toBe(500_000)
   })
 
   it('keeps a limit that already fits', () => {
     expect(clampBudget(500, 'gpt-4')).toBe(500)
   })
 
-  it('uses tokenx’s conservative fallback for a model it does not know', () => {
-    // tokenx answers 4097 for an unknown name; clamping there is the safe
-    // direction, never the permissive one.
-    expect(clampBudget(1_000_000, 'some-future-model')).toBe(
-      getModelContextSize('some-future-model'),
-    )
-    expect(getModelContextSize('some-future-model')).toBeLessThan(1_000_000)
+  it('leaves an unknown model’s budget to the caller', () => {
+    // Tokenx answers 4097 for every name it does not know. Trusting that would
+    // make a run on a local or self-hosted model analyse almost nothing.
+    expect(clampBudget(1_000_000, 'some-future-model')).toBe(1_000_000)
+    expect(clampBudget(1_000_000)).toBe(1_000_000)
   })
 
   it('throws on a limit that is not finite, like the budget it guards', () => {
@@ -99,11 +99,9 @@ describe('DEFAULT_BUDGET_TOKENS', () => {
     expect(DEFAULT_BUDGET_TOKENS).toBeLessThan(128_000)
   })
 
-  it('is clamped down by every named model, so it can never be spent raw', () => {
+  it('survives every named model without shrinking', () => {
     for (const model of ['gpt-4', 'gpt-3.5-turbo', 'gpt-4-32k', 'gpt-4o', 'text-davinci-003']) {
-      expect(clampBudget(DEFAULT_BUDGET_TOKENS, model)).toBeLessThanOrEqual(
-        getModelContextSize(model),
-      )
+      expect(clampBudget(DEFAULT_BUDGET_TOKENS, model)).toBe(DEFAULT_BUDGET_TOKENS)
     }
   })
 })

@@ -18,7 +18,8 @@
  * so in the output, which is the difference between analysis and a guess.
  */
 
-import { approximateTokenSize, getModelContextSize } from 'tokenx'
+import { approximateTokenSize } from 'tokenx'
+
 
 import type { Candidate } from '../contracts/types.js'
 
@@ -66,14 +67,16 @@ export function estimateTokens(ctx: { system: string; user: string }): number {
 }
 
 /**
- * The most this batch may spend on `model`.
+ * The most this batch may spend.
  *
- * `getModelContextSize` knows a handful of windows (max 128k) and answers a
- * conservative 4097 for anything outside its table, which is the safe direction
- * for a budget: too small a batch, never an overflowing one.
+ * It deliberately does **not** consult `getModelContextSize`: tokenx's table
+ * answers 4097 for every model it does not know and 8192 for `gpt-4o`, so using
+ * it as a ceiling cut a 100k budget to 4k and silently discarded almost every
+ * candidate. A batch limit is the caller's number; the provider's real window is
+ * unknown here and guessing it is worse than trusting the caller.
  */
-export function clampBudget(limit: number, model: string): number {
-  return Math.min(finiteLimit(limit), getModelContextSize(model))
+export function clampBudget(limit: number, _model?: string): number {
+  return finiteLimit(limit)
 }
 
 /** A candidate paired with its position, so ties stay in input order. */
