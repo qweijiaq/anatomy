@@ -133,6 +133,8 @@ export type SignalKind =
   | 'evolution'
   | 'complexity'
   | 'test-spec'
+  /** A function named after a published algorithm: a design choice in itself. */
+  | 'algorithm'
 
 export type Candidate = {
   id: string

@@ -1,0 +1,27 @@
+{
+  "repo": "https://github.com/sindresorhus/merge-streams",
+  "ref": "948560b5183a67cdff03a3aaebd78c69bd194904",
+  "sha": "948560b5183a67cdff03a3aaebd78c69bd194904",
+  "provisional": false,
+  "note": "sha 是标注当日该仓库默认分支的真实提交；区间对着这个提交的源码逐行量过。",
+  "points": [
+    {
+      "path": "index.js",
+      "startLine": 40,
+      "endLine": 91,
+      "why": "继承 PassThroughStream 而不是自己实现可读流：合并的语义只需要「把多个可读流转发进一个」，其余流控交给 Node 内建实现"
+    },
+    {
+      "path": "index.js",
+      "startLine": 130,
+      "endLine": 167,
+      "why": "endWhenStreamsDone 用 ended/aborted 两个计数标记判断「全部结束」与「任一中断」，不需要为每个流挂一套监听清理逻辑"
+    },
+    {
+      "path": "index.js",
+      "startLine": 181,
+      "endLine": 204,
+      "why": "每个输入流的结束都走同一个 onInputStreamEnd，并在必要时 abort 整个合并流，错误与中断走同一条路径"
+    }
+  ]
+}

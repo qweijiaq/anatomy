@@ -1,0 +1,27 @@
+{
+  "repo": "https://github.com/sindresorhus/p-queue",
+  "ref": "7f272ab5ff2254c0dc2537b7977e88ede1cd55e8",
+  "sha": "7f272ab5ff2254c0dc2537b7977e88ede1cd55e8",
+  "provisional": false,
+  "note": "sha 是标注当日该仓库默认分支的真实提交；区间对着这个提交的源码逐行量过。",
+  "points": [
+    {
+      "path": "source/priority-queue.ts",
+      "startLine": 13,
+      "endLine": 58,
+      "why": "出队不 splice 数组头，而是把 #head 往后推并把槽位置空，让重复出队摊销到 O(1)，同时释放被出队任务持有的引用"
+    },
+    {
+      "path": "source/priority-queue.ts",
+      "startLine": 20,
+      "endLine": 27,
+      "why": "#compact 只在已消费前缀超过阈值且超过数组一半时才真正搬移，把「清理」与「出队」解耦，避免每次出队都付线性代价"
+    },
+    {
+      "path": "source/lower-bound.ts",
+      "startLine": 1,
+      "endLine": 20,
+      "why": "入队顺序靠二分查找 lower-bound 定位插入点，而不是线性扫描已排序队列"
+    }
+  ]
+}

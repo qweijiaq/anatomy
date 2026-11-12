@@ -1,0 +1,27 @@
+{
+  "repo": "https://github.com/sindresorhus/p-debounce",
+  "ref": "7fd1617e1ee9dac490fb659f59bd1e9f04d92c47",
+  "sha": "7fd1617e1ee9dac490fb659f59bd1e9f04d92c47",
+  "provisional": false,
+  "note": "sha 是标注当日该仓库默认分支的真实提交；区间对着这个提交的源码逐行量过。",
+  "points": [
+    {
+      "path": "index.js",
+      "startLine": 1,
+      "endLine": 146,
+      "why": "整个库是一个闭包工厂：每次调用把 promise 收集进队列，等待期结束后用一次 Promise.allSettled 统一结算"
+    },
+    {
+      "path": "index.js",
+      "startLine": 1,
+      "endLine": 40,
+      "why": "before/after 两个选项把「首调用是否立即执行」与「末调用结果如何返回」做成选项，而不是两个独立函数"
+    },
+    {
+      "path": "index.js",
+      "startLine": 100,
+      "endLine": 146,
+      "why": "返回的调用函数同时暴露 abort 与 pending 两个状态入口，调用方不必自己维护「是否还在等待」"
+    }
+  ]
+}

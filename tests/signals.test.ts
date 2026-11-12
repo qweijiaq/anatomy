@@ -98,6 +98,9 @@ describe('SIGNAL_WEIGHTS', () => {
       abstraction: 2,
       evolution: 1,
       'test-spec': 1,
+      // Added after the plan closed: a function named after a standard algorithm
+      // is a design choice, and the wheel vocabulary cannot see it.
+      algorithm: 2,
     })
   })
 })
@@ -126,7 +129,9 @@ describe('decision-trace', () => {
     const candidates = scoreFile(fileOf(text), emptyIndex())
     expect(candidates).toHaveLength(1)
     expect(candidates[0]).toMatchObject({ kind: 'decision-trace', line: 3 })
-    expect(candidates[0]!.matched).toEqual(['decision-trace:tradeoff'])
+    // The comment explains `const b = 2` on the next declaration; the point of the
+    // candidate is still the comment, so both reasons are reported.
+    expect(candidates[0]!.matched).toContain('decision-trace:tradeoff')
   })
 
   it('understands the Chinese equivalents', () => {
@@ -674,6 +679,54 @@ describe('structural patterns that carry no keywords', () => {
     const file = fileOf(['export function run(items) {', '  return items.map((item) => item + 1)', '}'].join('\n'), 'src/a.js')
     const words = scoreFile(file, emptyIndex()).flatMap((candidate) => candidate.matched)
     expect(words).not.toContain('abstraction:returns-a-function')
+  })
+})
+
+describe('a decision comment that explains the next declaration', () => {
+  it('keeps the citation on the comment but names the declaration it explains', () => {
+    // `p-queue`'s "dequeued slots are left before #head" explains `#head`, not the
+    // file: the reader has to understand the line below the comment.
+    const file = fileOf(
+      [
+        'class PriorityQueue {',
+        '  // Dequeued slots are left before #head because compaction is amortized.',
+        '  #head = 0',
+        '}',
+      ].join('\n'),
+      'src/queue.ts',
+    )
+    const words = scoreFile(file, emptyIndex()).flatMap((candidate) => candidate.matched)
+    expect(words).toContain('decision-trace:explains-the-next-declaration')
+  })
+
+  it('does not fire when the comment explains nothing declared below it', () => {
+    // `total` is a plain value, but it *is* a declaration, so this one fires; the
+    // case that must not fire is a comment with nothing declared at all beneath it.
+    const file = fileOf(
+      ['// because callers retry, this stays idempotent', '', 'run()', 'run()'].join('\n'),
+      'src/a.ts',
+    )
+    const words = scoreFile(file, emptyIndex()).flatMap((candidate) => candidate.matched)
+    expect(words).not.toContain('decision-trace:explains-the-next-declaration')
+  })
+})
+
+describe('a function named after a standard algorithm', () => {
+  it('scores lowerBound as a design choice', () => {
+    // The name says "I implemented the standard binary search", which is a decision
+    // the wheel vocabulary cannot see.
+    const file = fileOf(
+      ['export default function lowerBound<T>(array: readonly T[], value: T): number {', '  return 0', '}'].join('\n'),
+      'src/lower-bound.ts',
+    )
+    const kinds = scoreFile(file, emptyIndex()).map((candidate) => candidate.kind)
+    expect(kinds).toContain('algorithm')
+  })
+
+  it('does not fire on an ordinary name that merely contains a substring', () => {
+    const file = fileOf(['export function rebounded(value: number) {', '  return value', '}'].join('\n'), 'src/a.ts')
+    const kinds = scoreFile(file, emptyIndex()).map((candidate) => candidate.kind)
+    expect(kinds).not.toContain('algorithm')
   })
 })
 

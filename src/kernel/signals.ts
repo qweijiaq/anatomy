@@ -46,6 +46,7 @@ export const SIGNAL_WEIGHTS: Record<SignalKind, number> = {
   abstraction: 2,
   evolution: 1,
   'test-spec': 1,
+  algorithm: 2,
 }
 
 /**
@@ -859,6 +860,47 @@ const RETURNS_A_FUNCTION = /\breturn\s+(?:async\s+)?(?:function\b|\([^)]*\)\s*=>
 /** Go's `switch x := v.(type)` — a type algebra written as a table. */
 const TYPE_SWITCH = /\bswitch\s+\w+\s*:?=\s*[\w.]+\s*\.\s*\(type\)/g
 
+/** The name a declaration line introduces, for a comment that explains it. */
+const DECLARED_NAME =
+  /^[ \t]*(?:export[ \t]+)?(?:default[ \t]+)?(?:readonly[ \t]+)?(?:public|private|protected|static)?[ \t]*(?:function|class|const|let|var|def|fn|func)[ \t]+([A-Za-z_$][\w$]*)/
+
+const ALGORITHMS = ['bound', 'bsearch', 'dijkstra', 'toposort', 'levenshtein', 'quicksort', 'mergesort', 'memoize']
+
+/**
+ * Whether a declaration name ends in a known algorithm at a word boundary.
+ *
+ * `lowerBound`, `lower_bound` and `bsearch` say "I implemented the standard
+ * algorithm". `rebounded` does not: `bound` there is inside a word, and scoring it
+ * would turn a common English verb into a design claim. The comparison is
+ * case-insensitive because both spellings mean the same thing; what decides is the
+ * character *before* the suffix — a separator, a capital, or the start of the name.
+ */
+function camelEndsInAlgorithm(name: string): boolean {
+  const lowered = name.toLowerCase()
+  for (const algorithm of ALGORITHMS) {
+    if (lowered === algorithm) return true
+    if (!lowered.endsWith(algorithm)) continue
+    const head = name.slice(0, name.length - algorithm.length)
+    const last = head.charAt(head.length - 1)
+    // `lowerBound` → `rBound` (capital), `lower_bound` → `_bound`; `rebounded` → `re`.
+    const beforeSuffix = head.charAt(head.length - 1)
+    const markedBoundary = /[A-Z_-]/.test(beforeSuffix) || /[-_]$/.test(beforeSuffix)
+    if (markedBoundary) return true
+    // `lowerBound`: the capital that marks the boundary is the first letter of the
+    // suffix itself.
+    if (name.charAt(name.length - algorithm.length) === algorithm.charAt(0).toUpperCase()) return true
+    void last
+  }
+  return false
+}
+
+
+/** A declaration named after a standard algorithm. */
+const ALGORITHM_NAME =
+  /(?:function|class|const|let|var|def|fn|func)[ \t]+([A-Za-z_$][\w$]*)/g
+
+/** A name that ends in a known algorithm, at a camelCase or kebab boundary. */
+
 const OVERLOAD_SIGNATURE = /(?:^|[^\w$.])(?:export[ \t]+)?(?:declare[ \t]+)?function[ \t]+([A-Za-z_$][\w$]*)[ \t]*\([^)]*\)[ \t]*:[^{\n]*$/gm
 
 const CLASS_DECLARATION = /(?:^|[^\w$.])class[ \t]+([A-Za-z_$][\w$]*)/g
@@ -1127,6 +1169,45 @@ function customInfraHits(context: FileContext): Hit[] {
   if (!context.isTestFile) {
     for (const match of matches(code, SNAPSHOT_BEFORE_ITERATE)) {
       hits.push(hit('custom-infra', lineAt(context.newlines, match.index), 'snapshot-before-dispatch'))
+    }
+  }
+
+  // A comment is not a design, but the *line* a design comments on can be. When a
+  // decision comment sits directly above a declaration, the decision belongs to that
+  // declaration: `p-queue`'s "dequeued slots are left before #head" explains
+  // `#head`, not the file. Splitting the difference this way keeps the candidate on
+  // the code the reader has to understand.
+  // A function named after a published algorithm is a design choice in itself —
+  // `lowerBound` implements the standard binary search and says so in the name. The
+  // wheel vocabulary is about reimplementing *infrastructure*; an algorithm is a
+  // different kind of decision, so it gets its own reason.
+  if (!context.isTestFile) {
+    for (const match of matches(code, ALGORITHM_NAME)) {
+      const name = match[1]
+      // `lowerBound` is the standard algorithm; `rebounded` merely contains it.
+      if (name !== undefined && camelEndsInAlgorithm(name)) {
+        hits.push(hit('algorithm', lineAt(context.newlines, match.index), 'named-algorithm'))
+      }
+    }
+  }
+
+  if (!context.isTestFile) {
+    for (const comment of context.scan.comments) {
+      if (!DECISION_PATTERNS.some((pattern) => pattern.re.test(comment.text))) continue
+      // Look a couple of lines past the comment, one line at a time: a declaration
+      // is a single line, and joining them would let a regex anchor run across.
+      const from = comment.endLine
+      const to = Math.min(from + 2, context.lines.length)
+      let declared: RegExpExecArray | null = null
+      for (let index = from; index < to; index += 1) {
+        declared = DECLARED_NAME.exec(context.lines[index] ?? '')
+        if (declared !== null) break
+      }
+      // `#head = 0` is a field, not a declaration with a keyword: the comment still
+      // explains it, so a bare assignment is accepted too.
+      const isDeclaration = declared !== null || /^[ \t]*[A-Za-z_$#][\w$#]*[ \t]*[:=]/.test(context.lines[from] ?? '')
+      if (!isDeclaration) continue
+      hits.push(hit('decision-trace', comment.line, 'explains-the-next-declaration'))
     }
   }
 
