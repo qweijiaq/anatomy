@@ -14,16 +14,45 @@
  * "is this snippet verbatim" check downstream.
  */
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 
 import { runAnalyze } from '../src/commands/analyze.js'
-import type { LearningPoint } from '../src/contracts/types.js'
-import type { ModelClient, ModelRequest, ModelResponse } from '../src/writing/client.js'
+import type { LearningPoint, RunManifest } from '../src/contracts/types.js'
+import type { Run } from '../src/store/runs.js'
+import {
+  MissingCredentialsError,
+  type ModelClient,
+  type ModelRequest,
+  type ModelResponse,
+} from '../src/writing/client.js'
+
+/**
+ * Lets one test make the end-of-run cleanup fail, which is the only way to reach
+ * a cleanup failure without a filesystem that refuses `rm`.
+ *
+ * Only the analyze-level call is refused: the scan's own call carries `keepTree`,
+ * is a no-op, and must keep working, so the default factory delegates to the real
+ * `closeRun` for everything else.
+ */
+const closeControl = vi.hoisted(() => ({ fail: false }))
+
+vi.mock('../src/store/runs.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/store/runs.js')>()
+  return {
+    ...actual,
+    async closeRun(run: Run, opts: { keepTree?: boolean } = {}): Promise<void> {
+      if (closeControl.fail && opts.keepTree !== true) {
+        throw Object.assign(new Error('EPERM: operation not permitted, rm tree'), { code: 'EPERM' })
+      }
+      return actual.closeRun(run, opts)
+    },
+  }
+})
 
 // --- fixture repository ---------------------------------------------------
 
@@ -31,6 +60,10 @@ const created: string[] = []
 
 afterAll(() => {
   for (const dir of created) rmSync(dir, { recursive: true, force: true })
+})
+
+afterEach(() => {
+  closeControl.fail = false
 })
 
 /** A scratch directory that is removed when the file finishes. */
@@ -238,6 +271,19 @@ async function artifact<T>(baseDir: string, runId: string, name: string): Promis
   return JSON.parse(await readFile(path.join(baseDir, runId, `${name}.json`), 'utf8')) as T
 }
 
+/**
+ * A client that dies on the first request. `MissingCredentialsError` is the one
+ * failure the judge does not turn into a skipped candidate, so it is the only
+ * way to make the whole run throw without a scripted reply.
+ */
+function failingClient(error: Error): ModelClient {
+  return {
+    async complete(): Promise<ModelResponse> {
+      throw error
+    },
+  }
+}
+
 const runPath = (baseDir: string, runId: string, name: string): string =>
   path.join(baseDir, runId, name)
 
@@ -350,5 +396,98 @@ describe('runAnalyze', () => {
     // The switch is a prompt switch: the judge and the synthesiser asked in English.
     expect(client.calls[0]?.system).toContain('You are the reader')
     expect(client.calls.some((call) => call.system.includes('synthesiser'))).toBe(true)
+  })
+
+  // --- failures -------------------------------------------------------------
+
+  it('keeps the stage failure when the cleanup also fails', async () => {
+    const baseDir = temporaryDir('ana-analyze-out-')
+    const repo = fixtureRepo()
+    closeControl.fail = true
+
+    const failure = await runAnalyze(repo, {
+      baseDir,
+      client: failingClient(new MissingCredentialsError('the judge exploded')),
+    }).catch((error: unknown) => error)
+
+    // The reason the run died stays the message; the cleanup failure is attached,
+    // not substituted for it, because EPERM says nothing about the real cause.
+    expect(failure).toBeInstanceOf(Error)
+    expect((failure as Error).message).toContain('the judge exploded')
+    const cause = (failure as Error).cause as Error | undefined
+    expect(cause?.message).toContain('EPERM')
+  })
+
+  it('leaves no extracted tree behind when the scan itself fails', async () => {
+    const baseDir = temporaryDir('ana-analyze-out-')
+    const repo = fixtureRepo()
+
+    await expect(
+      runAnalyze(repo, { baseDir, subpath: 'no-such-directory', client: fakeClient() }),
+    ).rejects.toThrow(/no-such-directory/)
+
+    // A run that never produced anything is a run directory with a manifest and
+    // no reason to hold a copy of the repository.
+    const runIds = readdirSync(baseDir)
+    expect(runIds.length).toBeGreaterThan(0)
+    for (const runId of runIds) {
+      expect(existsSync(path.join(baseDir, runId, 'tree')), runId).toBe(false)
+    }
+  })
+
+  it('does not persist a credential the provider echoed back', async () => {
+    const baseDir = temporaryDir('ana-analyze-out-')
+    const repo = fixtureRepo()
+    const inner = fakeClient()
+    let first = true
+    const echoing: ModelClient = {
+      async complete(request: ModelRequest): Promise<ModelResponse> {
+        if (first) {
+          first = false
+          throw new Error('provider echoed GET /v1/messages?api_key=sk-abc123')
+        }
+        return inner.complete(request)
+      },
+    }
+
+    const result = await runAnalyze(repo, { baseDir, client: echoing })
+
+    const raw = await readFile(runPath(baseDir, result.runId, 'skipped.json'), 'utf8')
+    expect(raw).not.toContain('sk-abc123')
+    // Redacted, not deleted: the entry still says what went wrong.
+    expect(raw).toContain('provider echoed')
+    expect(await readFile(result.reportPath, 'utf8')).not.toContain('sk-abc123')
+  })
+
+  it('marks the run complete only once the report is on disk', async () => {
+    const baseDir = temporaryDir('ana-analyze-out-')
+    const repo = fixtureRepo()
+
+    const result = await runAnalyze(repo, { baseDir, client: fakeClient() })
+
+    const manifest = await artifact<RunManifest>(baseDir, result.runId, 'manifest')
+    expect(manifest.status).toBe('complete')
+    expect(typeof manifest.completedAt).toBe('string')
+    expect(existsSync(runPath(baseDir, result.runId, 'report.md'))).toBe(true)
+  })
+
+  it('leaves a failed run marked failed, with no completion time', async () => {
+    const baseDir = temporaryDir('ana-analyze-out-')
+    const repo = fixtureRepo()
+
+    await expect(
+      runAnalyze(repo, {
+        baseDir,
+        client: failingClient(new MissingCredentialsError('no key for this run')),
+      }),
+    ).rejects.toThrow(/no key for this run/)
+
+    const runIds = readdirSync(baseDir)
+    expect(runIds.length).toBeGreaterThan(0)
+    for (const runId of runIds) {
+      const manifest = await artifact<RunManifest>(baseDir, runId, 'manifest')
+      expect(manifest.status).toBe('failed')
+      expect(manifest.completedAt).toBeUndefined()
+    }
   })
 })

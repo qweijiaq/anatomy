@@ -80,6 +80,15 @@ export type PipelineOptions = {
    * an archive means downloading it again.
    */
   keepTree?: boolean
+  /**
+   * Called with the run as soon as its directory exists, before any stage runs.
+   *
+   * `keepTree` makes the caller the owner of the extracted tree, and this call
+   * can throw before it returns the run: without the handle early, a caller that
+   * asked to keep the tree has no way to close a run it caused to be opened, and
+   * one failed attempt leaves one copy of the repository behind.
+   */
+  onRun?: (run: Run) => void
   /** Injected acquisition dependencies, so tests never touch the network. */
   deps?: AcquireDeps
 }
@@ -164,6 +173,9 @@ export async function scanRepo(
       status: 'failed',
     }
     const run = await openRun(baseDir, manifest)
+    // Hand the run out before any stage can throw: from here on the tree exists
+    // and somebody has to be able to delete it.
+    opts.onRun?.(run)
     // What this scan has already replaced in the directory. A failure part-way
     // through leaves a directory that is part this scan and part the previous
     // one, and no manifest can honestly describe that. See `settleFailure`.

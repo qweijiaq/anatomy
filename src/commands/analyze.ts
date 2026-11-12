@@ -29,7 +29,13 @@
 import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
-import type { Candidate, LearningPoint, ReportInput, ValidationResult } from '../contracts/types.js'
+import type {
+  Candidate,
+  LearningPoint,
+  ReportInput,
+  RunManifest,
+  ValidationResult,
+} from '../contracts/types.js'
 import { DEFAULT_BUDGET_TOKENS } from '../contracts/types.js'
 import type { AcquireDeps } from '../kernel/acquire.js'
 import { clampBudget, fitCandidates } from '../kernel/budget.js'
@@ -123,6 +129,52 @@ function candidateContext(candidate: Candidate, lang: Lang): { system: string; u
   return { system: prompt.system, user: `${prompt.user}\n${SLICE_PADDING}` }
 }
 
+/** What a redacted fragment reads as: it was there, and it is not legible. */
+const REDACTED = '[redacted]'
+
+/**
+ * Longest `reason` persisted. A provider's error text can run to a page, and both
+ * `skipped.json` and the report tail carry one line per candidate.
+ */
+const MAX_REASON_CHARS = 200
+
+/**
+ * Fragments that make a `reason` a credential rather than an explanation.
+ *
+ * The judge is handed provider error text, and a provider that echoes the failed
+ * request puts the key in it — in a query string, in an echoed header, or bare.
+ * The reasons are written to `skipped.json` and printed in the report, so they are
+ * the one place a key would end up on disk. The patterns err towards redacting:
+ * an unreadable reason is recoverable, a leaked key is not.
+ */
+const CREDENTIALS: ReadonlyArray<readonly [RegExp, string]> = [
+  // A prefixed key, however the provider abbreviates it.
+  [/\bsk-[A-Za-z0-9_.-]{4,}/gi, REDACTED],
+  // `authorization: Bearer …`, `api_key=…`, `key: "…"`: the keyword stays, the value goes.
+  [
+    /\b(authorization|proxy-authorization|api[_-]?key|access[_-]?token|client[_-]?secret|password|bearer|key)\b(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;]+)/gi,
+    `$1$2${REDACTED}`,
+  ],
+  // A raw token with no prefix: a long unbroken run of key characters. Paths and
+  // prose are excluded by the alphabet, so a filename survives.
+  [/[A-Za-z0-9_+=-]{32,}/g, REDACTED],
+]
+
+/**
+ * A `reason` in the shape it is persisted: credentials dropped, length capped.
+ *
+ * The redaction happens here because this is where a reason stops being diagnostic
+ * text for the caller and becomes a file in a run directory.
+ */
+function redactReason(reason: string): string {
+  let text = reason
+  for (const [pattern, replacement] of CREDENTIALS) text = text.replace(pattern, replacement)
+  const collapsed = text.replace(/\s+/g, ' ').trim()
+  return collapsed.length <= MAX_REASON_CHARS
+    ? collapsed
+    : `${collapsed.slice(0, MAX_REASON_CHARS)}…`
+}
+
 /** `path:line` for a candidate, the citation form the rest of the product uses. */
 function locationOf(candidate: { path: string; line: number }): string {
   return `${candidate.path}:${candidate.line}`
@@ -178,6 +230,72 @@ async function persist(
 }
 
 /**
+ * Rewrites the manifest's status, keeping every field the scan recorded.
+ *
+ * The manifest is the only thing that says whether the files beside it belong to
+ * one finished analysis, so it is stamped twice: `failed` as soon as this stage
+ * starts — the scan completed, this run has not — and `complete` only after the
+ * last artifact has landed. Without the second stamp a caller has to probe for
+ * `report.md` to tell a finished run from one that is still judging; without the
+ * first, a run that dies in the middle leaves the scan's `complete` behind and a
+ * directory with no report reads as done.
+ */
+async function stampStatus(run: Run, status: RunManifest['status']): Promise<void> {
+  const manifest = await run.read<RunManifest>('manifest')
+  if (manifest === null) return
+  const next: RunManifest = { ...manifest, status }
+  if (status === 'complete') next.completedAt = new Date().toISOString()
+  else delete next.completedAt
+  await run.write('manifest', next)
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * Ends the run, returning the failure instead of throwing it.
+ *
+ * Returns rather than throws because a stage error may already be in flight, and a
+ * `finally` that throws replaces it: the first error is the one that explains the
+ * run, and losing it is how a failure becomes undiagnosable. `run` is nullable
+ * because a run that never opened has nothing to close.
+ */
+async function closeSafely(run: Run | null): Promise<Error | null> {
+  if (run === null) return null
+  try {
+    await closeRun(run)
+    return null
+  } catch (error) {
+    return new Error(
+      `anatomy: could not clean up run ${path.basename(run.dir)}: ${messageOf(error)}`,
+      { cause: error },
+    )
+  }
+}
+
+/**
+ * The error that ended the run, with the cleanup failure attached.
+ *
+ * The original stays the thrown value — same message, same stack — because that is
+ * the error a reader can act on; the cleanup failure is attached as its `cause`.
+ * When the original already carries a cause (a wrapped stage error), both are
+ * aggregated instead of one cause being overwritten.
+ */
+function withCleanupFailure(failure: unknown, cleanup: Error): Error {
+  const original = failure instanceof Error ? failure : new Error(String(failure))
+  if ((original as { cause?: unknown }).cause === undefined) {
+    Object.defineProperty(original, 'cause', { value: cleanup, configurable: true, writable: true })
+    return original
+  }
+  return new AggregateError(
+    [original, cleanup],
+    `${original.message} (and the run directory was left behind: ${cleanup.message})`,
+    { cause: original },
+  )
+}
+
+/**
  * Analyses `input` end to end and returns the run id and the page.
  *
  * A caller-supplied `client` overrides the default one entirely — that is how the
@@ -191,17 +309,30 @@ export async function runAnalyze(
   const lang: Lang = opts.lang ?? 'zh'
   const model = opts.model ?? DEFAULT_MODEL
 
-  const scanned = await scanRepo(input, {
-    subpath: opts.subpath,
-    ref: opts.ref,
-    topK: opts.top,
-    baseDir: opts.baseDir,
-    // The judge reads the tree; `closeRun` deletes it once the report is written.
-    keepTree: true,
-    deps: opts.deps,
-  })
+  // Held outside the `try` because the scan can throw *after* it opened the run
+  // and extracted the tree, and it never returns a handle when it does. Without
+  // one, every failed run leaves a copy of the repository behind.
+  let run: Run | null = null
+  let failure: unknown
 
   try {
+    const scanned = await scanRepo(input, {
+      subpath: opts.subpath,
+      ref: opts.ref,
+      topK: opts.top,
+      baseDir: opts.baseDir,
+      // The judge reads the tree; `closeRun` deletes it once the report is written.
+      keepTree: true,
+      deps: opts.deps,
+      onRun: (opened) => {
+        run = opened
+      },
+    })
+    run = scanned.run
+
+    // The scan called its own artifacts complete; this run also owes the report.
+    await stampStatus(run, 'failed')
+
     const client = opts.client ?? createModelClient({ model, apiKey: opts.apiKey })
     const budget = clampBudget(opts.budget ?? DEFAULT_BUDGET_TOKENS, model)
     const fitted = fitCandidates(
@@ -238,6 +369,9 @@ export async function runAnalyze(
       lang,
     })
 
+    // Redacted here rather than at each sink: this array is `skipped.json` and the
+    // report tail at once, and a reason that reached one of them unredacted would
+    // have reached the disk.
     const skipped: AnalyzeSkip[] = [
       ...cut.map((candidate) => ({
         path: candidate.path,
@@ -250,7 +384,7 @@ export async function runAnalyze(
         reason: entry.reason,
       })),
       { path: '', line: 0, reason: synthesisGap(synthesis, points.length) },
-    ]
+    ].map((entry) => ({ ...entry, reason: redactReason(entry.reason) }))
 
     const report: ReportInput = {
       problem: synthesis.problem,
@@ -271,9 +405,19 @@ export async function runAnalyze(
       skipped,
     )
 
+    // Everything the run owes the reader is on disk, including the page itself.
+    await stampStatus(run, 'complete')
+
     return { runId: scanned.runId, reportPath }
+  } catch (error) {
+    failure = error
+    throw error
   } finally {
     // The artifacts are the run; the tree is only how the judge reached them.
-    await closeRun(scanned.run)
+    const cleanup = await closeSafely(run)
+    if (cleanup !== null) {
+      if (failure === undefined) throw cleanup
+      throw withCleanupFailure(failure, cleanup)
+    }
   }
 }
