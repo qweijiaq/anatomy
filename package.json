@@ -15,7 +15,8 @@
     "eval": "node --experimental-strip-types eval/run.ts",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
     "verify": "bash scripts/verify.sh",
-    "eval:recall": "node --experimental-strip-types eval/recall-lite.ts"
+    "eval:recall": "node --experimental-strip-types eval/recall-lite.ts",
+    "eval:quality": "node --experimental-strip-types eval/sample-points.ts"
   },
   "dependencies": {
     "tokenx": "^0.4.1"
