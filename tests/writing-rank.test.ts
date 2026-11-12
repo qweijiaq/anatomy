@@ -144,15 +144,37 @@ describe('rankPoints — score comes from the candidate, not the model', () => {
     expect(ranked[0]?.theirs.evidence.length).toBe(1)
   })
 
-  it('treats a reversed range as no evidence', () => {
-    const reversed = pointOf('reversed', 'architecture', [evidenceOn('src/a.ts', 20, 12)])
+  it('does not borrow an affinity score from a file the point never cites', () => {
+    const borrowed = pointOf('borrowed', 'architecture', [evidenceOn('src/ghost.ts', 3)])
+    const real = pointOf('real', 'testing', [evidenceOn('src/t.ts', 4)])
 
     const ranked = rankPoints(
-      [reversed],
-      [candidateOf('sig-a', 'src/a.ts', 20, 'abstraction', 0.9)],
+      [borrowed, real],
+      [
+        candidateOf('sig-z', 'src/z.ts', 8, 'abstraction', 0.9),
+        candidateOf('sig-t', 'src/t.ts', 4, 'test-spec', 0.8),
+        candidateOf('sig-l', 'src/l.ts', 2, 'custom-infra', 0.1),
+      ],
     )
 
-    expect(ids(ranked)).toEqual(['reversed'])
+    // `borrowed` cites src/ghost.ts, which has no candidate; repo-wide affinity
+    // would hand it 0.9 from src/z.ts and put it above `real`, whose own signal
+    // is 0.8. Its evidence paths carry no signal, so it gets the minimum.
+    expect(ids(ranked)).toEqual(['real', 'borrowed'])
+  })
+
+  it('treats a reversed range as no evidence, even against a verifiable point', () => {
+    const reversed = pointOf('reversed', 'architecture', [evidenceOn('src/a.ts', 20, 12)])
+    const honest = pointOf('honest', 'testing', [evidenceOn('src/t.ts', 4)])
+    const candidates = [
+      candidateOf('sig-a', 'src/a.ts', 20, 'abstraction', 0.9),
+      candidateOf('sig-t', 'src/t.ts', 4, 'test-spec', 0.1),
+    ]
+
+    // The reversed point both cites src/a.ts and has an affine kind, so it can
+    // score 0.9 from that candidate; verifiability is what must sink it.
+    expect(ids(rankPoints([reversed, honest], candidates))).toEqual(['honest', 'reversed'])
+    expect(ids(rankPoints([reversed], candidates))).toEqual(['reversed'])
   })
 })
 
@@ -237,5 +259,28 @@ describe('rankPoints — pure and tolerant', () => {
 
     const broken = { ...pointOf('broken', 'tooling', []), theirs: undefined } as unknown as LearningPoint
     expect(rankPoints([broken], [])).toHaveLength(1)
+  })
+
+  it('skips non-object entries instead of throwing', () => {
+    const good = pointOf('good', 'architecture', [evidenceOn('src/a.ts', 12)])
+    const mixed = [null, undefined, good] as unknown as LearningPoint[]
+
+    expect(ids(rankPoints(mixed, [candidateOf('sig-a', 'src/a.ts', 12, 'abstraction', 0.5)]))).toEqual([
+      'good',
+    ])
+  })
+
+  it('skips a null evidence element instead of throwing', () => {
+    const holed = pointOf('holed', 'architecture', [
+      null as unknown as Evidence,
+      evidenceOn('src/a.ts', 12),
+    ])
+
+    const ranked = rankPoints(
+      [holed],
+      [candidateOf('sig-a', 'src/a.ts', 12, 'abstraction', 0.5)],
+    )
+
+    expect(ids(ranked)).toEqual(['holed'])
   })
 })

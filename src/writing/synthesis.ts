@@ -22,13 +22,23 @@
 
 import type { Profile, StructureIndex } from '../contracts/types.js'
 import type { ModelClient, ModelRequest } from './client.js'
-import { MissingCredentialsError, ModelRequestError } from './client.js'
+import { MissingCredentialsError, ModelReplyError, ModelRequestError } from './client.js'
 import type { Lang } from './prompts/zh.js'
 
 /** How many modules the summary names as "most imported". */
 export const TOP_IMPORTED_LIMIT = 5
 /** One first attempt plus one repair. A third wrong reply is not a prompt bug. */
 const MAX_ATTEMPTS = 2
+/**
+ * What the repair prompt says about a reply we could not read.
+ *
+ * Fixed on purpose: `ModelReplyError` carries the model's own truncated reply
+ * and V8's `JSON.parse` messages quote the body, so repeating the error text
+ * would feed untrusted output back in as instructions. The prompt gets our own
+ * words or nothing.
+ */
+const UNUSABLE_REPLY = 'the reply could not be read as JSON'
+
 /** Fewer surviving titles than this means the reply did not do the task. */
 const MIN_TOP_FIVE = 3
 const MAX_TOP_FIVE = 5
@@ -243,22 +253,27 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
+/**
+ * The titles to work with, deduplicated on their trimmed form.
+ *
+ * `prompt` is what the model may copy, in the caller's preferred order.
+ * `canonical` maps that trimmed form back to the string the caller passed, so
+ * a returned title is the caller's own string and not our copy of it.
+ */
+type TitleSet = { prompt: string[]; canonical: Map<string, string> }
 
-function uniqueTitles(titles: unknown): string[] {
+function uniqueTitles(titles: unknown): TitleSet {
   const list = Array.isArray(titles) ? titles : []
   const seen = new Set<string>()
-  const kept: string[] = []
+  const canonical = new Map<string, string>()
   for (const item of list) {
     if (typeof item !== 'string') continue
-    const title = item.trim()
-    if (title === '' || seen.has(title)) continue
-    seen.add(title)
-    kept.push(title)
+    const key = item.trim()
+    if (key === '' || seen.has(key)) continue
+    seen.add(key)
+    canonical.set(key, item)
   }
-  return kept
+  return { prompt: [...seen], canonical }
 }
 
 /**
@@ -268,7 +283,7 @@ function uniqueTitles(titles: unknown): string[] {
  * dropped rather than repaired: the surviving items are returned as they were
  * given, never as the model spelled them.
  */
-function parseReply(raw: unknown, titles: string[]): Parsed {
+function parseReply(raw: unknown, titles: string[], canonical: Map<string, string>): Parsed {
   let value = raw
   if (typeof value === 'string') {
     try {
@@ -290,13 +305,15 @@ function parseReply(raw: unknown, titles: string[]): Parsed {
   }
 
   const known = new Set(titles)
+  const picked = new Set<string>()
   const chosen: string[] = []
   for (const item of topFive) {
     // Whitespace is the one difference worth forgiving: a model that indents a
     // title copied it, and the copy is replaced by the caller's exact string.
-    const title = item.trim()
-    if (!known.has(title) || chosen.includes(title)) continue
-    chosen.push(title)
+    const key = item.trim()
+    if (!known.has(key) || picked.has(key)) continue
+    picked.add(key)
+    chosen.push(canonical.get(key) ?? key)
     if (chosen.length === MAX_TOP_FIVE) break
   }
 
@@ -344,11 +361,12 @@ function fallbackProblem(
  */
 export async function synthesize(deps: SynthesisDeps): Promise<Synthesis> {
   const lang: Lang = deps.lang ?? 'zh'
-  const titles = uniqueTitles(deps.titles)
+  const { prompt: titles, canonical } = uniqueTitles(deps.titles)
   const summary = summarizeStructure(deps.structure)
+  const original = (title: string): string => canonical.get(title) ?? title
   const fallback = (): Synthesis => ({
     problem: fallbackProblem(lang, deps.profile, summary),
-    topFive: titles.slice(0, MAX_TOP_FIVE),
+    topFive: titles.slice(0, MAX_TOP_FIVE).map(original),
   })
 
   // Nothing to rank: no call, no tokens, and a summary that is still true.
@@ -377,13 +395,15 @@ export async function synthesize(deps: SynthesisDeps): Promise<Synthesis> {
       if (error instanceof MissingCredentialsError) throw error
       // The client already spent its retry budget on a 429/5xx/network failure.
       if (error instanceof ModelRequestError) throw error
-      // Anything else is a reply that arrived and was unusable: one repair, then
-      // the fallback. The tokens are gone either way.
-      reason = messageOf(error)
+      // Only an unreadable reply is ours to repair. Anything else is a defect in
+      // our own code, and another identical request would hide it instead of
+      // fixing it.
+      if (!(error instanceof ModelReplyError)) throw error
+      reason = UNUSABLE_REPLY
       continue
     }
 
-    const parsed = parseReply(raw, titles)
+    const parsed = parseReply(raw, titles, canonical)
     if (!parsed.ok) {
       reason = parsed.reason
       continue

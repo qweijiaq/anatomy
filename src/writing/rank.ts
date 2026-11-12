@@ -8,9 +8,9 @@
  *
  * - a citation is matched to its candidate by path and line, because a point
  *   inherits the strength of the signal that produced it; a point whose only
- *   resemblance to a candidate is its topic gets the best score among those
- *   candidates, and a point with no candidate at all gets the minimum, so an
- *   orphan can never outrank a real signal;
+ *   resemblance to a candidate is its topic inherits the best score among the
+ *   candidates on its own evidence paths, and a point with no candidate there
+ *   gets the minimum, so an orphan can never outrank a real signal;
  * - evidence beats confidence. A point with no verifiable citation sorts below
  *   every point that has one, whatever either of them scored, because that is
  *   the difference between a claim about this repository and a plausible essay
@@ -37,7 +37,9 @@ import type {
  *
  * Used only as the fallback when a point's evidence matches no candidate — a
  * judged point may cite lines the candidate's window merely covered, and the
- * better answer there is "the same signal kind" rather than "no score".
+ * better answer there is "the same signal kind" rather than "no score". The
+ * fallback still looks only at candidates on the point's own evidence paths: a
+ * topic resemblance to some unrelated file is not a signal about this claim.
  */
 const KIND_AFFINITY: Record<LearningPointKind, readonly SignalKind[]> = {
   architecture: ['abstraction', 'custom-infra'],
@@ -56,9 +58,14 @@ function pathKey(value: unknown): string {
   return value.replace(/\\/g, '/').replace(/^\.\//, '')
 }
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
 function evidenceOf(point: LearningPoint): Evidence[] {
   const evidence = (point as { theirs?: { evidence?: unknown } }).theirs?.evidence
-  return Array.isArray(evidence) ? (evidence as Evidence[]) : []
+  if (!Array.isArray(evidence)) return []
+  return evidence.filter(isObject) as Evidence[]
 }
 
 /**
@@ -113,12 +120,20 @@ function citationScore(evidence: Evidence[], candidates: Candidate[]): number | 
   return best
 }
 
-/** The best score among candidates whose kind could have produced this kind. */
+/**
+ * The best score among candidates on the point's evidence paths, of an affine
+ * kind. Never a candidate from a file the point does not cite: a point citing
+ * `src/a.ts:100-110` cannot inherit 0.9 from `src/z.ts`.
+ */
 function affinityScore(point: LearningPoint, candidates: Candidate[]): number | null {
   const affinity = KIND_AFFINITY[point.kind] ?? []
+  const cited = new Set(evidenceOf(point).map((item) => pathKey(item.path)))
+  cited.delete('')
+  if (cited.size === 0) return null
   let best: number | null = null
   for (const candidate of candidates) {
-    if (!affinity.includes(candidate.kind)) continue
+    if (!isObject(candidate) || !affinity.includes(candidate.kind)) continue
+    if (!cited.has(pathKey(candidate.path))) continue
     const score = scoreValue(candidate)
     best = best === null ? score : Math.max(best, score)
   }
@@ -181,8 +196,12 @@ function compare(a: Entry, b: Entry): number {
  * a point to its judgement; only the array is new.
  */
 export function rankPoints(points: LearningPoint[], candidates: Candidate[]): LearningPoint[] {
-  const list = Array.isArray(points) ? points : []
-  const signals = Array.isArray(candidates) ? candidates : []
+  const list = (Array.isArray(points) ? points : []).filter(
+    (point): point is LearningPoint => isObject(point),
+  )
+  const signals = (Array.isArray(candidates) ? candidates : []).filter(
+    (candidate): candidate is Candidate => isObject(candidate),
+  )
 
   const ranked = list
     .map((point, order): Entry => {

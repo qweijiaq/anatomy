@@ -155,8 +155,9 @@ describe('synthesize — what the model is allowed to see', () => {
     expect(prompt).toMatch(/TypeScript/)
     expect(prompt).toMatch(/package\.json/)
     expect(prompt).toContain('src/a.ts')
-    expect(prompt).toMatch(/5/)
-    expect(prompt).toMatch(/3/)
+    expect(prompt).toContain('- 模块数: 5')
+    expect(prompt).toContain('- 未解析导入: 3')
+    expect(prompt).toContain('- 被依赖最多的模块: src/a.ts (3), src/c.ts (2), src/b.ts (1)')
   })
 
   it('states the output language and the verbatim rule in the system prompt', async () => {
@@ -218,6 +219,43 @@ describe('synthesize — topFive is a subset of the titles', () => {
     expect(result.problem).not.toBe('')
   })
 
+  it('never puts model text back into the repair prompt', async () => {
+    const sentinel = 'SENTINEL-REPLY-TEXT'
+    const client = scriptedClient(
+      { error: new ModelReplyError(`model reply content is not JSON: {"problem":"${sentinel}"`) },
+      { json: { problem: 'p2', topFive: titles.slice(0, 3) } },
+    )
+
+    const result = await synthesize(deps(client))
+
+    expect(client.calls).toHaveLength(2)
+    expect(client.calls[1]?.user).not.toContain(sentinel)
+    expect(result.problem).toBe('p2')
+  })
+
+  it('returns the caller’s exact title, not the trimmed copy it matched on', async () => {
+    const padded = ['  padded title  ', 'second title', 'third title']
+    const client = scriptedClient({
+      json: { problem: 'p', topFive: ['padded title', 'second title', 'third title'] },
+    })
+
+    const result = await synthesize(deps(client, { titles: padded }))
+
+    expect(result.topFive).toEqual(['  padded title  ', 'second title', 'third title'])
+  })
+
+  it('returns the caller’s exact title in the fallback too', async () => {
+    const padded = ['  padded title  ', 'second title', 'third title']
+    const client = scriptedClient(
+      { json: { nothing: 'useful' } },
+      { json: { nothing: 'useful' } },
+    )
+
+    const result = await synthesize(deps(client, { titles: padded }))
+
+    expect(result.topFive).toEqual(padded)
+  })
+
   it('falls back on a reply that is not even JSON, without throwing', async () => {
     const client = scriptedClient(
       { error: new ModelReplyError('model reply content is not JSON') },
@@ -277,6 +315,15 @@ describe('synthesize — a bad reply is never fatal', () => {
     await expect(synthesize(deps(client))).rejects.toBeInstanceOf(ModelRequestError)
     // The client already spent its retry budget; retrying here would multiply
     // the latency instead of the odds.
+    expect(client.calls).toHaveLength(1)
+  })
+
+  it('rethrows a client bug instead of spending a repair on it', async () => {
+    const bug = new TypeError('cannot read properties of undefined')
+    const client = scriptedClient({ error: bug })
+
+    await expect(synthesize(deps(client))).rejects.toBe(bug)
+    // A defect in our own code is not a bad reply: a retry would hide it.
     expect(client.calls).toHaveLength(1)
   })
 
