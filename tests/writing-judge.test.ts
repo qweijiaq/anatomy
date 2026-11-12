@@ -703,6 +703,27 @@ describe('judgeCandidates — a citation outside the shown window cannot back a 
     expect(judged.validation.dropped).toEqual([])
     expect(judged.validation.downgraded).toHaveLength(1)
   })
+  it('rejects a reversed range at the window gate instead of letting it fail closed later', async () => {
+    // 15..13 sits inside the shown window in both bounds, so a gate that only
+    // compares bounds one way accepts it; the citation is nonsense either way.
+    const reversed = { path: 'src/wide.ts', startLine: 15, endLine: 13, snippet: SHOWN_WIDE.snippet }
+    const client = scriptedClient([{ json: pointCiting([reversed]) }])
+
+    const judged = await judgeCandidates({
+      client,
+      root,
+      runId: 'run-1',
+      candidates: [c2],
+      scope: SCOPED,
+    })
+
+    expect(judged.points).toHaveLength(1)
+    expect(judged.points[0]?.theirs.evidence).toEqual([])
+    expect(judged.points[0]?.confidence).toBe('low')
+    // Task 10 never sees it: the point survives unbacked rather than dying on a
+    // range the judge could already tell was impossible.
+    expect(judged.validation.dropped).toEqual([])
+  })
 })
 
 // --- one decode per file per run -------------------------------------------
@@ -877,6 +898,61 @@ describe('createModelClient — deadlines and error bodies', () => {
 
     await expect(client.complete(req)).resolves.toMatchObject({ json: { ok: true } })
     expect(fetchImpl.count).toBe(2)
+  })
+
+  it('retries when the deadline fires while the body is being read', async () => {
+    // The provider answered with headers and then stalled the body: the abort
+    // reaches us from `response.json()`, which is a transport failure, not a
+    // bad reply, so it must spend the retry budget instead of ending the run.
+    const stalled = Object.assign(new Error('The operation was aborted due to timeout'), {
+      name: 'TimeoutError',
+    })
+    let index = 0
+    const fetchImpl = (async (_input: string | URL | Request, _init?: RequestInit) => {
+      index += 1
+      if (index === 1) {
+        return {
+          ok: true,
+          status: 200,
+          json: () => Promise.reject(stalled),
+        } as unknown as Response
+      }
+      return new Response(JSON.stringify(openAiReply({ ok: true })), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
+    const client = createModelClient({
+      apiKey: 'k',
+      fetchImpl,
+      maxRetries: 1,
+      retryDelayMs: 0,
+    })
+
+    await expect(client.complete(req)).resolves.toMatchObject({ json: { ok: true } })
+    expect(index).toBe(2)
+  })
+
+  it('surfaces a stalled body as a retryable transport error, not a malformed reply', async () => {
+    const aborted = Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })
+    const fetchImpl = (async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: () => Promise.reject(aborted),
+      }) as unknown as Response) as unknown as typeof fetch
+    const client = createModelClient({
+      apiKey: 'k',
+      fetchImpl,
+      maxRetries: 1,
+      retryDelayMs: 0,
+      timeoutMs: 10,
+    })
+
+    const failure = client.complete(req)
+    await expect(failure).rejects.toBeInstanceOf(ModelRequestError)
+    await expect(failure).rejects.not.toBeInstanceOf(ModelReplyError)
+    await expect(failure).rejects.toMatchObject({ retryable: true })
   })
 
   it('keeps the provider status but never copies its error body into the failure', async () => {

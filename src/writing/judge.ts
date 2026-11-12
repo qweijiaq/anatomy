@@ -564,6 +564,10 @@ function isShown(
   startLine: number,
   endLine: number,
 ): boolean {
+  // A reversed range (`200..12`) is not a span the prompt could have shown, and
+  // Task 10 rejects it as out of bounds; rejecting it here keeps the two gates
+  // from disagreeing about what counts as a citation.
+  if (startLine < 1 || endLine < startLine) return false
   const ranges = windows.get(citationKey(filePath))
   if (ranges === undefined) return false
   return ranges.some(([first, last]) => startLine >= first && endLine <= last)

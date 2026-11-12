@@ -227,6 +227,11 @@ async function readReply(response: Response): Promise<ModelResponse> {
   try {
     payload = await response.json()
   } catch (error) {
+    // A provider can send its headers and then stall the body; the deadline
+    // fires during the read, so the abort arrives here rather than from
+    // `fetch`. No reply arrived, which is a retryable transport failure, not a
+    // malformed reply: it must keep its own name and its retry budget.
+    if (isAbortError(error)) throw error
     throw new ModelReplyError(
       `model reply is not JSON: ${messageOf(error)}`,
       { in: 0, out: 0 },
@@ -314,7 +319,18 @@ export function createModelClient(cfg: ModelClientConfig = {}): ModelClient {
           continue
         }
 
-        return await readReply(response)
+        try {
+          return await readReply(response)
+        } catch (error) {
+          // `readReply` rethrows an abort that happened while reading the body;
+          // it belongs with the failures above, in the same retry budget.
+          if (!isAbortError(error)) throw error
+          lastError = new ModelRequestError(
+            `model reply body timed out after ${timeoutMs}ms`,
+            { retryable: true, cause: error },
+          )
+          continue
+        }
       }
 
       throw lastError ?? new ModelRequestError('model request failed', { retryable: true })
