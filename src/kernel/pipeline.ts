@@ -53,8 +53,17 @@ export const DEFAULT_RUNS_DIR = path.join('.ana', 'runs')
  * Every artifact a finished run owns. `manifest` is not in the list: it is
  * stamped at open and again at settle, so it cannot testify about the files
  * beside it.
+ *
+ * This list is not documentation. `write` only accepts a `RunArtifact`, and the
+ * set of written names is a set of the same type, so a fifth artifact cannot be
+ * added to the write sequence without adding it here: forgetting would restore
+ * the "mixed artifacts marked complete" bug, and forgetting is a compile error
+ * instead.
  */
 const RUN_ARTIFACTS = ['scope', 'profile', 'structure', 'candidates'] as const
+
+/** Names of the artifacts that must all exist for a run to be `complete`. */
+export type RunArtifact = (typeof RUN_ARTIFACTS)[number]
 
 export type PipelineOptions = {
   /** Analyse only this subdirectory of the repository. Defaults to the source's own. */
@@ -158,7 +167,7 @@ export async function scanRepo(
     // What this scan has already replaced in the directory. A failure part-way
     // through leaves a directory that is part this scan and part the previous
     // one, and no manifest can honestly describe that. See `settleFailure`.
-    const written = new Set<string>()
+    const written = new Set<RunArtifact>()
 
     let result: PipelineResult | undefined
     let failure: unknown
@@ -182,7 +191,7 @@ export async function scanRepo(
         opts.topK === undefined ? {} : { topK: opts.topK },
       )
 
-      const write = async (name: string, value: unknown): Promise<void> => {
+      const write = async (name: RunArtifact, value: unknown): Promise<void> => {
         await run.write(name, value)
         written.add(name)
       }
@@ -257,7 +266,7 @@ async function closeSafely(run: Run, keepTree: boolean): Promise<Error | null> {
  *   part this scan and part the last one, and calling that complete would
  *   describe a mixed set of artifacts as a single run.
  */
-async function settleFailure(
+export async function settleFailure(
   run: Run,
   manifest: RunManifest,
   previous: RunManifest | null,

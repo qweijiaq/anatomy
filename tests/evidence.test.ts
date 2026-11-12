@@ -4,14 +4,22 @@
  * cannot be checked is dropped or downgraded — never trusted.
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { Evidence, LearningPoint } from '../src/contracts/types.js'
-import { evidenceId, validatePoints } from '../src/kernel/evidence.js'
+import type { Evidence, LearningPoint, Scope } from '../src/contracts/types.js'
+import { MAX_EVIDENCE_BYTES, evidenceId, validatePoints } from '../src/kernel/evidence.js'
 
 /**
  * Counts canonicalizations. The kernel's rule is "one read per file per call",
@@ -53,6 +61,16 @@ writeFileSync(path.join(root, 'dup.ts'), `${duplicated.join('\n')}\n`)
 // 1 `l1`, 2 `export function f() {`, 3 `  return 1`, 4 `}`, 5 `l5`.
 writeFileSync(path.join(root, 'newline.ts'), 'l1\nexport function f() {\n  return 1\n}\nl5\n')
 writeFileSync(path.join(outside, 'secret.ts'), 'export const secret = 1\n')
+
+// Symlinks that are lexically inside the root but point outside it, and one
+// that points at a sibling inside it: containment must be decided on what the
+// path resolves to, not on what it spells.
+mkdirSync(path.join(root, 'vendor'))
+symlinkSync(outside, path.join(root, 'vendor', 'link-dir'))
+symlinkSync(path.join(outside, 'secret.ts'), path.join(root, 'vendor', 'link-secret.ts'))
+symlinkSync(path.join(root, 'a.ts'), path.join(root, 'vendor', 'link-inside.ts'))
+// Larger than the evidence read cap: its bytes must never be buffered.
+writeFileSync(path.join(root, 'huge.ts'), 'const padded = 1\n'.repeat(70_000))
 
 afterAll(() => {
   rmSync(root, { recursive: true, force: true })
@@ -559,6 +577,198 @@ describe('validatePoints — malformed input never throws', () => {
   })
 })
 
+describe('validatePoints — symlinks and read bounds', () => {
+  it('drops a path that is lexically inside the root but is a symlink out of it', async () => {
+    const result = await validatePoints(
+      [withEvidence([ev({ path: 'vendor/link-dir/secret.ts', snippet: 'export const secret = 1' })])],
+      root,
+      'run1',
+    )
+
+    expect(result.kept).toEqual([])
+    expect(result.dropped[0]?.reason).toMatch(/outside the analysed root/)
+    // Refused before a single byte was read.
+    expect(canonicalCalls.paths).toEqual([])
+  })
+
+  it('drops a file symlink that points outside the root', async () => {
+    const result = await validatePoints(
+      [withEvidence([ev({ path: 'vendor/link-secret.ts', snippet: 'export const secret = 1' })])],
+      root,
+      'run1',
+    )
+
+    expect(result.kept).toEqual([])
+    expect(result.dropped[0]?.reason).toMatch(/outside the analysed root/)
+    expect(canonicalCalls.paths).toEqual([])
+  })
+
+  it('still accepts a symlink that points at a file inside the root', async () => {
+    const result = await validatePoints(
+      [withEvidence([ev({ path: 'vendor/link-inside.ts', snippet: 'export const answer = 42' })])],
+      root,
+      'run1',
+    )
+
+    expect(result.dropped).toEqual([])
+    expect(result.kept).toHaveLength(1)
+    // Evidence keeps the path the model cited, not the link target.
+    expect(result.kept[0]?.theirs.evidence[0]?.path).toBe('vendor/link-inside.ts')
+  })
+
+  it('refuses a symlink to a FIFO instead of hanging on it', async () => {
+    try {
+      execFileSync('mkfifo', [path.join(root, 'pipe.ts')])
+      symlinkSync(path.join(root, 'pipe.ts'), path.join(root, 'vendor', 'link-pipe.ts'))
+    } catch {
+      // No mkfifo on this platform: the FIFO case cannot be created at all.
+      return
+    }
+
+    const result = await validatePoints(
+      [withEvidence([ev({ path: 'vendor/link-pipe.ts', snippet: 'export const answer = 42' })])],
+      root,
+      'run1',
+    )
+
+    expect(result.kept).toEqual([])
+    expect(result.dropped[0]?.reason).toMatch(/regular file/)
+    expect(canonicalCalls.paths).toEqual([])
+  })
+
+  it('refuses a file larger than the read cap, naming the cap', async () => {
+    const result = await validatePoints(
+      [withEvidence([ev({ path: 'huge.ts', startLine: 1, endLine: 1, snippet: 'const padded = 1' })])],
+      root,
+      'run1',
+    )
+
+    expect(result.kept).toEqual([])
+    expect(result.dropped[0]?.reason).toContain(String(MAX_EVIDENCE_BYTES))
+    expect(result.dropped[0]?.reason).toMatch(/cap/)
+    // The cap is enforced before the read, so a huge file is never buffered.
+    expect(canonicalCalls.paths).toEqual([])
+  })
+})
+
+describe('validatePoints — a scope bounds what can be cited', () => {
+  const scopeOf = (paths: string[]): Scope => ({
+    root,
+    files: paths.map((filePath) => ({
+      path: filePath,
+      bytes: 16,
+      lines: 1,
+      language: 'ts',
+    })),
+    excluded: [{ reason: 'vendored', count: 2 }],
+    totals: { files: paths.length, bytes: 16 * paths.length, lines: paths.length },
+    byLanguage: { ts: paths.length },
+  })
+
+  it('refuses evidence for a path the scope excluded', async () => {
+    const result = await validatePoints(
+      [withEvidence([ev({ path: 'crlf.ts', snippet: CRLF_SNIPPET })])],
+      root,
+      'run1',
+      scopeOf(['a.ts']),
+    )
+
+    expect(result.kept).toEqual([])
+    expect(result.dropped[0]?.reason).toMatch(/scope/)
+    expect(canonicalCalls.paths).toEqual([])
+  })
+
+  it('still accepts evidence for a path the scope kept', async () => {
+    const result = await validatePoints(
+      [withEvidence([ev()])],
+      root,
+      'run1',
+      scopeOf(['a.ts']),
+    )
+
+    expect(result.dropped).toEqual([])
+    expect(result.kept).toHaveLength(1)
+  })
+
+  it('applies no scope check when no scope is given', async () => {
+    const result = await validatePoints(
+      [withEvidence([ev({ path: 'crlf.ts', snippet: CRLF_SNIPPET })])],
+      root,
+      'run1',
+    )
+
+    expect(result.kept).toHaveLength(1)
+  })
+})
+
+describe('validatePoints — every field of a point is checked', () => {
+  it('drops the wrong-typed point the report would crash on', async () => {
+    const broken = {
+      id: 'p1',
+      title: 42,
+      problem: null,
+      alternatives: null,
+      theirs: { summary: 's', evidence: [] },
+      mechanism: null,
+      tradeoffs: null,
+      confidence: 'high',
+    }
+
+    const result = await validatePoints([broken] as unknown as LearningPoint[], root, 'run1')
+
+    // Dropped, not downgraded: a low-confidence point with a null `problem` is
+    // still a crash waiting in the renderer.
+    expect(result.kept).toEqual([])
+    expect(result.downgraded).toEqual([])
+    expect(result.dropped).toHaveLength(1)
+    expect(result.dropped[0]?.pointId).toBe('p1')
+    expect(result.dropped[0]?.reason).toMatch(/title/)
+  })
+
+  it('names the field that is unusable', async () => {
+    const cases: Array<[string, unknown]> = [
+      ['problem', { ...pt(), problem: { constraint: 'c' } }],
+      ['alternatives', { ...pt(), alternatives: [{}] }],
+      ['tradeoffs', { ...pt(), tradeoffs: [{ cost: 'c' }] }],
+      ['recipe', { ...pt(), recipe: { prereqs: ['p'], minimalForm: 1, avoidWhen: [] } }],
+      ['unknowns', { ...pt(), unknowns: [1] }],
+      ['kind', { ...pt(), kind: 'vibes' }],
+    ]
+
+    for (const [field, broken] of cases) {
+      const result = await validatePoints([broken as LearningPoint], root, 'run1')
+      expect(result.kept).toEqual([])
+      expect(result.dropped[0]?.reason).toContain(field)
+    }
+  })
+
+  it('keeps a well-formed point whose evidence is missing, downgraded not dropped', async () => {
+    const result = await validatePoints([withEvidence([], { id: 'p2' })], root, 'run1')
+
+    expect(result.dropped).toEqual([])
+    expect(result.downgraded).toEqual([{ pointId: 'p2', reason: 'no verifiable evidence' }])
+    expect(result.kept).toHaveLength(1)
+    expect(result.kept[0]?.confidence).toBe('low')
+    // The renderer's fields survive intact: this is the downgrade, not a drop.
+    expect(result.kept[0]?.alternatives).toEqual([{ approach: 'inline', cost: 'repetition' }])
+    expect(result.kept[0]?.problem).toEqual({ constraint: 'c', stakes: 's' })
+  })
+
+  it('keeps a point that carries a well-formed recipe', async () => {
+    const result = await validatePoints(
+      [
+        withEvidence([ev()], {
+          recipe: { prereqs: ['node'], minimalForm: 'const d = (n) => n * 2', avoidWhen: [] },
+        }),
+      ],
+      root,
+      'run1',
+    )
+
+    expect(result.kept).toHaveLength(1)
+  })
+})
+
 describe('evidenceId', () => {
   it('is the run id plus six hex characters of sha256(path, line)', () => {
     const id = evidenceId('run1', 'a.ts', 1)
@@ -591,8 +801,11 @@ describe('validatePoints — reads', () => {
       'run1',
     )
 
-    // One canonicalization per distinct absolute path: a.ts and missing.ts.
-    expect(canonicalCalls.paths).toHaveLength(2)
-    expect(canonicalCalls.paths[0]).toBe(path.join(root, 'a.ts'))
+    // a.ts is the only path that is ever read: a missing path is refused during
+    // real-path resolution, before canonicalization, so it never reaches a read.
+    expect(canonicalCalls.paths).toHaveLength(1)
+    // The path is the resolved one, so nothing can repoint a symlink between
+    // the containment check and the read.
+    expect(canonicalCalls.paths[0]).toBe(realpathSync(path.join(root, 'a.ts')))
   })
 })

@@ -8,17 +8,72 @@
  * run. `tokenx`'s estimator (the `estimateTokenCount` of the task spec) is
  * installed as `approximateTokenSize` in 0.4.x and is what this module uses.
  *
+ * It is, however, a lower bound, not an upper one: `tokenx` scores whitespace
+ * as nothing at all (4000 spaces cost 0 tokens, and indented code costs exactly
+ * what flush code costs, ~33% under on ordinary source). A batch reported as
+ * fitting could then not fit. So the estimate is corrected upward before it is
+ * spent; see `estimateTokens` for the rule.
+ *
  * Cuts are reported, never silent: a caller that is told `dropped: 12` can say
  * so in the output, which is the difference between analysis and a guess.
  */
 
-import { approximateTokenSize } from 'tokenx'
+import { approximateTokenSize, getModelContextSize } from 'tokenx'
 
 import type { Candidate } from '../contracts/types.js'
 
-/** Estimated tokens of one prompting context. Empty context is 0, not 1. */
+/**
+ * A BPE tokenizer gives a run of spaces about one token per four characters, and
+ * `tokenx` gives it zero, so every whitespace character is charged at that rate.
+ */
+const CHARS_PER_TOKEN = 4
+
+/**
+ * `tokenx` undercounts ordinary source by roughly a third; the margin makes the
+ * estimate an upper bound rather than a lower one.
+ */
+const SAFETY_MARGIN = 1.3
+
+/** One budget limit, refused unless it is a real number. */
+function finiteLimit(limit: number): number {
+  if (!Number.isFinite(limit)) {
+    throw new Error(`anatomy: budget limit must be a finite number, got ${String(limit)}`)
+  }
+  return limit
+}
+
+/**
+ * Estimated tokens of one prompting context. Empty context is 0, not 1.
+ *
+ * The documented rule, in order:
+ *
+ * 1. `tokenx`'s estimate of `system + user` joined (joining first, because a
+ *    word split across the two halves is one token, not two).
+ * 2. Plus one token per four whitespace characters. `tokenx` scores whitespace
+ *    as free, so without this every space is lost: a blank line, an indentation
+ *    run or a padded table all cost nothing, and 4000 spaces cost 0.
+ * 3. Times 1.3, because `tokenx` undercounts ordinary source by about a third.
+ * 4. Rounded up, so a nonzero context never estimates as free.
+ */
 export function estimateTokens(ctx: { system: string; user: string }): number {
-  return approximateTokenSize(`${ctx.system}${ctx.user}`)
+  const text = `${ctx.system}${ctx.user}`
+  if (text === '') return 0
+
+  const measured = approximateTokenSize(text)
+  const whitespace = text.length - text.replace(/\s/g, '').length
+  const corrected = measured + whitespace / CHARS_PER_TOKEN
+  return Math.ceil(corrected * SAFETY_MARGIN)
+}
+
+/**
+ * The most this batch may spend on `model`.
+ *
+ * `getModelContextSize` knows a handful of windows (max 128k) and answers a
+ * conservative 4097 for anything outside its table, which is the safe direction
+ * for a budget: too small a batch, never an overflowing one.
+ */
+export function clampBudget(limit: number, model: string): number {
+  return Math.min(finiteLimit(limit), getModelContextSize(model))
 }
 
 /** A candidate paired with its position, so ties stay in input order. */
@@ -56,8 +111,10 @@ function compare(left: Slot, right: Slot): number {
  * candidate must not end the budget for everything smaller behind it. Whatever
  * was cut is summed into `dropped` so the loss can be stated.
  *
- * A `limit` that is not a finite number keeps nothing: a broken budget is not
- * an unlimited budget.
+ * A `limit` that is not a finite number is a caller bug, not a budget: it threw
+ * rather than being coerced to 0, which silently dropped the whole batch. A
+ * finite `limit` of zero or less keeps nothing, so a spent budget never widens
+ * into an unlimited one by accident.
  */
 export function fitCandidates(
   cands: Candidate[],
@@ -68,7 +125,8 @@ export function fitCandidates(
     .map((candidate, index): Slot => ({ candidate, index }))
     .sort(compare)
 
-  let remaining = Number.isFinite(limit) && limit > 0 ? limit : 0
+  const bounded = finiteLimit(limit)
+  let remaining = bounded > 0 ? bounded : 0
   const kept: Candidate[] = []
   let dropped = 0
 

@@ -232,6 +232,14 @@ export const DEFAULT_LIMITS: ScopeLimits = {
   maxLines: 500_000,
 }
 
-export const DEFAULT_BUDGET_TOKENS = 500_000
+/**
+ * Default per-request token budget for a candidate batch.
+ *
+ * Sized to fit the largest context `tokenx` knows (128k) with 28k of headroom
+ * for the answer and the fixed prompt around the batch, and to fit every
+ * smaller window once `clampBudget` has narrowed it. A default larger than any
+ * real context would answer "fits" for a batch no model can accept.
+ */
+export const DEFAULT_BUDGET_TOKENS = 100_000
 export const DEFAULT_TOP_K = 30
 export const DEFAULT_SLICE_MAX_LINES = 200

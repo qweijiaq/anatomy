@@ -1,8 +1,8 @@
-import { approximateTokenSize } from 'tokenx'
+import { approximateTokenSize, getModelContextSize } from 'tokenx'
 import { describe, expect, it } from 'vitest'
 
-import type { Candidate } from '../src/contracts/types.js'
-import { estimateTokens, fitCandidates } from '../src/kernel/budget.js'
+import { DEFAULT_BUDGET_TOKENS, type Candidate } from '../src/contracts/types.js'
+import { clampBudget, estimateTokens, fitCandidates } from '../src/kernel/budget.js'
 
 const candidate = (over: Partial<Candidate> = {}): Candidate => ({
   id: 'c',
@@ -23,13 +23,17 @@ const ctxOf = (c: Candidate) => ({ system: '', user: textOf(c.id) })
 const costOf = (c: Candidate) => estimateTokens(ctxOf(c))
 
 describe('estimateTokens', () => {
-  it('is tokenx’s estimate of the concatenation', () => {
-    expect(estimateTokens({ system: '', user: 'hello world' })).toBe(
-      approximateTokenSize('hello world'),
+  it('is an upper bound on tokenx’s estimate, never a lower one', () => {
+    const text = 'export function double(n: number) {\n  return n * 2\n}'
+    expect(estimateTokens({ system: '', user: text })).toBeGreaterThan(
+      approximateTokenSize(text),
     )
-    // The two halves are joined, not measured separately.
+  })
+
+  it('joins the two halves before measuring', () => {
+    // 'sys' + 'tem' is one word; measured apart it would cost two.
     expect(estimateTokens({ system: 'sys', user: 'tem' })).toBe(
-      approximateTokenSize('system'),
+      estimateTokens({ system: '', user: 'system' }),
     )
   })
 
@@ -38,6 +42,69 @@ describe('estimateTokens', () => {
     expect(estimateTokens({ system: '', user: 'c'.repeat(40) })).toBeLessThan(
       estimateTokens({ system: '', user: 'c'.repeat(400) }),
     )
+  })
+
+  it('charges for indentation, which tokenx rates at zero', () => {
+    // 50 identical lines, one variant flush and one indented by four spaces.
+    const flush = 'x = 1\n'.repeat(50)
+    const indented = '    x = 1\n'.repeat(50)
+
+    // The tokenizer cannot tell them apart, which is the bug the margin fixes.
+    expect(approximateTokenSize(indented)).toBe(approximateTokenSize(flush))
+
+    const flushCost = estimateTokens({ system: '', user: flush })
+    const indentedCost = estimateTokens({ system: '', user: indented })
+    expect(flushCost).toBeGreaterThan(0)
+    expect(indentedCost).toBeGreaterThan(0)
+    expect(indentedCost).toBeGreaterThan(flushCost)
+  })
+
+  it('does not report a whitespace-only context as free', () => {
+    expect(estimateTokens({ system: '', user: ' '.repeat(4000) })).toBeGreaterThan(0)
+  })
+})
+
+describe('clampBudget', () => {
+  it('refuses to spend more than the model’s own context window', () => {
+    expect(clampBudget(DEFAULT_BUDGET_TOKENS, 'gpt-4')).toBe(getModelContextSize('gpt-4'))
+    expect(clampBudget(DEFAULT_BUDGET_TOKENS, 'gpt-4')).toBeLessThan(DEFAULT_BUDGET_TOKENS)
+    expect(clampBudget(500_000, 'gpt-3.5-turbo')).toBe(getModelContextSize('gpt-3.5-turbo'))
+  })
+
+  it('keeps a limit that already fits', () => {
+    expect(clampBudget(500, 'gpt-4')).toBe(500)
+  })
+
+  it('uses tokenx’s conservative fallback for a model it does not know', () => {
+    // tokenx answers 4097 for an unknown name; clamping there is the safe
+    // direction, never the permissive one.
+    expect(clampBudget(1_000_000, 'some-future-model')).toBe(
+      getModelContextSize('some-future-model'),
+    )
+    expect(getModelContextSize('some-future-model')).toBeLessThan(1_000_000)
+  })
+
+  it('throws on a limit that is not finite, like the budget it guards', () => {
+    for (const limit of [Number.POSITIVE_INFINITY, Number.NaN]) {
+      expect(() => clampBudget(limit, 'gpt-4')).toThrow(/finite/)
+    }
+  })
+})
+
+describe('DEFAULT_BUDGET_TOKENS', () => {
+  it('fits inside every context size tokenx knows, with headroom', () => {
+    expect(DEFAULT_BUDGET_TOKENS).toBe(100_000)
+    // 128k, the largest window in tokenx's table, still leaves 28k of headroom
+    // for the answer and the fixed prompt around the batch.
+    expect(DEFAULT_BUDGET_TOKENS).toBeLessThan(128_000)
+  })
+
+  it('is clamped down by every named model, so it can never be spent raw', () => {
+    for (const model of ['gpt-4', 'gpt-3.5-turbo', 'gpt-4-32k', 'gpt-4o', 'text-davinci-003']) {
+      expect(clampBudget(DEFAULT_BUDGET_TOKENS, model)).toBeLessThanOrEqual(
+        getModelContextSize(model),
+      )
+    }
   })
 })
 
@@ -72,12 +139,19 @@ describe('fitCandidates', () => {
   })
 
   it('drops everything when no budget is left', () => {
-    // A budget that is zero, negative or not a number keeps nothing: the guard
-    // never widens into "unlimited" by accident.
-    for (const limit of [0, -10, Number.NaN]) {
+    // A budget that is zero or negative keeps nothing: the guard never widens
+    // into "unlimited" by accident.
+    for (const limit of [0, -10]) {
       const fit = fitCandidates([small, mid, big], ctxOf, limit)
       expect(fit.kept).toEqual([])
       expect(fit.dropped).toBe(3)
+    }
+  })
+
+  it('throws instead of silently dropping everything on a non-finite limit', () => {
+    // `Infinity` was coerced to 0 and cost the whole batch without a word.
+    for (const limit of [Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NaN]) {
+      expect(() => fitCandidates([small, mid, big], ctxOf, limit)).toThrow(/finite/)
     }
   })
 

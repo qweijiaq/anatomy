@@ -26,12 +26,14 @@
  */
 
 import { createHash } from 'node:crypto'
+import { realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
 
 import type {
   CanonicalFile,
   Evidence,
   LearningPoint,
+  Scope,
   ValidationResult,
 } from '../contracts/types.js'
 import { canonicalizeFile } from './canonicalize.js'
@@ -39,7 +41,27 @@ import { canonicalizeFile } from './canonicalize.js'
 /** The unknown every downgraded point carries. Shared so it stays one string. */
 export const NO_VERIFIABLE_EVIDENCE = 'no verifiable evidence'
 
+/**
+ * The largest file this module will read to check a snippet.
+ *
+ * Evidence is a quotation from source; no snippet is worth buffering a lockfile,
+ * a bundle or an excluded binary into the run. 1 MiB is far above any file a
+ * point can usefully cite and far below anything that would hurt to decode.
+ */
+export const MAX_EVIDENCE_BYTES = 1024 * 1024
+
 const CONFIDENCES: readonly string[] = ['high', 'medium', 'low']
+
+const KINDS: readonly string[] = [
+  'architecture',
+  'algorithm',
+  'data-model',
+  'api-design',
+  'performance',
+  'testing',
+  'tooling',
+  'process',
+]
 
 /**
  * What makes a snippet worth being called evidence: length, not punctuation.
@@ -136,16 +158,108 @@ type Lookup =
 
 type Verdict = { ok: true; evidence: Evidence } | { ok: false; reason: string }
 
+function isNotFound(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { code?: unknown }).code === 'ENOENT'
+  )
+}
+
+/** Whether `child` is `parent` or lies inside it. Both must already be resolved. */
+function isInside(parent: string, child: string): boolean {
+  const rel = path.relative(parent, child)
+  return rel !== '' && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel)
+}
+
+/**
+ * Resolves a candidate path, checks what it really is, and reads it.
+ *
+ * The lexical check upstream only proves the *spelling* stays inside the root.
+ * A symlink does not: `vendor/link/.ssh/id_rsa` reads as an in-tree path and
+ * opens a file outside the tree, and a symlink to a FIFO or a device hangs or
+ * exhausts memory rather than returning bytes. So the real path is resolved and
+ * containment is decided again on the resolved pair, and what is left must be a
+ * regular file under the size cap. `realpath` followed by `stat` on the resolved
+ * path, then a read of that same resolved path, leaves no window in which a link
+ * can be repointed between the check and the read.
+ */
+async function readVerified(
+  abs: string,
+  realRoot: string,
+  relPath: string,
+  evidencePath: string,
+): Promise<Lookup> {
+  let real: string
+  try {
+    real = await realpath(abs)
+  } catch (error) {
+    return {
+      failure: isNotFound(error)
+        ? `evidence file not found: ${evidencePath}`
+        : `evidence path cannot be resolved: ${evidencePath}`,
+    }
+  }
+
+  if (!isInside(realRoot, real)) {
+    return {
+      failure: `evidence path resolves outside the analysed root: ${evidencePath}`,
+    }
+  }
+
+  let size: number
+  try {
+    const info = await stat(real)
+    if (!info.isFile()) {
+      return { failure: `evidence path is not a regular file: ${evidencePath}` }
+    }
+    size = info.size
+  } catch (error) {
+    return {
+      failure: isNotFound(error)
+        ? `evidence file not found: ${evidencePath}`
+        : `evidence file could not be read: ${evidencePath}`,
+    }
+  }
+
+  // Checked before the read, so the bytes of a huge file are never buffered.
+  if (size > MAX_EVIDENCE_BYTES) {
+    return {
+      failure:
+        `evidence file ${relPath} is ${size} bytes, over the ` +
+        `${MAX_EVIDENCE_BYTES} byte read cap`,
+    }
+  }
+
+  try {
+    return { file: await canonicalizeFile(real), relPath }
+  } catch (error) {
+    return {
+      failure: isNotFound(error)
+        ? `evidence file not found: ${evidencePath}`
+        : `evidence file could not be read: ${evidencePath}`,
+    }
+  }
+}
+
 /**
  * Resolves evidence paths and canonicalizes each file **at most once** per
  * `validatePoints` call.
  *
- * A path that escapes `root` — absolute, or `..` climbing out — is refused
- * before any read: evidence pointing at `/etc/passwd` is wrong evidence, not a
- * crash and not a file read.
+ * Refused before any read, in this order: an absolute path; a path whose
+ * lexical form escapes `root` (`..` climbing out — evidence pointing at
+ * `/etc/passwd` is wrong evidence, not a crash and not a file read); a path the
+ * analysed `Scope` does not list, when a scope is given, because a lockfile or
+ * an excluded binary is not evidence of anything.
  */
-function createLookup(root: string): (evidencePath: string) => Promise<Lookup> {
+async function createLookup(
+  root: string,
+  scope?: Scope,
+): Promise<(evidencePath: string) => Promise<Lookup>> {
   const cache = new Map<string, Promise<Lookup>>()
+  const realRoot = await realpath(root).catch(() => null)
+  const inScope =
+    scope === undefined ? null : new Set(scope.files.map((file) => file.path))
 
   return (evidencePath: string): Promise<Lookup> => {
     if (path.isAbsolute(evidencePath)) {
@@ -160,28 +274,24 @@ function createLookup(root: string): (evidencePath: string) => Promise<Lookup> {
       })
     }
 
+    const relPath = rel.split(path.sep).join('/')
+    if (inScope !== null && !inScope.has(relPath)) {
+      return Promise.resolve({
+        failure: `evidence path is outside the analysed scope: ${evidencePath}`,
+      })
+    }
+
+    if (realRoot === null) {
+      return Promise.resolve({ failure: `evidence root cannot be resolved: ${root}` })
+    }
+
     const cached = cache.get(abs)
     if (cached !== undefined) return cached
 
-    const pending: Promise<Lookup> = canonicalizeFile(abs).then(
-      (file): Lookup => ({ file, relPath: rel.split(path.sep).join('/') }),
-      (error: unknown): Lookup => ({
-        failure: isNotFound(error)
-          ? `evidence file not found: ${evidencePath}`
-          : `evidence file could not be read: ${evidencePath}`,
-      }),
-    )
+    const pending = readVerified(abs, realRoot, relPath, evidencePath)
     cache.set(abs, pending)
     return pending
   }
-}
-
-function isNotFound(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    (error as { code?: unknown }).code === 'ENOENT'
-  )
 }
 
 /**
@@ -297,37 +407,104 @@ function pointIdOf(raw: unknown, index: number): string {
 
 type Shape = { point: LearningPoint } | { reason: string }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string')
+}
+
+/** Every element of `value` is an object whose listed keys are all strings. */
+function everyRecordWithStrings(value: unknown, keys: readonly string[]): boolean {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (item) =>
+        isRecord(item) && keys.every((key) => typeof item[key] === 'string'),
+    )
+  )
+}
+
 /**
  * The structural check, before any file is touched.
  *
- * Deliberately shallow: the fields this module reads and rewrites
- * (`id`, `theirs.evidence`, `confidence`) must be sound, and the rest of the
- * point is passed through untouched. A point that cannot be validated at all is
- * dropped here rather than half-processed.
+ * Every field the report renders is checked, not just the two this module
+ * rewrites. A point is a contract with the renderer: a `title` that is 42 or an
+ * `alternatives: null` is not a low-confidence point, it is a crash waiting for
+ * `.alternatives.map` two stages later, so it is dropped here with a reason
+ * naming the field.
  */
 function checkShape(raw: unknown): Shape {
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-    return { reason: 'point is not an object' }
-  }
+  if (!isRecord(raw)) return { reason: 'point is not an object' }
 
-  const fields = raw as Record<string, unknown>
-  const id = fields['id']
+  const id = raw['id']
   if (typeof id !== 'string' || id === '') return { reason: 'point has no id' }
 
-  const theirs = fields['theirs']
-  if (typeof theirs !== 'object' || theirs === null) {
-    return { reason: `point ${id} has no theirs` }
+  if (typeof raw['title'] !== 'string' || raw['title'].trim() === '') {
+    return { reason: `point ${id} has no title` }
   }
-  if (!Array.isArray((theirs as Record<string, unknown>)['evidence'])) {
+
+  const kind = raw['kind']
+  if (typeof kind !== 'string' || !KINDS.includes(kind)) {
+    return { reason: `point ${id} has kind ${String(kind)}, not one of ${KINDS.join('|')}` }
+  }
+
+  const problem = raw['problem']
+  if (
+    !isRecord(problem) ||
+    typeof problem['constraint'] !== 'string' ||
+    typeof problem['stakes'] !== 'string'
+  ) {
+    return { reason: `point ${id} has no usable problem { constraint, stakes }` }
+  }
+
+  if (!everyRecordWithStrings(raw['alternatives'], ['approach', 'cost'])) {
+    return { reason: `point ${id} has no usable alternatives { approach, cost }[]` }
+  }
+
+  const theirs = raw['theirs']
+  if (!isRecord(theirs)) return { reason: `point ${id} has no theirs` }
+  if (typeof theirs['summary'] !== 'string') {
+    return { reason: `point ${id} has no theirs.summary` }
+  }
+  // A missing evidence array is a shape error; an empty one is a claim this
+  // module downgrades rather than drops, so the two must stay apart.
+  if (!Array.isArray(theirs['evidence'])) {
     return { reason: `point ${id} has no evidence array` }
   }
 
-  const confidence = fields['confidence']
+  if (typeof raw['mechanism'] !== 'string') {
+    return { reason: `point ${id} has no mechanism` }
+  }
+
+  if (!everyRecordWithStrings(raw['tradeoffs'], ['cost', 'whenItHurts'])) {
+    return { reason: `point ${id} has no usable tradeoffs { cost, whenItHurts }[]` }
+  }
+
+  const confidence = raw['confidence']
   const normalized = typeof confidence === 'string' ? confidence.trim().toLowerCase() : ''
   if (typeof confidence !== 'string' || !CONFIDENCES.includes(normalized)) {
     return {
       reason: `point ${id} has confidence ${String(confidence)}, not high|medium|low`,
     }
+  }
+
+  if (!isStringArray(raw['unknowns'])) {
+    return { reason: `point ${id} has no unknowns string[]` }
+  }
+
+  const recipe = raw['recipe']
+  if (
+    recipe !== null &&
+    !(
+      isRecord(recipe) &&
+      isStringArray(recipe['prereqs']) &&
+      typeof recipe['minimalForm'] === 'string' &&
+      isStringArray(recipe['avoidWhen'])
+    )
+  ) {
+    return { reason: `point ${id} has no usable recipe { prereqs, minimalForm, avoidWhen }` }
   }
 
   // The point is kept with the confidence this module understood, not with the
@@ -344,14 +521,18 @@ function round2(value: number): number {
  * Validates every point of a model answer against the tree at `root`.
  *
  * `runId` only appears in the evidence ids this function mints; the trees are
- * the authority for everything else.
+ * the authority for everything else. `scope`, when given, is the second
+ * authority: a file the analysis excluded is not citable, so the point cannot
+ * be backed by a lockfile or a vendored bundle the rest of the run ignores.
+ * Optional so a caller that has no scope keeps working.
  */
 export async function validatePoints(
   points: LearningPoint[],
   root: string,
   runId: string,
+  scope?: Scope,
 ): Promise<ValidationResult> {
-  const lookup = createLookup(path.resolve(root))
+  const lookup = await createLookup(path.resolve(root), scope)
   const list: unknown[] = Array.isArray(points) ? points : []
 
   const kept: LearningPoint[] = []
