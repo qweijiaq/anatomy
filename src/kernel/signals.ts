@@ -1,0 +1,1130 @@
+/**
+ * Candidate signals: the rules that decide where a reader ever looks.
+ *
+ * This module is the only filter between a few hundred thousand lines and the
+ * thirty places a model will actually read, and it runs with no call to one, so
+ * the rules here *are* the product's taste. Two failure modes decide whether the
+ * output is worth anything:
+ *
+ * 1. False positives. Vendored code, generated boilerplate and framework glue
+ *    scored as the project's own design. A reader handed thirty mediocre points
+ *    stops trusting the report, so every rule below carries a guard that makes it
+ *    fire *less*: a name the file imported is not a hand-written wheel, a binding
+ *    initialised with `new Library(...)` is a call rather than an implementation,
+ *    and a generated banner is not a decision trace.
+ * 2. Missing the real thing. A hand-written scheduler, or a comment that explains
+ *    a non-obvious tradeoff, has to outrank a merely long file.
+ *
+ * Nothing here parses a project, builds a program, or runs a compiler. A single
+ * line-oriented scanner blanks comments and string bodies once, and every rule
+ * reads that one view, so a file that does not compile still scores the same as
+ * one that does — the analysis runs on repositories it cannot build.
+ *
+ * Determinism is part of the contract: the same repository produces byte-identical
+ * candidates across runs. No clock, no environment, no locale-sensitive compare,
+ * and every output list is sorted by an explicit total order.
+ */
+
+import path from 'node:path'
+
+import type {
+  Candidate,
+  CanonicalFile,
+  Scope,
+  ScopeFile,
+  SignalKind,
+  StructureIndex,
+} from '../contracts/types.js'
+import { DEFAULT_TOP_K } from '../contracts/types.js'
+import { canonicalizeFile } from './canonicalize.js'
+import { detectLanguage } from './scope.js'
+
+export const SIGNAL_WEIGHTS: Record<SignalKind, number> = {
+  'custom-infra': 3,
+  'decision-trace': 3,
+  complexity: 2,
+  abstraction: 2,
+  evolution: 1,
+  'test-spec': 1,
+}
+
+/**
+ * Weight order, used for every kind tie-break. A total order over kinds keeps
+ * the output stable when two kinds score the same.
+ */
+const KIND_ORDER: readonly SignalKind[] = [
+  'custom-infra',
+  'decision-trace',
+  'complexity',
+  'abstraction',
+  'evolution',
+  'test-spec',
+]
+
+const KIND_RANK: ReadonlyMap<SignalKind, number> = new Map(
+  KIND_ORDER.map((kind, index) => [kind, index]),
+)
+
+const byCodeUnit = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
+
+/** A function body longer than this many lines is a difficulty hot spot. */
+const LONG_FUNCTION_LINES = 60
+/** Nesting *inside* a function body: 4 is ordinary, 5 is a hot spot. */
+const DEEP_NESTING = 4
+/** A leaf module this many others import is an abstraction boundary. */
+const MIN_IMPORTERS = 3
+/** Assertions inside one test that pin behaviour densely. */
+const DENSE_ASSERTIONS = 4
+/** Fixture setup references that make a test a specification. */
+const FIXTURE_REFERENCES = 3
+
+// --- language families ----------------------------------------------------
+
+type Family = 'js' | 'py'
+
+const JS_LANGUAGES: ReadonlySet<string> = new Set(['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs'])
+
+/**
+ * The two families this module can score, or `null` for a file with nothing
+ * analysable in it. Language comes from `detectLanguage`, the same function the
+ * scope uses, so a file the scope counted as unanalysable is never scored here.
+ */
+function familyOf(filePath: string): Family | null {
+  const language = detectLanguage(filePath)
+  if (language === null) return null
+  if (language === 'py') return 'py'
+  return JS_LANGUAGES.has(language) ? 'js' : null
+}
+
+// --- one line-oriented view of the text -----------------------------------
+
+type Span = { line: number; endLine: number; text: string }
+
+type Scan = {
+  /** `text` with comment and string bodies blanked to spaces; newlines kept. */
+  code: string
+  comments: Span[]
+  strings: Span[]
+}
+
+type Quote = { open: string; close: string; multiline: boolean }
+
+function quotesOf(family: Family): Quote[] {
+  if (family === 'py') {
+    // Python has no block comments: a triple-quoted string is the idiom, and its
+    // text is read as a string. A module docstring therefore still yields a
+    // decision trace, which is exactly the intent.
+    return [
+      { open: "'''", close: "'''", multiline: true },
+      { open: '"""', close: '"""', multiline: true },
+      { open: "'", close: "'", multiline: false },
+      { open: '"', close: '"', multiline: false },
+    ]
+  }
+  return [
+    { open: "'", close: "'", multiline: false },
+    { open: '"', close: '"', multiline: false },
+    { open: '`', close: '`', multiline: true },
+  ]
+}
+
+function commentSyntaxOf(family: Family): { line: string | null; blocks: Quote[] } {
+  return family === 'py'
+    ? { line: '#', blocks: [] }
+    : { line: '//', blocks: [{ open: '/*', close: '*/', multiline: true }] }
+}
+
+/**
+ * Whether the `/` at `index` opens a regular expression rather than dividing.
+ *
+ * Not a language rule — a heuristic on the previous non-space character, the same
+ * one every formatterless tool uses, because there is no lexer here. It matters
+ * for one concrete failure: a regex body is not code, so `unsafe` inside
+ * `/unsafe entry/` must not be read as a concurrency primitive.
+ */
+function startsRegex(text: string, index: number): boolean {
+  let previous = index - 1
+  while (previous >= 0) {
+    const char = text.charAt(previous)
+    if (char === ' ' || char === '\t' || char === '\n' || char === '\r') previous -= 1
+    else break
+  }
+  if (previous < 0) return true
+  return '([{,;:=!&|?+-*%^~<>'.includes(text.charAt(previous))
+}
+
+/** Replaces the given (sorted, disjoint) ranges with spaces, keeping newlines. */
+function blankRanges(text: string, ranges: Array<{ start: number; end: number }>): string {
+  if (ranges.length === 0) return text
+  let out = ''
+  let cursor = 0
+  for (const range of ranges) {
+    out += text.slice(cursor, range.start)
+    out += text.slice(range.start, range.end).replace(/[^\n]/g, ' ')
+    cursor = range.end
+  }
+  return out + text.slice(cursor)
+}
+
+/**
+ * One pass over the file, collecting comments and string bodies and producing the
+ * comment-free view every structural rule reads.
+ *
+ * Known simplifications, all of which cost a *miss* rather than a false hit where
+ * they matter: a JavaScript regex literal containing a quote or `//` is read as a
+ * string or comment (there is no parser here to tell them apart), and a template
+ * literal is consumed whole, so substitutions inside it are blanked too. Both keep
+ * braces balanced, which is what the block scan needs.
+ */
+function scanSource(text: string, family: Family): Scan {
+  const commentSyntax = commentSyntaxOf(family)
+  const quotes = quotesOf(family)
+  const comments: Span[] = []
+  const strings: Span[] = []
+  const ranges: Array<{ start: number; end: number }> = []
+
+  let line = 1
+  let index = 0
+
+  const advanceTo = (end: number): void => {
+    for (let i = index; i < end; i += 1) if (text.charCodeAt(i) === 10) line += 1
+    index = end
+  }
+
+  while (index < text.length) {
+    const marker = commentSyntax.line
+    if (marker !== null && text.startsWith(marker, index)) {
+      const start = index
+      let end = text.indexOf('\n', index)
+      if (end === -1) end = text.length
+      comments.push({ line, endLine: line, text: text.slice(start + marker.length, end) })
+      ranges.push({ start, end })
+      advanceTo(end)
+      continue
+    }
+
+    const block = commentSyntax.blocks.find((candidate) => text.startsWith(candidate.open, index))
+    if (block !== undefined) {
+      const start = index
+      const startLine = line
+      const closeAt = text.indexOf(block.close, index + block.open.length)
+      const end = closeAt === -1 ? text.length : closeAt + block.close.length
+      const body = text.slice(start + block.open.length, closeAt === -1 ? text.length : closeAt)
+      ranges.push({ start, end })
+      advanceTo(end)
+      comments.push({ line: startLine, endLine: line, text: body })
+      continue
+    }
+
+    if (family === 'js' && text.charAt(index) === '/' && startsRegex(text, index)) {
+      const start = index
+      let cursor = index + 1
+      let inClass = false
+      let closed = false
+      while (cursor < text.length) {
+        const char = text.charAt(cursor)
+        if (char === '\\') {
+          cursor += 2
+          continue
+        }
+        if (char === '\n') break
+        if (char === '[') inClass = true
+        else if (char === ']') inClass = false
+        else if (char === '/' && !inClass) {
+          closed = true
+          break
+        }
+        cursor += 1
+      }
+      const end = closed ? Math.min(cursor + 1, text.length) : Math.min(cursor, text.length)
+      ranges.push({ start, end })
+      advanceTo(end)
+      continue
+    }
+
+    const quote = quotes.find((candidate) => text.startsWith(candidate.open, index))
+    if (quote !== undefined) {
+      const start = index
+      const startLine = line
+      let cursor = index + quote.open.length
+      let closed = false
+      while (cursor < text.length) {
+        const char = text.charAt(cursor)
+        if (char === '\\') {
+          cursor += 2
+          continue
+        }
+        if (!quote.multiline && char === '\n') break
+        if (text.startsWith(quote.close, cursor)) {
+          closed = true
+          break
+        }
+        cursor += 1
+      }
+      const innerEnd = Math.min(cursor, text.length)
+      const end = closed ? innerEnd + quote.close.length : innerEnd
+      ranges.push({ start, end })
+      advanceTo(end)
+      strings.push({ line: startLine, endLine: line, text: text.slice(start + quote.open.length, innerEnd) })
+      continue
+    }
+
+    if (text.charCodeAt(index) === 10) line += 1
+    index += 1
+  }
+
+  return { code: blankRanges(text, ranges), comments, strings }
+}
+
+// --- small text helpers ---------------------------------------------------
+
+/**
+ * Every match of `re` in `text`. A fresh global regex per call, so a `lastIndex`
+ * left behind by a caller can never leak into the next file's scoring.
+ */
+function* matches(text: string, re: RegExp): Generator<RegExpExecArray> {
+  const flags = re.flags.includes('g') ? re.flags : `${re.flags}g`
+  yield* text.matchAll(new RegExp(re.source, flags))
+}
+
+function countMatches(text: string, re: RegExp): number {
+  let count = 0
+  for (const _match of matches(text, re)) count += 1
+  return count
+}
+
+function newlineOffsets(text: string): number[] {
+  const offsets: number[] = []
+  for (let i = text.indexOf('\n'); i !== -1; i = text.indexOf('\n', i + 1)) offsets.push(i)
+  return offsets
+}
+
+/** 1-based line of a 0-based character offset. */
+function lineAt(newlines: readonly number[], offset: number): number {
+  let low = 0
+  let high = newlines.length
+  while (low < high) {
+    const mid = (low + high) >> 1
+    if ((newlines[mid] as number) < offset) low = mid + 1
+    else high = mid
+  }
+  return low + 1
+}
+
+/** Case- and separator-insensitive form used for every name comparison. */
+function normalizeName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+// --- blocks: what a hit belongs to ---------------------------------------
+
+type BlockSpan = { startLine: number; endLine: number }
+
+/**
+ * Top-level brace groups of JavaScript, so a hit inside a function body has a
+ * stable identity. Only *depth-one* groups are blocks: hits inside an `if` inside a
+ * function belong to the function, not to the branch.
+ */
+function jsBlocks(code: string): BlockSpan[] {
+  const blocks: BlockSpan[] = []
+  const stack: number[] = []
+  let line = 1
+  for (let index = 0; index < code.length; index += 1) {
+    const char = code.charAt(index)
+    if (char === '\n') line += 1
+    else if (char === '{') stack.push(line)
+    else if (char === '}') {
+      const open = stack.pop()
+      if (open !== undefined && stack.length === 0) blocks.push({ startLine: open, endLine: line })
+    }
+  }
+  return blocks
+}
+
+/**
+ * Top-level statement blocks of Python, by indentation: a column-zero line ending
+ * in `:` opens one, and the next column-zero statement closes it. A comment or a
+ * blank line never closes a block, because a comment inside a function belongs to
+ * that function.
+ */
+function pyBlocks(text: string): BlockSpan[] {
+  const lines = text.split('\n')
+  const blocks: BlockSpan[] = []
+  let start = -1
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] as string
+    const trimmed = line.trim()
+    if (trimmed === '' || trimmed.startsWith('#')) continue
+    if (/^\s/.test(line)) continue
+    if (start !== -1) {
+      blocks.push({ startLine: start + 1, endLine: index })
+      start = -1
+    }
+    if (trimmed.endsWith(':')) start = index
+  }
+  if (start !== -1) blocks.push({ startLine: start + 1, endLine: lines.length })
+  return blocks
+}
+
+/** Index of the innermost block containing `line`, or -1 for module level. */
+function blockIndexAt(blocks: readonly BlockSpan[], line: number): number {
+  for (let index = 0; index < blocks.length; index += 1) {
+    const block = blocks[index] as BlockSpan
+    if (line >= block.startLine && line <= block.endLine) return index
+  }
+  return -1
+}
+
+// --- function spans, for complexity --------------------------------------
+
+type FunctionSpan = {
+  startLine: number
+  endLine: number
+  bodyStart: number
+  bodyEnd: number
+  /** Nesting levels *inside* the body; the body itself is level 0. */
+  nesting: number
+}
+
+const CONTROL_KEYWORDS: ReadonlySet<string> = new Set([
+  'if',
+  'for',
+  'while',
+  'switch',
+  'catch',
+  'with',
+])
+
+/** Index of the `}` matching the `{` at `open`, or -1. */
+function matchBrace(code: string, open: number): number {
+  let depth = 0
+  for (let index = open; index < code.length; index += 1) {
+    const char = code.charAt(index)
+    if (char === '{') depth += 1
+    else if (char === '}') {
+      depth -= 1
+      if (depth === 0) return index
+    }
+  }
+  return -1
+}
+
+function maxBraceDepth(code: string, from: number, to: number): number {
+  let depth = 0
+  let max = 0
+  for (let index = from; index <= to && index < code.length; index += 1) {
+    const char = code.charAt(index)
+    if (char === '{') {
+      depth += 1
+      if (depth > max) max = depth
+    } else if (char === '}') depth -= 1
+  }
+  return max
+}
+
+/**
+ * Whether the text between the previous statement boundary and a `{` is a
+ * function header rather than a control block or an object literal. `function f()`,
+ * `f()`, `(a) =>`, and `f(): void` all count; `if (...)`, `else`, and `class A`
+ * do not.
+ */
+function isFunctionHeader(header: string): boolean {
+  let text = header.trimEnd()
+  if (text.length === 0) return false
+  // A return type sits between the parameter list and the brace.
+  const annotation = /\)\s*:\s*[^{};]+$/.exec(text)
+  if (annotation !== null) text = `${text.slice(0, annotation.index)})`
+  if (text.endsWith('=>')) return true
+  if (!text.endsWith(')')) return false
+
+  let depth = 0
+  let open = -1
+  for (let index = text.length - 1; index >= 0; index -= 1) {
+    const char = text.charAt(index)
+    if (char === ')') depth += 1
+    else if (char === '(') {
+      depth -= 1
+      if (depth === 0) {
+        open = index
+        break
+      }
+    }
+  }
+  if (open === -1) return false
+  const beforeParen = text.slice(0, open)
+  const word = /([A-Za-z_$][\w$]*)\s*\*?\s*$/.exec(beforeParen)
+  // An anonymous function expression has no name to look at.
+  if (word === null) return true
+  return !CONTROL_KEYWORDS.has((word[1] as string).toLowerCase())
+}
+
+function jsFunctionSpans(code: string, newlines: readonly number[]): FunctionSpan[] {
+  const spans: FunctionSpan[] = []
+  let argumentDepth = 0
+  for (let index = 0; index < code.length; index += 1) {
+    const char = code.charAt(index)
+    if (char === '(' || char === '[') {
+      argumentDepth += 1
+      continue
+    }
+    if (char === ')' || char === ']') {
+      if (argumentDepth > 0) argumentDepth -= 1
+      continue
+    }
+    if (char !== '{') continue
+    // A brace inside an argument list is an object literal argument, not a
+    // definition. Without this, `describe('x', () => { … })` and
+    // `new Response(body, { … })` became "functions" that spanned a whole suite:
+    // the statement boundary scan reaches back past statementless lines, so the
+    // header absorbed whatever statements came before it.
+    if (argumentDepth !== 0) continue
+    const boundary = Math.max(
+      code.lastIndexOf(';', index - 1),
+      code.lastIndexOf('{', index - 1),
+      code.lastIndexOf('}', index - 1),
+    )
+    const headerStart = boundary + 1
+    if (index - headerStart > 400) continue
+    const header = code.slice(headerStart, index)
+    if (!isFunctionHeader(header)) continue
+    const close = matchBrace(code, index)
+    const bodyEnd = close === -1 ? code.length - 1 : close
+    const firstChar = headerStart + (header.length - header.trimStart().length)
+    spans.push({
+      startLine: lineAt(newlines, firstChar),
+      endLine: lineAt(newlines, close === -1 ? code.length : close),
+      bodyStart: index,
+      bodyEnd,
+      nesting: Math.max(0, maxBraceDepth(code, index, bodyEnd) - 1),
+    })
+  }
+  return spans
+}
+
+type PythonFunctionSpan = { startLine: number; endLine: number; name: string; nesting: number }
+
+function pythonFunctionSpans(text: string): PythonFunctionSpan[] {
+  const lines = text.split('\n')
+  const spans: PythonFunctionSpan[] = []
+  for (let index = 0; index < lines.length; index += 1) {
+    const header = lines[index] as string
+    const match = /^([ \t]*)(?:async[ \t]+)?def[ \t]+([A-Za-z_]\w*)/.exec(header)
+    if (match === null) continue
+    const baseIndent = (match[1] as string).length
+    let end = index
+    let maxIndent = baseIndent
+    let unit = 0
+    for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+      const body = lines[cursor] as string
+      if (body.trim() === '') continue
+      const indent = (/^[ \t]*/.exec(body) as RegExpExecArray)[0].length
+      if (indent <= baseIndent) break
+      end = cursor
+      const delta = indent - baseIndent
+      if (unit === 0 || delta < unit) unit = delta
+      if (indent > maxIndent) maxIndent = indent
+    }
+    const step = unit > 0 ? unit : 4
+    spans.push({
+      startLine: index + 1,
+      endLine: end + 1,
+      name: match[2] as string,
+      nesting: Math.round((maxIndent - baseIndent) / step),
+    })
+  }
+  return spans
+}
+
+// --- rule: decision trace -------------------------------------------------
+
+type DecisionPattern = { label: string; re: RegExp }
+
+/**
+ * The vocabulary of an explicit decision. `because`, `instead of` and the Chinese
+ * equivalents are the load-bearing ones: they only appear when someone wrote down
+ * *why*, which is the whole product.
+ */
+const DECISION_PATTERNS: readonly DecisionPattern[] = [
+  { label: 'because', re: /because/i },
+  { label: 'instead of', re: /instead of/i },
+  { label: 'tradeoff', re: /trade-?offs?\b/i },
+  { label: 'we chose', re: /we (?:chose|choose|picked)/i },
+  { label: 'why not', re: /why not/i },
+  { label: 'workaround', re: /work-?around/i },
+  { label: 'deliberately', re: /deliberate(?:ly)?/i },
+  { label: '因为', re: /因为/ },
+  { label: '而不是', re: /而不是/ },
+  { label: '权衡', re: /权衡/ },
+  { label: '刻意', re: /刻意/ },
+]
+
+const GENERATED_MARKER = /do not edit|@generated|auto-?generated/i
+/** Only the first lines of a file can hold a header banner. */
+const HEADER_LINES = 10
+
+/**
+ * Lines of a generated header banner.
+ *
+ * A generated file announces itself in its preamble — the leading run of blank
+ * lines and comments, before the first line of code. The words in that banner
+ * describe a generator, not this project's reasoning, so every rule that reads
+ * comments skips those lines. A marker further down the file is just a comment and
+ * is not treated as a banner.
+ */
+function generatedHeaderLines(scan: Scan, lineCount: number): Set<number> {
+  const skip = new Set<number>()
+  if (scan.comments.length === 0) return skip
+
+  const commentLines = new Set<number>()
+  for (const comment of scan.comments) {
+    for (let line = comment.line; line <= comment.endLine; line += 1) commentLines.add(line)
+  }
+
+  const lines = lineCount === 0 ? 0 : lineCount
+  let preambleEnd = 0
+  for (let line = 1; line <= Math.min(lines, HEADER_LINES); line += 1) {
+    if (commentLines.has(line)) {
+      preambleEnd = line
+      continue
+    }
+    break
+  }
+  if (preambleEnd === 0) return skip
+
+  const banner = scan.comments.filter((comment) => comment.line <= preambleEnd)
+  if (!banner.some((comment) => GENERATED_MARKER.test(comment.text))) return skip
+  for (const comment of banner) {
+    for (let line = comment.line; line <= comment.endLine; line += 1) skip.add(line)
+  }
+  return skip
+}
+
+// --- rule: custom infrastructure -----------------------------------------
+
+/**
+ * What "a standard library already has this" looks like in a name.
+ *
+ * Matched per *word*, not against the raw name: `test_parse_rejects_empty`
+ * normalizes to `testparsereject…`, which contains `parser`, and a rule that reads
+ * names as one blob fires on a test function. Splitting on case and separators
+ * keeps `createSerializer`, `StateMachine` and `state_machine` while dropping
+ * that. The multi-word wheels are checked against the joined name because their
+ * halves are useless on their own — `machine` and `container` are everywhere.
+ */
+const COMPOUND_INFRA: readonly string[] = [
+  'statemachine',
+  'fsm',
+  'dicontainer',
+  'virtualdom',
+  'vdom',
+]
+
+const TOKEN_INFRA: readonly string[] = [
+  'scheduler',
+  'dispatcher',
+  'queue',
+  'pool',
+  'serializer',
+  'deserializer',
+  'parser',
+  'injector',
+  'lru',
+  'cache',
+  'interceptor',
+  'middleware',
+  'reconciler',
+  'bundler',
+]
+
+/** `createScheduler` and `create_scheduler` both yield `['create', 'scheduler']`. */
+function nameTokens(name: string): string[] {
+  return name
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .split(/[^A-Za-z0-9]+/)
+    .filter((token) => token.length > 0)
+    .map((token) => token.toLowerCase())
+}
+
+/** The wheel a declaration name names, or `null`. */
+function infraWord(name: string): string | null {
+  const joined = normalizeName(name)
+  for (const keyword of COMPOUND_INFRA) {
+    if (joined.includes(keyword)) return keyword
+  }
+  for (const token of nameTokens(name)) {
+    for (const keyword of TOKEN_INFRA) {
+      if (token.includes(keyword)) return keyword
+    }
+  }
+  return null
+}
+
+const JS_DECLARATION =
+  /(?:^|[^\w$.])(class|interface|function|type|enum|namespace|const|let|var)[ \t]+([A-Za-z_$][\w$]*)/g
+const PY_DECLARATION = /(?:^|[^\w.])(class|def)[ \t]+([A-Za-z_]\w*)/g
+const VALUE_BINDINGS: ReadonlySet<string> = new Set(['const', 'let', 'var'])
+
+/**
+ * An initializer that *defines* code: a function or class expression, an arrow, or
+ * an object literal. Deliberately excludes `new X(...)` and `createX(...)`: those
+ * are calls into somebody else's implementation, which is the difference between
+ * writing a cache and using one.
+ */
+const CODE_INITIALIZER = /^\s*(?:async\s+)?(?:function\b|class\b|\{|\(|[A-Za-z_$][\w$]*\s*=>)/
+
+function definesCode(code: string, from: number): boolean {
+  const rest = code.slice(from, Math.min(code.length, from + 400))
+  const lineEnd = rest.indexOf('\n')
+  const window = lineEnd === -1 ? rest : rest.slice(0, lineEnd)
+  const equals = window.indexOf('=')
+  if (equals === -1) return false
+  return CODE_INITIALIZER.test(window.slice(equals + 1))
+}
+
+/**
+ * Names this file borrowed from somewhere else, normalized.
+ *
+ * Read from the structure index when the file is indexed there, and from the
+ * file's own import statements otherwise. The file's own basename is removed: a
+ * module `src/queue.ts` that declares `class Queue` has not borrowed the name from
+ * its specifier `./queue-helpers`, and suppressing it would lose exactly the file
+ * the reader wants.
+ */
+function borrowedNames(
+  file: CanonicalFile,
+  family: Family,
+  structure: StructureIndex,
+  relativePath: string | null,
+): Set<string> {
+  const tokens = new Set<string>()
+  const add = (token: string): void => {
+    const normalized = normalizeName(token)
+    if (normalized.length > 1) tokens.add(normalized)
+  }
+  const addSpecifier = (specifier: string): void => {
+    for (const part of specifier.split(/[^A-Za-z0-9_$]+/)) add(part)
+    add(specifier.slice(specifier.lastIndexOf('/') + 1).replace(/\.[A-Za-z]+$/, ''))
+  }
+
+  if (relativePath !== null) {
+    const module = structure.modules.find((candidate) => candidate.path === relativePath)
+    for (const edge of module?.imports ?? []) addSpecifier(edge.specifier)
+  }
+
+  for (const match of matches(file.text, /^[ \t]*(?:import|export)\b([^'"\n]*?)\bfrom[ \t]*['"]([^'"\n]+)['"]/gm)) {
+    addSpecifier(match[2] as string)
+    for (const token of (match[1] as string).split(/[^A-Za-z0-9_$]+/)) add(token)
+  }
+  for (const match of matches(file.text, /^[ \t]*import[ \t]*['"]([^'"\n]+)['"]/gm)) {
+    addSpecifier(match[1] as string)
+  }
+  if (family === 'py') {
+    for (const match of matches(file.text, /^[ \t]*from[ \t]+([\w.]+)[ \t]+import[ \t]+([^\n]+)/gm)) {
+      addSpecifier(match[1] as string)
+      for (const token of (match[2] as string).split(/[^A-Za-z0-9_$]+/)) add(token)
+    }
+    for (const match of matches(file.text, /^[ \t]*import[ \t]+([\w.,\s]+)/gm)) {
+      for (const token of (match[1] as string).split(/[^A-Za-z0-9_$]+/)) add(token)
+    }
+  }
+
+  const own = (relativePath ?? file.path).slice((relativePath ?? file.path).lastIndexOf('/') + 1)
+  tokens.delete(normalizeName(own.replace(/\.[A-Za-z]+$/, '')))
+  return tokens
+}
+
+// --- rule: complexity -----------------------------------------------------
+
+/**
+ * Constructs that make a body hard rather than merely long. The list is short on
+ * purpose: `Atomic`, `Mutex`, `RwLock` and `unsafe` only occur in the analysed
+ * languages when a project wraps a real concurrency primitive, and a manual buffer
+ * is spelled three or four ways at most.
+ */
+const DANGER_PATTERNS: ReadonlyArray<{ label: string; re: RegExp }> = [
+  { label: 'unsafe', re: /\bunsafe\b/g },
+  { label: 'Atomic', re: /\bAtomic[A-Za-z]*\b/g },
+  { label: 'Mutex', re: /\bMutex\b/g },
+  { label: 'RwLock', re: /\bRwLock\b/g },
+  { label: 'synchronized', re: /\bsynchronized\b/g },
+  { label: 'buffer', re: /\bnew[ \t]+(?:Uint|Int)(?:8|16|32)Array[ \t]*\(/g },
+  { label: 'buffer', re: /\bnew[ \t]+(?:ArrayBuffer|DataView)[ \t]*\(/g },
+  { label: 'buffer', re: /\bBuffer[ \t]*\.[ \t]*allocUnsafe\b/g },
+  { label: 'buffer', re: /\bmemcpy[ \t]*\(/g },
+  { label: 'buffer', re: /\bmalloc[ \t]*\(/g },
+  { label: 'buffer', re: /\breinterpret_cast\b/g },
+]
+
+// --- rule: test-spec ------------------------------------------------------
+
+const TEST_DIRECTORY = /(?:^|\/)(?:tests?|__tests__|specs?)\//i
+const TEST_FILENAME = /(?:\.|[-_])(?:test|spec)\.[A-Za-z]+$/i
+const PY_TEST_FILENAME = /(?:^|\/)test_[^/]*\.py$/i
+
+/** A file is a test if its *path* says so; contents alone are not evidence. */
+function isTestFile(filePath: string): boolean {
+  const posix = filePath.split('\\').join('/')
+  if (TEST_DIRECTORY.test(posix)) return true
+  if (PY_TEST_FILENAME.test(posix)) return true
+  return TEST_FILENAME.test(posix)
+}
+
+const ASSERTION = /\bexpect[ \t]*\(|\bassert\w*\b|\bt[ \t]*\.[ \t]*(?:is|deepEqual|not|throws|snapshot)\b/g
+const FIXTURE_REFERENCE =
+  /\b(?:fixtures?|beforeeach|beforeall|mkdtemp\w*|seedfixtures?|testfixtures?|createfixture\w*)\b/gi
+const TEST_CALL = /^[ \t]*(?:it|test|specify)(?:\.\w+)*[ \t]*[(`]/gm
+
+// --- the scoring context --------------------------------------------------
+
+type FileContext = {
+  file: CanonicalFile
+  family: Family
+  scan: Scan
+  lines: string[]
+  newlines: number[]
+  blocks: BlockSpan[]
+  structure: StructureIndex
+  relativePath: string | null
+  generated: ReadonlySet<number>
+  borrowed: ReadonlySet<string>
+}
+
+type Hit = { kind: SignalKind; line: number; matched: string }
+
+const hit = (kind: SignalKind, line: number, label: string): Hit => ({
+  kind,
+  line,
+  matched: `${kind}:${label}`,
+})
+
+function decisionHits(context: FileContext): Hit[] {
+  const hits: Hit[] = []
+  const read = (span: Span): void => {
+    for (const pattern of DECISION_PATTERNS) {
+      if (pattern.re.test(span.text)) hits.push(hit('decision-trace', span.line, pattern.label))
+    }
+  }
+  for (const comment of context.scan.comments) {
+    if (context.generated.has(comment.line)) continue
+    read(comment)
+  }
+  for (const literal of context.scan.strings) read(literal)
+  return hits
+}
+
+function customInfraHits(context: FileContext): Hit[] {
+  const hits: Hit[] = []
+  const code = context.scan.code
+  const pattern = context.family === 'js' ? JS_DECLARATION : PY_DECLARATION
+  for (const match of matches(code, pattern)) {
+    const keyword = (match[1] as string).toLowerCase()
+    const name = match[2] as string
+    const word = infraWord(name)
+    if (word === null) continue
+    if (context.borrowed.has(normalizeName(name))) continue
+    if (VALUE_BINDINGS.has(keyword) && !definesCode(code, match.index + match[0].length)) continue
+    hits.push(hit('custom-infra', lineAt(context.newlines, match.index + match[0].lastIndexOf(name)), word))
+  }
+  return hits
+}
+
+function complexityHits(context: FileContext): Hit[] {
+  const hits: Hit[] = []
+  const code = context.scan.code
+  const spans =
+    context.family === 'js'
+      ? jsFunctionSpans(code, context.newlines)
+      : pythonFunctionSpans(context.file.text).map((span) => ({
+          startLine: span.startLine,
+          endLine: span.endLine,
+          nesting: span.nesting,
+        }))
+
+  for (const span of spans) {
+    if (span.endLine - span.startLine > LONG_FUNCTION_LINES) {
+      hits.push(hit('complexity', span.startLine, 'long-function'))
+    }
+    if (span.nesting > DEEP_NESTING) hits.push(hit('complexity', span.startLine, 'deep-nesting'))
+  }
+
+  for (const pattern of DANGER_PATTERNS) {
+    for (const match of matches(code, pattern.re)) {
+      hits.push(hit('complexity', lineAt(context.newlines, match.index), pattern.label))
+    }
+  }
+  return hits
+}
+
+function abstractionHits(context: FileContext): Hit[] {
+  const hits: Hit[] = []
+  const code = context.scan.code
+  let abstractish = 0
+  let concrete = 0
+
+  if (context.family === 'js') {
+    const interfaces = countMatches(code, /(?:^|[^\w$.])interface[ \t]+[A-Za-z_$][\w$]*/g)
+    const abstractClasses = countMatches(code, /(?:^|[^\w$.])abstract[ \t]+class[ \t]+[A-Za-z_$][\w$]*/g)
+    const classes = countMatches(code, /(?:^|[^\w$.])class[ \t]+[A-Za-z_$][\w$]*/g)
+    abstractish = interfaces + abstractClasses
+    concrete = Math.max(0, classes - abstractClasses)
+  } else {
+    const classes = countMatches(code, /^[ \t]*class[ \t]+[A-Za-z_]\w*/gm)
+    const abstractClasses = countMatches(
+      code,
+      /^[ \t]*class[ \t]+[A-Za-z_]\w*[ \t]*\([ \t]*(?:abc\.|typing\.)?(?:ABC|Protocol)\b/gm,
+    )
+    abstractish = abstractClasses
+    concrete = Math.max(0, classes - abstractClasses)
+  }
+
+  // A floor of two: one `interface Deps { … }` in a module with no classes is the
+  // normal shape of typed TypeScript, not abstraction concentration. Measured on a
+  // real repository, a bare `abstractish > concrete` fired on eight files whose
+  // only type-level declaration was the deps interface of a single function.
+  if (abstractish >= 2 && abstractish > concrete) {
+    hits.push(hit('abstraction', 1, 'interfaces-outnumber-classes'))
+  }
+
+  const relativePath = context.relativePath
+  if (relativePath !== null) {
+    const self = context.structure.modules.find((candidate) => candidate.path === relativePath)
+    if (self !== undefined && self.imports.length === 0) {
+      const importers = context.structure.modules.filter(
+        (candidate) =>
+          candidate.path !== relativePath &&
+          candidate.imports.some((edge) => edge.resolved === relativePath),
+      ).length
+      if (importers >= MIN_IMPORTERS) {
+        hits.push(hit('abstraction', 1, `imported-by-${importers}-importing-nothing`))
+      }
+    }
+  }
+  return hits
+}
+
+const EVOLUTION =
+  /\b(?:legacy|rewritten|deprecated|removed|superseded|migrat(?:e|es|ed|ing|ion)\w*)\b/gi
+
+function evolutionLabel(word: string): string {
+  const normalized = word.toLowerCase()
+  return normalized.startsWith('migrat') ? 'migrate' : normalized
+}
+
+function evolutionHits(context: FileContext): Hit[] {
+  const hits: Hit[] = []
+  for (const comment of context.scan.comments) {
+    if (context.generated.has(comment.line)) continue
+    for (const match of matches(comment.text, EVOLUTION)) {
+      hits.push(hit('evolution', comment.line, evolutionLabel(match[0])))
+    }
+  }
+  for (const match of matches(context.scan.code, EVOLUTION)) {
+    hits.push(hit('evolution', lineAt(context.newlines, match.index), evolutionLabel(match[0])))
+  }
+  return hits
+}
+
+function testSpecHits(context: FileContext): Hit[] {
+  if (!isTestFile(context.file.path)) return []
+  const hits: Hit[] = []
+  const code = context.scan.code
+
+  const count = (body: string, line: number): void => {
+    if (countMatches(body, ASSERTION) >= DENSE_ASSERTIONS) {
+      hits.push(hit('test-spec', line, 'assertion-density'))
+    }
+    if (countMatches(body, FIXTURE_REFERENCE) >= FIXTURE_REFERENCES) {
+      hits.push(hit('test-spec', line, 'fixture-heavy'))
+    }
+  }
+
+  if (context.family === 'py') {
+    for (const span of pythonFunctionSpans(context.file.text)) {
+      if (!span.name.startsWith('test_')) continue
+      count(context.lines.slice(span.startLine - 1, span.endLine).join('\n'), span.startLine)
+    }
+    return hits
+  }
+
+  for (const match of matches(code, TEST_CALL)) {
+    const open = code.indexOf('{', match.index)
+    const close = open === -1 ? -1 : matchBrace(code, open)
+    const end = close === -1 ? code.length : close + 1
+    count(code.slice(match.index, end), lineAt(context.newlines, match.index))
+  }
+  return hits
+}
+
+// --- assembly -------------------------------------------------------------
+
+function compareHits(a: Hit, b: Hit): number {
+  if (a.line !== b.line) return a.line - b.line
+  const rank = (KIND_RANK.get(a.kind) as number) - (KIND_RANK.get(b.kind) as number)
+  return rank !== 0 ? rank : byCodeUnit(a.matched, b.matched)
+}
+
+/**
+ * The path of `file` inside the tree the structure index describes, or `null`.
+ *
+ * `canonicalizeFile` hands back the absolute path it was given, while the index
+ * speaks in scope-relative paths, and this is the only place the two meet. The
+ * longest suffix wins: with two modules whose paths suffix-match, the more specific
+ * one is the one the file actually is.
+ */
+function relativePathOf(filePath: string, structure: StructureIndex): string | null {
+  const normalized = filePath.split('\\').join('/')
+  let best: string | null = null
+  for (const module of structure.modules) {
+    if (normalized !== module.path && !normalized.endsWith(`/${module.path}`)) continue
+    if (best === null || module.path.length > best.length) best = module.path
+  }
+  return best
+}
+
+function scoreHits(filePath: string, hits: readonly Hit[], blocks: readonly BlockSpan[]): Candidate[] {
+  const groups = new Map<number, Hit[]>()
+  const seen = new Set<string>()
+  for (const entry of hits) {
+    const key = `${entry.kind}|${entry.line}|${entry.matched}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const index = blockIndexAt(blocks, entry.line)
+    const group = groups.get(index)
+    if (group === undefined) groups.set(index, [entry])
+    else group.push(entry)
+  }
+
+  const candidates: Candidate[] = []
+  for (const group of groups.values()) {
+    group.sort(compareHits)
+    const kinds = new Set<SignalKind>()
+    let score = 0
+    for (const entry of group) {
+      if (kinds.has(entry.kind)) continue
+      kinds.add(entry.kind)
+      score += SIGNAL_WEIGHTS[entry.kind]
+    }
+    // The kind reported is the most valuable one that fired; on a tie the earliest
+    // hit wins, because that is where a reader would start reading.
+    const topWeight = Math.max(...[...kinds].map((kind) => SIGNAL_WEIGHTS[kind]))
+    const primary = group.find((entry) => SIGNAL_WEIGHTS[entry.kind] === topWeight) as Hit
+    const line = (group[0] as Hit).line
+    candidates.push({
+      id: `${filePath}:${line}:${primary.kind}`,
+      path: filePath,
+      line,
+      kind: primary.kind,
+      score,
+      // Labels repeat when the same rule fires several times inside one block; the
+      // reader is told which rules fired, not how many times.
+      matched: [...new Set(group.map((entry) => entry.matched))],
+    })
+  }
+
+  candidates.sort((a, b) => a.line - b.line || (KIND_RANK.get(a.kind) as number) - (KIND_RANK.get(b.kind) as number))
+  return candidates
+}
+
+function contextOf(file: CanonicalFile, structure: StructureIndex): FileContext | null {
+  const family = familyOf(file.path)
+  if (family === null) return null
+  if (file.text.trim() === '') return null
+  const scan = scanSource(file.text, family)
+  const relativePath = relativePathOf(file.path, structure)
+  return {
+    file,
+    family,
+    scan,
+    lines: file.text.split('\n'),
+    newlines: newlineOffsets(file.text),
+    blocks: family === 'js' ? jsBlocks(scan.code) : pyBlocks(file.text),
+    structure,
+    relativePath,
+    generated: generatedHeaderLines(scan, file.lineCount),
+    borrowed: borrowedNames(file, family, structure, relativePath),
+  }
+}
+
+/**
+ * Every candidate one file produces. Pure: same file, same index, same output, no
+ * I/O and no mutation, so each rule can be tested on a string.
+ */
+export function scoreFile(file: CanonicalFile, structure: StructureIndex): Candidate[] {
+  const context = contextOf(file, structure)
+  if (context === null) return []
+
+  const hits: Hit[] = [
+    ...decisionHits(context),
+    ...customInfraHits(context),
+    ...complexityHits(context),
+    ...abstractionHits(context),
+    ...evolutionHits(context),
+    ...testSpecHits(context),
+  ]
+  return scoreHits(file.path, hits, context.blocks)
+}
+
+// --- collection -----------------------------------------------------------
+
+const READ_CONCURRENCY = 8
+
+function resolveTopK(requested: number | undefined): number {
+  if (requested === undefined) return DEFAULT_TOP_K
+  if (!Number.isFinite(requested) || requested < 1) return DEFAULT_TOP_K
+  return Math.floor(requested)
+}
+
+/**
+ * Scores every file in `scope` and returns the `topK` most promising candidates.
+ *
+ * Paths are the scope's own (relative, posix) paths, because that is what a reader
+ * is shown and what evidence is validated against. A file that cannot be read any
+ * more is skipped rather than fatal: a scan of a live checkout must not die because
+ * a build ran underneath it.
+ */
+export async function collectSignals(
+  root: string,
+  scope: Scope,
+  structure: StructureIndex,
+  opts?: { topK?: number },
+): Promise<Candidate[]> {
+  const rootAbs = path.resolve(root)
+  const topK = resolveTopK(opts?.topK)
+  const entries: ScopeFile[] = scope.files.filter((file) => familyOf(file.path) !== null)
+  const perFile: Candidate[][] = entries.map(() => [])
+
+  let next = 0
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const index = next
+      next += 1
+      if (index >= entries.length) return
+      const entry = entries[index] as ScopeFile
+      try {
+        const canonical = await canonicalizeFile(path.join(rootAbs, entry.path))
+        perFile[index] = scoreFile(canonical, structure).map((candidate) => ({
+          ...candidate,
+          path: entry.path,
+          id: `${entry.path}:${candidate.line}:${candidate.kind}`,
+        }))
+      } catch {
+        perFile[index] = []
+      }
+    }
+  }
+
+  const workers = Math.min(READ_CONCURRENCY, entries.length)
+  await Promise.all(Array.from({ length: workers }, worker))
+
+  return perFile
+    .flat()
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        byCodeUnit(a.path, b.path) ||
+        a.line - b.line ||
+        (KIND_RANK.get(a.kind) as number) - (KIND_RANK.get(b.kind) as number),
+    )
+    .slice(0, topK)
+}
