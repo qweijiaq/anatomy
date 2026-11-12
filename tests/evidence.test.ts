@@ -58,6 +58,11 @@ const duplicated: string[] = ['export const dup = 1', 'function a() {', '  retur
 while (duplicated.length < 89) duplicated.push(`const filler${duplicated.length + 1} = 1`)
 duplicated.push('  return n * 2', '}')
 writeFileSync(path.join(root, 'dup.ts'), `${duplicated.join('\n')}\n`)
+// 16k copies of one two-line block: citing the last copy must not rescan the
+// whole prefix once per occurrence.
+const repeated: string[] = []
+for (let i = 0; i < 16_000; i += 1) repeated.push(`function r${i}() {`, '  return n * 2', '}')
+writeFileSync(path.join(root, 'repeat.ts'), `${repeated.join('\n')}\n`)
 // 1 `l1`, 2 `export function f() {`, 3 `  return 1`, 4 `}`, 5 `l5`.
 writeFileSync(path.join(root, 'newline.ts'), 'l1\nexport function f() {\n  return 1\n}\nl5\n')
 writeFileSync(path.join(outside, 'secret.ts'), 'export const secret = 1\n')
@@ -343,6 +348,26 @@ describe('validatePoints — evidence that holds up is kept', () => {
 
     expect(result.dropped).toEqual([])
     expect(result.kept[0]?.theirs.evidence.map((item) => item.startLine)).toEqual([3, 90])
+  })
+
+  it('reaches the last of many repeated snippets without quadratic rescanning', async () => {
+    const snippet = '  return n * 2\n}'
+    // 16k blocks of three lines: the final copy is on lines 47999..48000.
+    const startLine = 16_000 * 3 - 1
+
+    const began = Date.now()
+    const result = await validatePoints(
+      [withEvidence([ev({ path: 'repeat.ts', startLine, endLine: startLine + 1, snippet })])],
+      root,
+      'run1',
+    )
+    const elapsed = Date.now() - began
+
+    expect(result.dropped).toEqual([])
+    expect(result.kept[0]?.theirs.evidence[0]?.startLine).toBe(startLine)
+    // The incremental counter finds this in milliseconds; rescanning the prefix
+    // per occurrence takes seconds.
+    expect(elapsed).toBeLessThan(1500)
   })
 
   it('accepts the honest range of a snippet that starts with a newline', async () => {
@@ -698,6 +723,12 @@ describe('validatePoints — a scope bounds what can be cited', () => {
     )
 
     expect(result.kept).toHaveLength(1)
+  })
+
+  it('fails loudly when scope.root is a different directory', async () => {
+    await expect(
+      validatePoints([withEvidence([ev()])], root, 'run1', { ...scopeOf(['a.ts']), root: outside }),
+    ).rejects.toThrow(/scope\.root/)
   })
 })
 

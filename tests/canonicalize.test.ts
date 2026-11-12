@@ -8,7 +8,6 @@ import { afterAll, describe, expect, it } from 'vitest'
 import {
   canonicalizeFile,
   canonicalizeText,
-  lineRangeOfSnippet,
   offsetOfLine,
   readSlice,
 } from '../src/kernel/canonicalize.js'
@@ -121,32 +120,6 @@ describe('offsetOfLine', () => {
   it('throws RangeError out of range', () => {
     expect(() => offsetOfLine('a\nb', 5)).toThrow(RangeError)
     expect(() => offsetOfLine('a\nb', 0)).toThrow(RangeError)
-  })
-})
-
-describe('lineRangeOfSnippet', () => {
-  it('locates a snippet whose line had trailing whitespace', async () => {
-    const canonText = (await canonicalizeFile(trailingFixture)).text
-    expect(lineRangeOfSnippet(canonText, 'const x = 1')).toEqual({
-      startLine: 3,
-      endLine: 3,
-    })
-  })
-
-  it('returns null when the snippet is absent', () => {
-    expect(lineRangeOfSnippet('a\nb', 'nope')).toBeNull()
-  })
-
-  it('returns the range of the first match only', () => {
-    expect(lineRangeOfSnippet('x\nx\nx', 'x')).toEqual({ startLine: 1, endLine: 1 })
-  })
-
-  it('spans multiple lines for a multi-line snippet', () => {
-    expect(lineRangeOfSnippet('a\nb\nc\n', 'b\nc')).toEqual({ startLine: 2, endLine: 3 })
-  })
-
-  it('rejects an empty snippet', () => {
-    expect(lineRangeOfSnippet('a\nb', '')).toBeNull()
   })
 })
 

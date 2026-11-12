@@ -80,27 +80,20 @@ function isSubstantial(snippet: string): boolean {
   return dense.length >= MIN_SNIPPET_NON_WHITESPACE || ALNUM_RUN.test(dense)
 }
 
-/** 1-based number of the line that holds the character at `index`. */
-function lineOfIndex(text: string, index: number): number {
-  let line = 1
-  for (let at = text.indexOf('\n'); at !== -1 && at < index; at = text.indexOf('\n', at + 1)) {
-    line += 1
-  }
-  return line
-}
-
 /**
- * The line range a snippet occupies when it matches at `index`.
+ * The line range a snippet occupies when it matches at `index`, given the line
+ * that match starts on.
  *
  * A leading newline still belongs to the line it terminates and a trailing one
- * to the line it ends, so neither lengthens the range. The lines are counted
- * from the match offset itself rather than from the text before it: a match
- * that starts mid-line is on that line, not on the next one.
+ * to the line it ends, so neither lengthens the range. The start line is passed
+ * in because only the caller knows what it has already counted: a match that
+ * starts mid-line is on that line, not on the next one.
  */
 function rangeOfMatch(
   text: string,
   index: number,
   snippet: string,
+  startLine: number,
 ): { startLine: number; endLine: number } {
   const matched = text.slice(index, index + snippet.length)
   let newlines = 0
@@ -108,7 +101,6 @@ function rangeOfMatch(
     newlines += 1
   }
 
-  const startLine = lineOfIndex(text, index)
   const endLine = matched.endsWith('\n') ? startLine + newlines - 1 : startLine + newlines
   return { startLine, endLine: Math.max(startLine, endLine) }
 }
@@ -120,6 +112,10 @@ function rangeOfMatch(
  * wherever the model saw it: taking the first occurrence's range would drop an
  * honest citation of the second copy. The scan stops once an occurrence begins
  * after `end`: later ones can only be further away.
+ *
+ * The line counter is carried from one occurrence to the next. Recomputing it
+ * from offset 0 per occurrence is quadratic, and a repeated two-line block near
+ * the end of a large file is exactly the input this product is built for.
  */
 function rangeOfCitedOccurrence(
   text: string,
@@ -128,9 +124,18 @@ function rangeOfCitedOccurrence(
   end: number,
 ): { accepted: true } | { accepted: false; first: { startLine: number; endLine: number } | null } {
   let first: { startLine: number; endLine: number } | null = null
+  let line = 1
+  let scanned = 0
 
   for (let at = text.indexOf(snippet); at !== -1; at = text.indexOf(snippet, at + 1)) {
-    const range = rangeOfMatch(text, at, snippet)
+    // Count only the newlines since the previous occurrence, so every character
+    // of the file is visited at most once across the whole scan.
+    for (let nl = text.indexOf('\n', scanned); nl !== -1 && nl < at; nl = text.indexOf('\n', nl + 1)) {
+      line += 1
+    }
+    if (at > scanned) scanned = at
+
+    const range = rangeOfMatch(text, at, snippet, line)
     if (first === null) first = range
     if (range.startLine === start && range.endLine === end) return { accepted: true }
     if (range.startLine > end) break
@@ -258,6 +263,21 @@ async function createLookup(
 ): Promise<(evidencePath: string) => Promise<Lookup>> {
   const cache = new Map<string, Promise<Lookup>>()
   const realRoot = await realpath(root).catch(() => null)
+
+  // A scope is a second authority over the same tree, so a scope rooted
+  // elsewhere is a caller bug, not a filter: every path in it is spelled
+  // relative to a different directory, and silently treating that as "outside
+  // the scope" would drop every point and look like the model's fault.
+  if (scope !== undefined) {
+    const realScopeRoot = await realpath(scope.root).catch(() => null)
+    if (realRoot === null || realScopeRoot === null || realScopeRoot !== realRoot) {
+      throw new Error(
+        `anatomy: scope.root ${scope.root} does not resolve to the analysed root ${root}` +
+          ` (scope: ${realScopeRoot ?? 'unreadable'}, root: ${realRoot ?? 'unreadable'})`,
+      )
+    }
+  }
+
   const inScope =
     scope === undefined ? null : new Set(scope.files.map((file) => file.path))
 

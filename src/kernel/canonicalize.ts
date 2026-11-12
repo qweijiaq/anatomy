@@ -138,34 +138,6 @@ export function offsetOfLine(text: string, line: number): number {
 }
 
 /**
- * Range of the first occurrence of `snippet` in `fileText`, or `null`.
- * An empty snippet never locates anything: it would match at offset 0 and
- * produce meaningless evidence.
- */
-export function lineRangeOfSnippet(
-  fileText: string,
-  snippet: string,
-): { startLine: number; endLine: number } | null {
-  if (snippet.length === 0) return null
-  const index = fileText.indexOf(snippet)
-  if (index === -1) return null
-
-  const startLine = countLines(fileText.slice(0, index)) + 1
-
-  const matched = fileText.slice(index, index + snippet.length)
-  let newlines = 0
-  for (let i = matched.indexOf('\n'); i !== -1; i = matched.indexOf('\n', i + 1)) {
-    newlines += 1
-  }
-  // A snippet ending in a newline belongs to the previous line, not the next one.
-  const endLine = matched.endsWith('\n')
-    ? startLine + newlines - 1
-    : startLine + newlines
-
-  return { startLine, endLine: Math.max(startLine, endLine) }
-}
-
-/**
  * Reads lines `startLine..endLine` (1-based, inclusive in both ends) of the
  * canonical form of `absPath`.
  *
