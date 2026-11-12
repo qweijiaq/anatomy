@@ -95,8 +95,8 @@ const EXTENSION_LANGUAGES: ReadonlyMap<string, string> = new Map([
 ])
 
 /** Extension mapping for the languages this product actually reasons about. */
-export function detectLanguage(path: string): string | null {
-  const base = path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1)
+export function detectLanguage(filePath: string): string | null {
+  const base = filePath.slice(Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\')) + 1)
   const dot = base.lastIndexOf('.')
   if (dot <= 0) return null
   return EXTENSION_LANGUAGES.get(base.slice(dot + 1).toLowerCase()) ?? null
@@ -116,7 +116,23 @@ type IgnoreRule = {
   base: string
 }
 
-/** Translates a gitignore glob to a regex body. `*` stops at `/`, `**` does not. */
+/**
+ * Translates a gitignore glob to a regex body. `*` stops at `/`, `**` does not.
+ *
+ * Not supported, deliberately — this is a hand-written subset, not git's matcher:
+ *
+ * - `[...]` character classes are escaped literally, so `[Bb]in/` never matches.
+ * - `.git/info/exclude` and `core.excludesFile` (global) excludes are never read;
+ *   only `.gitignore` files are.
+ * - A `!` negation cannot re-include a file below a pruned directory, and escaped
+ *   spaces/backslashes mid-pattern are not interpreted.
+ *
+ * Every gap points the same way: a pattern we fail to understand matches less than
+ * git would, so the file is *kept*. Over-inclusion costs a little budget and the
+ * reader sees a file they might have skipped; silently dropping real source would
+ * hide the project's own design, which is the failure mode this module exists to
+ * prevent.
+ */
 function globToRegex(pattern: string): string {
   let out = ''
   let i = 0
@@ -169,12 +185,15 @@ function compileRule(line: string, base: string): IgnoreRule | null {
     dirOnly = true
     pattern = pattern.replace(/\/+$/, '')
   }
+
+  // Anchoring is decided *before* leading slashes are stripped: git treats a leading
+  // `/` exactly like an inner one — the pattern is pinned to the directory of the
+  // ignore file. Stripping first would turn `/lib` into the bare name `lib`, which
+  // matches at any depth and silently prunes `src/lib/`.
+  const anchored = pattern.startsWith('/') || pattern.includes('/')
   pattern = pattern.replace(/^\/+/, '')
   if (pattern === '') return null
 
-  // A pattern with an inner slash is anchored at the ignore file's directory;
-  // a bare name matches at any depth.
-  const anchored = pattern.includes('/')
   const body = globToRegex(pattern)
   const source = anchored ? `^${body}$` : `(?:^|/)${body}$`
 
@@ -201,25 +220,44 @@ async function readIgnoreFile(dirAbs: string, base: string): Promise<IgnoreRule[
 }
 
 /**
- * Last matching rule wins, which is what git does inside one file and across
- * nested files (rules are passed down parent-first).
- *
- * Known simplification: directories are pruned when ignored, so a negation
- * cannot re-include a file below an ignored directory. Git behaves the same way
- * unless the parent directory itself is un-ignored first.
+ * One rule applied to one path. `base` scopes the pattern to the directory that owns
+ * it; a rule from an outer directory does not see paths outside its own subtree.
  */
-function isIgnored(relPath: string, isDir: boolean, rules: readonly IgnoreRule[]): boolean {
+function matches(rule: IgnoreRule, relPath: string, isDir: boolean): boolean {
+  if (rule.dirOnly && !isDir) return false
+  const scoped =
+    rule.base === ''
+      ? relPath
+      : relPath.startsWith(`${rule.base}/`)
+        ? relPath.slice(rule.base.length + 1)
+        : null
+  if (scoped === null) return false
+  return rule.re.test(scoped)
+}
+
+/**
+ * Last matching rule wins, which is what git does inside one file.
+ *
+ * `rules` are the `.gitignore` rules in parent-first order; `extras` are the caller's
+ * `extraIgnore` patterns and are evaluated last, so an explicit exclusion beats any
+ * `.gitignore` negation — including one from a nested file.
+ *
+ * Known simplification: directories are pruned when ignored, so a negation cannot
+ * re-include a file below an ignored directory. Git behaves the same way unless the
+ * parent directory itself is un-ignored first.
+ */
+function isIgnored(
+  relPath: string,
+  isDir: boolean,
+  rules: readonly IgnoreRule[],
+  extras: readonly IgnoreRule[],
+): boolean {
   let ignored = false
   for (const rule of rules) {
-    if (rule.dirOnly && !isDir) continue
-    const scoped =
-      rule.base === ''
-        ? relPath
-        : relPath.startsWith(`${rule.base}/`)
-          ? relPath.slice(rule.base.length + 1)
-          : null
-    if (scoped === null) continue
-    if (rule.re.test(scoped)) ignored = !rule.negate
+    if (matches(rule, relPath, isDir)) ignored = !rule.negate
+  }
+  for (const rule of extras) {
+    if (matches(rule, relPath, isDir)) ignored = !rule.negate
   }
   return ignored
 }
@@ -320,6 +358,19 @@ export async function selectScope(root: string, opts: ScopeOptions = {}): Promis
   const limits: ScopeLimits = { ...DEFAULT_LIMITS, ...opts.limits }
   const startAbs = opts.subpath ? path.resolve(rootAbs, opts.subpath) : rootAbs
 
+  // A typo'd checkout, a file path, or an unreadable directory must not look like an
+  // empty repository: `{ files: [], excluded: [] }` reads as "nothing to analyse" and
+  // would be reported as a successful, empty scope.
+  let rootStat
+  try {
+    rootStat = await stat(rootAbs)
+  } catch {
+    throw new Error(`anatomy: root "${rootAbs}" does not exist`)
+  }
+  if (!rootStat.isDirectory()) {
+    throw new Error(`anatomy: root "${rootAbs}" is not a directory`)
+  }
+
   if (opts.subpath !== undefined) {
     if (!isInsideRoot(rootAbs, startAbs)) {
       throw new Error(`anatomy: subpath "${opts.subpath}" escapes the repository root`)
@@ -335,8 +386,9 @@ export async function selectScope(root: string, opts: ScopeOptions = {}): Promis
     }
   }
 
-  // Extra patterns behave like another .gitignore at the repository root, but
-  // they come last so an explicit user exclusion beats a `.gitignore` negation.
+  // Extra patterns behave like another .gitignore at the repository root, but they are
+  // kept in a separate list evaluated after every .gitignore (see `isIgnored`), so an
+  // explicit user exclusion beats a negation from any ignore file, nested included.
   const extraRules = (opts.extraIgnore ?? [])
     .map((pattern) => compileRule(pattern, ''))
     .filter((rule): rule is IgnoreRule => rule !== null)
@@ -345,7 +397,7 @@ export async function selectScope(root: string, opts: ScopeOptions = {}): Promis
 
   // Ignore files from the root down to the start directory still apply, each
   // resolved against the directory that owns it.
-  let inherited: IgnoreRule[] = [...(await readIgnoreFile(rootAbs, '')), ...extraRules]
+  let inherited: IgnoreRule[] = await readIgnoreFile(rootAbs, '')
   const startRel = toPosix(path.relative(rootAbs, startAbs))
   if (startRel !== '') {
     let currentAbs = rootAbs
@@ -361,8 +413,12 @@ export async function selectScope(root: string, opts: ScopeOptions = {}): Promis
     let entries
     try {
       entries = await readdir(dirAbs, { withFileTypes: true })
-    } catch {
-      return
+    } catch (error) {
+      // A directory that vanished between listing and reading is simply gone. Anything
+      // else (EACCES, EMFILE, ...) would delete a whole subtree from the scope without
+      // a count, so it has to surface instead of being read as an empty directory.
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+      throw error
     }
     entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
 
@@ -374,7 +430,7 @@ export async function selectScope(root: string, opts: ScopeOptions = {}): Promis
       const entryRel = dirRel === '' ? entry.name : `${dirRel}/${entry.name}`
 
       if (entry.isDirectory()) {
-        if (isIgnored(entryRel, true, rules)) {
+        if (isIgnored(entryRel, true, rules, extraRules)) {
           collectors.exclude('gitignore')
           continue
         }
@@ -390,7 +446,7 @@ export async function selectScope(root: string, opts: ScopeOptions = {}): Promis
 
       if (!entry.isFile()) continue
 
-      if (isIgnored(entryRel, false, rules)) {
+      if (isIgnored(entryRel, false, rules, extraRules)) {
         collectors.exclude('gitignore')
         continue
       }

@@ -1,0 +1,3 @@
+# Test doubles: every TypeScript file here is generated except keep.ts.
+*.ts
+!keep.ts

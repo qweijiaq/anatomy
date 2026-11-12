@@ -3,3 +3,5 @@ coverage/
 *.log
 !important.log
 src/ignored-by-git.ts
+# Anchored at the repository root only: src/scratch.ts must survive this.
+/scratch.ts

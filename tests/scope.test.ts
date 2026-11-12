@@ -82,11 +82,17 @@ describe('selectScope on the fixture repository', () => {
     expect(kept).toContain('important.log')
     // root .gitignore: trailing-slash-free anchored pattern.
     expect(kept).not.toContain('src/ignored-by-git.ts')
+    // root .gitignore: `/scratch.ts` is anchored at the repository root, so only the
+    // root-level file goes. Same-named files deeper down are real source and must
+    // survive; a matcher that strips the leading `/` first would prune them.
+    expect(kept).not.toContain('scratch.ts')
+    expect(kept).toContain('src/scratch.ts')
+    expect(kept).toContain('src/nested/deeper/scratch.ts')
     // src/nested/.gitignore holds `/scratch.ts`, anchored to src/nested only.
     expect(kept).not.toContain('src/nested/scratch.ts')
-    expect(kept).toContain('src/scratch.ts')
 
-    expect(reasonCount(scope, 'gitignore')).toBe(3)
+    // debug.log, src/ignored-by-git.ts, scratch.ts, src/nested/scratch.ts.
+    expect(reasonCount(scope, 'gitignore')).toBe(4)
   })
 
   it('drops binaries but not text fixtures, and drops large fixtures by size', async () => {
@@ -106,9 +112,9 @@ describe('selectScope on the fixture repository', () => {
     expect(scope.excluded.every((entry) => entry.count > 0)).toBe(true)
     const reasons = scope.excluded.map((entry) => entry.reason)
     expect(new Set(reasons).size).toBe(reasons.length)
-    // 19 files on disk: 10 kept + 9 excluded, none counted twice.
-    expect(scope.excluded.reduce((sum, entry) => sum + entry.count, 0)).toBe(9)
-    expect(scope.totals.files + 9).toBe(19)
+    // 23 files on disk: 13 kept + 10 excluded, none counted twice.
+    expect(scope.excluded.reduce((sum, entry) => sum + entry.count, 0)).toBe(10)
+    expect(scope.totals.files + 10).toBe(23)
   })
 
   it('keeps the project sources and buckets them by language', async () => {
@@ -121,11 +127,14 @@ describe('selectScope on the fixture repository', () => {
       'src/index.ts',
       'src/nested/.gitignore',
       'src/nested/deep.py',
+      'src/nested/deeper/scratch.ts',
       'src/scratch.ts',
       'src/util.ts',
+      'tests/deeper/.gitignore',
+      'tests/deeper/keep.ts',
       'tests/greet.test.ts',
     ])
-    expect(scope.byLanguage['ts']).toBe(4)
+    expect(scope.byLanguage['ts']).toBe(6)
     expect(scope.byLanguage['tsx']).toBe(1)
     expect(scope.byLanguage['py']).toBe(1)
     expect(scope.byLanguage['md']).toBeUndefined()
@@ -160,26 +169,54 @@ describe('selectScope on the fixture repository', () => {
 })
 
 describe('selectScope limits', () => {
-  it('fails fast on file count and names the dimension', async () => {
-    const attempt = selectScope(root, { limits: { maxFiles: 1, maxBytes: 1e9, maxLines: 1e9 } })
-    await expect(attempt).rejects.toMatchObject({ dimension: 'files', limit: 1 })
+  // Every limit test breaches on a candidate that is *not* the first one, and asserts
+  // `actual` — the progress the walk had made. A limitation checked only after a full
+  // traversal would report the final totals instead (and would be full-walk numbers
+  // far above the limit), so these tests cannot pass for such an implementation.
+
+  it('fails fast on file count, partway through the walk', async () => {
+    const full = await selectScope(root)
+    const limit = 6
+    // The 7th kept file is somewhere in the middle of the tree, after 6 kept files.
+    expect(full.totals.files).toBeGreaterThan(limit + 1)
+
+    const attempt = selectScope(root, { limits: { maxFiles: limit, maxBytes: 1e9, maxLines: 1e9 } })
+    await expect(attempt).rejects.toMatchObject({ dimension: 'files', limit, actual: limit + 1 })
     await expect(attempt).rejects.toBeInstanceOf(ScopeLimitError)
   })
 
-  it('fails fast on bytes', async () => {
+  it('fails fast on bytes, partway through the walk', async () => {
+    const full = await selectScope(root)
+    const breach = 3 // the 4th kept file in walk order
+    const before = full.files.slice(0, breach)
+    const prefixBytes = before.reduce((sum, file) => sum + file.bytes, 0)
+    const limit = prefixBytes + 1
+    const expected = prefixBytes + full.files[breach]!.bytes
+    // Breaching on the 4th file is only observable if the walk stopped there.
+    expect(full.totals.bytes).toBeGreaterThan(expected)
+
     await expect(
-      selectScope(root, { limits: { maxFiles: 1e9, maxBytes: 1, maxLines: 1e9 } }),
-    ).rejects.toMatchObject({ dimension: 'bytes', limit: 1 })
+      selectScope(root, { limits: { maxFiles: 1e9, maxBytes: limit, maxLines: 1e9 } }),
+    ).rejects.toMatchObject({ dimension: 'bytes', limit, actual: expected })
   })
 
-  it('fails fast on lines', async () => {
+  it('fails fast on lines, partway through the walk', async () => {
+    const full = await selectScope(root)
+    const breach = 3 // the 4th kept file in walk order
+    const before = full.files.slice(0, breach)
+    const prefixLines = before.reduce((sum, file) => sum + file.lines, 0)
+    const limit = prefixLines + 1
+    const expected = prefixLines + full.files[breach]!.lines
+    expect(full.files[breach]!.lines).toBeGreaterThan(1)
+    expect(full.totals.lines).toBeGreaterThan(expected)
+
     await expect(
-      selectScope(root, { limits: { maxFiles: 1e9, maxBytes: 1e9, maxLines: 1 } }),
-    ).rejects.toMatchObject({ dimension: 'lines', limit: 1 })
+      selectScope(root, { limits: { maxFiles: 1e9, maxBytes: 1e9, maxLines: limit } }),
+    ).rejects.toMatchObject({ dimension: 'lines', limit, actual: expected })
   })
 
   it('applies limits to the post-exclusion numbers', async () => {
-    // On disk this repository has 19 files; two excluded subtrees leave 3.
+    // On disk this repository has 23 files; two excluded subtrees leave 3.
     const scope = await selectScope(root, {
       limits: { maxFiles: 3, maxBytes: 1e9, maxLines: 1e9 },
       extraIgnore: ['src', 'tests'],
@@ -200,8 +237,26 @@ describe('selectScope options', () => {
 
   it('restricts the walk to subpath while keeping root-relative paths', async () => {
     const scope = await selectScope(root, { subpath: 'src/nested' })
-    expect(paths(scope).sort()).toStrictEqual(['src/nested/.gitignore', 'src/nested/deep.py'])
+    expect(paths(scope).sort()).toStrictEqual([
+      'src/nested/.gitignore',
+      'src/nested/deep.py',
+      'src/nested/deeper/scratch.ts',
+    ])
     expect(reasonCount(scope, 'gitignore')).toBe(1)
+  })
+
+  it('fails loudly on a root that does not exist', async () => {
+    const missing = path.join(root, 'does-not-exist-xyz')
+    const attempt = selectScope(missing)
+    await expect(attempt).rejects.toThrow(/anatomy: root/)
+    await expect(attempt).rejects.toThrow(/does-not-exist-xyz/)
+  })
+
+  it('fails loudly when the root is a file, not a directory', async () => {
+    const fileRoot = path.join(root, 'README.md')
+    const attempt = selectScope(fileRoot)
+    await expect(attempt).rejects.toThrow(/not a directory/)
+    await expect(attempt).rejects.toThrow(/README\.md/)
   })
 
   it('rejects a missing subpath with a message that says so', async () => {
@@ -218,12 +273,29 @@ describe('selectScope options', () => {
     expect(paths(scope)).not.toContain('important.log')
     expect(paths(scope)).not.toContain('src/util.ts')
     expect(paths(scope)).toContain('src/index.ts')
-    expect(reasonCount(scope, 'gitignore')).toBe(5)
+    expect(reasonCount(scope, 'gitignore')).toBe(6)
+  })
+
+  it('evaluates extraIgnore after every .gitignore, including nested negations', async () => {
+    // tests/deeper/.gitignore holds `*.ts` + `!keep.ts`, so keep.ts is kept by default.
+    expect(paths(await selectScope(root))).toContain('tests/deeper/keep.ts')
+
+    // The caller's exclusion is the last word: a nested `!` cannot re-include it.
+    const scope = await selectScope(root, { extraIgnore: ['*.ts'] })
+    expect(paths(scope)).not.toContain('tests/deeper/keep.ts')
+    expect(paths(scope)).not.toContain('src/index.ts')
   })
 })
 
 describe('gitignore pattern semantics', () => {
   const kept = async (extraIgnore: string[]) => paths(await selectScope(root, { extraIgnore }))
+
+  it('anchors a leading slash at the base directory, like an inner slash', async () => {
+    // `/src/*.ts` is the same anchored pattern as `src/*.ts`.
+    const files = await kept(['/src/*.ts'])
+    expect(files).not.toContain('src/index.ts')
+    expect(files).toContain('src/nested/deep.py')
+  })
 
   it('anchors patterns that contain a slash to the base directory', async () => {
     const files = await kept(['src/*.ts'])
