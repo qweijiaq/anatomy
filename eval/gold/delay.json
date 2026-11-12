@@ -1,0 +1,27 @@
+{
+  "repo": "https://github.com/sindresorhus/delay",
+  "ref": "6fce5d9d1c1789b1627c14f1293950004beea57c",
+  "sha": "6fce5d9d1c1789b1627c14f1293950004beea57c",
+  "provisional": false,
+  "note": "sha 是标注当日该仓库默认分支的真实提交；区间对着这个提交的源码逐个函数量过。",
+  "points": [
+    {
+      "path": "index.js",
+      "startLine": 4,
+      "endLine": 51,
+      "why": "createDelay 把 setTimeout/clearTimeout 做成可注入参数，于是同一份实现能派生出普通版本与被 unref 的安全版本"
+    },
+    {
+      "path": "index.js",
+      "startLine": 4,
+      "endLine": 4,
+      "why": "用 WeakMap 把每个 promise 的清理函数存起来，clearDelay 因此能在外部撤销一个等待，而 promise 上不留任何自有属性"
+    },
+    {
+      "path": "index.js",
+      "startLine": 57,
+      "endLine": 63,
+      "why": "对外暴露 createDelay / rangeDelay / clearDelay 三个入口而不是一个带开关的函数，把「构造」与「使用」分开"
+    }
+  ]
+}

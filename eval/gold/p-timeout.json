@@ -1,0 +1,27 @@
+{
+  "repo": "https://github.com/sindresorhus/p-timeout",
+  "ref": "4a2445f4e9b7cc5b1902cbc54ef55e210acafd45",
+  "sha": "4a2445f4e9b7cc5b1902cbc54ef55e210acafd45",
+  "provisional": false,
+  "note": "sha 是标注当日该仓库默认分支的真实提交；区间对着这个提交的源码逐个函数量过。",
+  "points": [
+    {
+      "path": "index.js",
+      "startLine": 30,
+      "endLine": 135,
+      "why": "把超时实现成「包一层 promise」，并在 settle 时同时清理定时器与 abort 监听，而不是依赖 Promise.race 的副作用"
+    },
+    {
+      "path": "index.js",
+      "startLine": 17,
+      "endLine": 18,
+      "why": "显式记录 setTimeout 的 32 位上限，避免超过 2**31-1 的毫秒数被静默截断成立即触发"
+    },
+    {
+      "path": "index.js",
+      "startLine": 13,
+      "endLine": 17,
+      "why": "getAbortedReason 用 `'reason' in signal` 判断 AbortSignal 是否带原因，兼容没有 reason 的老实现"
+    }
+  ]
+}

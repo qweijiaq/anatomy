@@ -1,0 +1,27 @@
+{
+  "repo": "https://github.com/unjs/destr",
+  "ref": "541b6f9aeada9fc30de9c5a7e086dbfc1c6fcdc7",
+  "sha": "541b6f9aeada9fc30de9c5a7e086dbfc1c6fcdc7",
+  "provisional": false,
+  "note": "sha 是标注当日该仓库默认分支的真实提交；区间对着这个提交的源码逐个函数量过。",
+  "points": [
+    {
+      "path": "src/index.ts",
+      "startLine": 32,
+      "endLine": 93,
+      "why": "先用一条正则判断字符串是否「看起来像 JSON」再决定要不要解析，避免对普通字符串付出解析代价"
+    },
+    {
+      "path": "src/index.ts",
+      "startLine": 10,
+      "endLine": 22,
+      "why": "用 JSON.parse 的 reviver 与两条原型污染正则，在解析阶段就丢掉 __proto__/constructor 键，而不是解析后再递归清理"
+    },
+    {
+      "path": "src/index.ts",
+      "startLine": 95,
+      "endLine": 99,
+      "why": "safeDestr 是 destr 的薄包装，把「出错即返回 null」与「出错即抛出」分成两个入口"
+    }
+  ]
+}

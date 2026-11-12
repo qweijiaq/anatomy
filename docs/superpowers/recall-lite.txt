@@ -1,51 +1,56 @@
+cachecontrol-adapter.json candidates  33  gold 3  hit 0  recall 0%
 debounce-fn.json         candidates   2  gold 4  hit 2  recall 50%
 defu.json                candidates   4  gold 3  hit 2  recall 67%
+delay.json               candidates   1  gold 3  hit 1  recall 33%
 dequal.json              candidates  12  gold 3  hit 2  recall 67%
+destr.json               candidates   0  gold 3  hit 0  recall 0%
 mitt.json                candidates   4  gold 3  hit 2  recall 67%
 ms.json                  candidates  13  gold 3  hit 2  recall 67%
 p-limit.json             candidates   2  gold 3  hit 1  recall 33%
 p-retry.json             candidates  22  gold 3  hit 1  recall 33%
+p-timeout.json           candidates   5  gold 3  hit 1  recall 33%
 quick-lru.json           candidates  21  gold 4  hit 4  recall 100%
-slugify.json              candidates   6  gold 3  hit 2  recall 67%
+slugify.json             candidates   6  gold 3  hit 2  recall 67%
 yocto-queue.json         candidates   7  gold 3  hit 3  recall 100%
-
-overall candidate recall: 21/32 = 66%
 
 这份数字是「候选召回」——内核有没有把候选放在金标认为重要的那几行上。它是召回的天花板：
 没有候选的地方，模型再强也产不出学习点。复现：`npm run eval:recall`（不需要任何模型凭据，
 全程离线读公开归档）。
 
-## 三次扩样本，三个数字，每个都比上一个低
+## 四次扩样本，四个数字，每次都更低
 
 | 金标规模 | 召回 |
 |---|---|
 | 3 个仓库 / 10 个点 | 90% |
 | 5 个仓库 / 17 个点 | 76% |
-| **10 个仓库 / 32 个点** | **66%** |
+| 10 个仓库 / 32 个点 | 66% |
+| **14 个仓库 / 44 个点** | **52%** |
 
-90% 那个数字是假的：我最初挑的三个仓库（quick-lru、yocto-queue、ms）都是「手写数据结构」，
-正好是规则的舒适区。**用同类的仓库调规则，等于在训练集上调参。** 每次把样本翻一倍，
-数字就掉一截——这才是真实水平。
+90% 那个是假的：最初挑的三个仓库都是「手写数据结构」，正好是规则的舒适区。**用同类的仓库调规则，
+等于在训练集上调参。** 每翻一倍样本，数字就掉一截——这才是真实水平。
 
-## 扩样本后的规则修正（都是结构性模式，不是单仓库的惯用法）
+## 两种不同的失败，不能用同一条规则解决
+
+**一、检测不到（destr，0 候选）**：`src/index.ts` 99 行、全是设计，却一个候选都没有。原因是它的
+决策是「用一条正则先判断字符串像不像 JSON，再决定要不要解析」——既没有轮子词，也没有 60 行以上的
+函数（`destr` 恰好 61 行，差一行没到阈值），没有注释关键词。这类「一处判断」的决策，现有规则天生看不见。
+
+**二、位置错（cachecontrol，33 个候选、0 命中）**：Python 侧有候选，但落在 `adapter.py:29`（构造函数），
+而金标说的是 `send`（50-78）与 `build_response`（80-167）。候选有，但没落在决策上——这类失败更隐蔽，
+因为报告看起来有内容。
+
+## 已经加过的结构性规则（都不是单仓库惯用法）
 
 | 规则 | 依据 |
 |---|---|
-| 自递归函数算 complexity | 终止条件与路径记录都写在递归里（defu 的 namespace 数组、dequal 的嵌套比较）；长度和嵌套都看不见它，因为函数体短而平 |
-| 返回函数的函数算 abstraction | 用闭包配置行为：`makeRetriable` 烘焙一套重试策略，`createDefu(merger)` 用同一份递归派生出三种合并语义；函数体只有两行和一个 return |
-
-两条都让 defu 从 0/3 到 2/3、p-retry 从 0/3 到 1/3，同时 dequal 保持 2/3。
-
-## 现在最差的三个
-
-- **p-retry 1/3**：`calculateDelay`（指数退避 + 溢出上限）、`delayForRetry`（可中断等待）都没有候选。
-  该文件目前产生的候选大多来自注释里的 `because`，而不是函数本身——说明「解释性注释」这条规则
-  比「结构」更容易触发，占了本该属于设计的位子。
-- **p-limit 1/3**：`enqueue` 里「把 promise 的 internalResolve 存进队列项」这种解耦，名字里没有
-  queue/limit 之外的信息。
-- **debounce-fn 2/4**：前缘/后缘用标志位表达，以及执行前先抓参数快照。
+| 自递归函数 | 终止条件与路径记录写在递归里（defu 的 namespace 数组、dequal 的嵌套比较），长度与嵌套都看不见 |
+| 返回函数的函数 | 用闭包配置行为（`makeRetriable` 烘焙策略、`createDefu(merger)` 派生三种语义），函数体只有两行 |
+| 重载签名 | `ms(number)` 格式化、`ms(string)` 解析，声明里没有代码 |
+| 派发前快照 | `handlers.slice().map(...)`，回调可在派发中注销自己 |
+| 轮子类的成员 | 被识别为轮子的类，其普通命名的方法也是位点（按方法体大小取，每类至多 10 个） |
 
 ## 下一步的门槛
 
-再有新规则，必须先让金标到 **20 个仓库 / 60 个点以上**。现在每条规则都能找到「为什么该加」的例子，
+再有新规则，金标必须先到 **20 个仓库 / 60 个点**。现在每条规则都能找到「为什么该加」的例子，
 但找不到「它在别处不制造噪音」的证据——而后者才是一条扫描规则值不值得存在的判据。
+52% 这个数字本身就是那个证据：规则能触发，不等于它在抓该抓的东西。

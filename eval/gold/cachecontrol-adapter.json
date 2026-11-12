@@ -1,0 +1,27 @@
+{
+  "repo": "https://github.com/psf/cachecontrol",
+  "ref": "e57bdcd7b811811a9ad915e3269e2046c5417bc6",
+  "sha": "e57bdcd7b811811a9ad915e3269e2046c5417bc6",
+  "provisional": false,
+  "note": "sha 是标注当日该仓库默认分支的真实提交；区间对着这个提交的源码逐个函数量过。",
+  "points": [
+    {
+      "path": "cachecontrol/adapter.py",
+      "startLine": 50,
+      "endLine": 78,
+      "why": "send 里先查缓存再决定是否走网络，并把「缓存未命中」与「需要重新验证」两条路径分开处理，而不是在响应回来之后才判断"
+    },
+    {
+      "path": "cachecontrol/adapter.py",
+      "startLine": 80,
+      "endLine": 167,
+      "why": "build_response 把缓存条目重建成一个完整的 urllib3 Response，使调用方完全感知不到响应来自缓存"
+    },
+    {
+      "path": "cachecontrol/_cmd.py",
+      "startLine": 28,
+      "endLine": 37,
+      "why": "get_session 统一装配适配器与重试，把「怎么装」与「装什么」分开，命令行只拿一个已配置好的 session"
+    }
+  ]
+}
