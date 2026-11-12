@@ -1,13 +1,34 @@
-import { statSync } from 'node:fs'
+import { cpSync, mkdirSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 
 import { canonicalizeFile } from '../src/kernel/canonicalize.js'
 import { detectLanguage, ScopeLimitError, selectScope } from '../src/kernel/scope.js'
+import { cleanupTemporaryDirs, temporaryDir } from './helpers/run-fixture.js'
 
-const root = fileURLToPath(new URL('./fixtures/repo-small/', import.meta.url)).replace(/\/$/, '')
+const fixtureRoot = fileURLToPath(new URL('./fixtures/repo-small/', import.meta.url)).replace(
+  /\/$/,
+  '',
+)
+
+/**
+ * The scope is measured against a copy of the fixture repository with one
+ * generated large file in it.
+ *
+ * The `large-fixture` rule needs a file over 1 MiB, and committing that blob
+ * would put the only megabyte-sized binary in this repository for the sake of a
+ * single threshold. Generating it at test time keeps the rule exercised and the
+ * repository free of it.
+ */
+const root = temporaryDir('ana-scope-')
+afterAll(cleanupTemporaryDirs)
+cpSync(fixtureRoot, root, { recursive: true })
+mkdirSync(path.join(root, 'tests', 'fixtures'), { recursive: true })
+// Text, not zeros: a NUL-filled file would trip the binary rule first and the
+// `large-fixture` case would go untested.
+writeFileSync(path.join(root, 'tests', 'fixtures', 'big.bin'), Buffer.alloc(1_210_000, 'x'))
 
 const reasonCount = (scope: Awaited<ReturnType<typeof selectScope>>, reason: string) =>
   scope.excluded.find((entry) => entry.reason === reason)?.count ?? 0
