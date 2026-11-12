@@ -107,6 +107,20 @@ describe('Run artifacts', () => {
     await expect(run.write('undef', undefined)).rejects.toThrow(/serialis/)
     expect(await exists(path.join(run.dir, 'undef.json'))).toBe(false)
   })
+
+  // `JSON.stringify` turns NaN and ±Infinity into `null`, which would persist a
+  // score as `null` and read back as if the pipeline had produced nothing.
+  it('refuses to persist a non-finite number instead of writing null', async () => {
+    const run = await openRun(await tempDir(), manifest)
+
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      await expect(run.write('points', { score: bad })).rejects.toThrow(/non-finite/)
+    }
+    expect(await exists(path.join(run.dir, 'points.json'))).toBe(false)
+
+    await run.write('points', { score: 1 })
+    expect(await run.read('points')).toStrictEqual({ score: 1 })
+  })
 })
 
 describe('closeRun', () => {
@@ -119,6 +133,22 @@ describe('closeRun', () => {
     expect(await exists(run.treeDir)).toBe(false)
     expect(await run.read('manifest')).toStrictEqual(manifest)
     expect(await exists(path.join(run.dir, 'manifest.json'))).toBe(true)
+  })
+
+  it('refuses to delete a treeDir that is not <dir>/tree', async () => {
+    const run = await openRun(await tempDir(), manifest)
+    await writeFile(path.join(run.treeDir, 'src.ts'), 'export {}\n', 'utf8')
+    const outside = await tempDir()
+    await writeFile(path.join(outside, 'keep.txt'), 'keep\n', 'utf8')
+
+    await expect(closeRun({ ...run, treeDir: outside })).rejects.toThrow(/refusing to delete/)
+    await expect(
+      closeRun({ ...run, treeDir: path.join(run.dir, 'manifest.json') }),
+    ).rejects.toThrow(/refusing to delete/)
+
+    expect(await exists(path.join(outside, 'keep.txt'))).toBe(true)
+    expect(await readFile(path.join(run.dir, 'manifest.json'), 'utf8')).toContain(manifest.runId)
+    expect(await exists(path.join(run.treeDir, 'src.ts'))).toBe(true)
   })
 
   it('keeps tree/ when asked, and is safe to call twice', async () => {

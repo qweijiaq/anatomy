@@ -22,6 +22,7 @@
  */
 
 import { createHash } from 'node:crypto'
+import { createReadStream } from 'node:fs'
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { gunzipSync } from 'node:zlib'
@@ -29,10 +30,20 @@ import { gunzipSync } from 'node:zlib'
 /** The global `fetch`, injectable so tests never touch the network. */
 export type FetchLike = typeof fetch
 
+/**
+ * Ceiling on the bytes one archive may cost: the download, the raw file, and
+ * the inflated output are each bounded by it. 512 MiB is far above any source
+ * tree anatomy is meant to read and far below what would exhaust the process,
+ * which is the point: a few-KB gzip bomb must fail, not allocate.
+ */
+const DEFAULT_MAX_BYTES = 512 * 1024 * 1024
+
 export type AcquireDeps = {
   fetchImpl?: FetchLike
   /** Only for the `HEAD@<date>` fallback; injected so tests are deterministic. */
   now?: () => Date
+  /** Archive byte ceiling for `downloadArchive`. Defaults to 512 MiB. */
+  maxBytes?: number
 }
 
 export type ResolvedSource = {
@@ -50,6 +61,8 @@ export type ResolvedSource = {
 }
 
 // --- source resolution ----------------------------------------------------
+
+const GITHUB_HOST = /^(?:https?:\/\/)?(?:www\.)?github\.com\//
 
 const GITHUB_URL =
   /^(?:https?:\/\/)?(?:www\.)?github\.com\/([^/\s]+)\/([^/\s]+)(?:\/tree\/([^/\s]+)(?:\/(.+?))?)?\/?$/
@@ -121,6 +134,16 @@ export async function resolveSource(
   const fallbackRef = `HEAD@${isoDate(deps.now?.() ?? new Date())}`
   const github = parseGithubUrl(trimmed)
 
+  if (github === null && GITHUB_HOST.test(trimmed)) {
+    // github.com also hosts issues, pull requests and file views; treating
+    // those as tarball URLs would download an HTML page and call it a source.
+    throw new Error(
+      `anatomy: cannot parse GitHub URL "${trimmed}" (accepted forms: ` +
+        'https://github.com/<owner>/<repo> and ' +
+        'https://github.com/<owner>/<repo>/tree/<ref>/<path>)',
+    )
+  }
+
   if (github !== null) {
     const { owner, repo, subpath } = github
     const explicit = opts.ref ?? github.ref
@@ -161,7 +184,9 @@ export async function resolveSource(
     return {
       kind: 'local',
       path: absolute,
-      ref: opts.ref ?? fallbackRef,
+      // A directory has no commit to name, and a date here would mint a new run
+      // id every midnight for byte-identical input: 'local' is constant.
+      ref: opts.ref ?? 'local',
       sha: await hashTree(absolute),
       subpath: '',
     }
@@ -173,28 +198,70 @@ export async function resolveSource(
 }
 
 /**
- * sha256 over the tree's shape: every regular file's repo-relative path and
- * size, sorted. Content hashes would be stronger but cost a read per file;
- * paths plus sizes already change whenever the tree changes meaningfully, and a
- * symlink is deliberately not followed (it can point out of the tree).
+ * sha256 over the tree's contents: per regular file, `path\0len\0content`,
+ * files walked in sorted path order. Content, not shape — two trees whose files
+ * merely have the same lengths (`const a = 1` rewritten as `const a = 2`) are
+ * different snapshots, and reusing the previous run's artifacts for them is
+ * silently wrong. Files are streamed, so one large file is not read into memory.
+ * A symlink is deliberately not followed: it can point out of the tree.
  */
 async function hashTree(root: string): Promise<string> {
-  const lines: string[] = []
+  const files: Array<{ relative: string; absolute: string }> = []
   const walk = async (dir: string, prefix: string): Promise<void> => {
     const dirents = await readdir(dir, { withFileTypes: true })
     for (const dirent of dirents.sort((a, b) => (a.name < b.name ? -1 : 1))) {
-      const abs = path.join(dir, dirent.name)
+      const absolute = path.join(dir, dirent.name)
       const relative = prefix === '' ? dirent.name : `${prefix}/${dirent.name}`
       if (dirent.isDirectory()) {
-        await walk(abs, relative)
+        await walk(absolute, relative)
       } else if (dirent.isFile()) {
-        lines.push(`${relative}\0${(await stat(abs)).size}`)
+        files.push({ relative, absolute })
       }
     }
   }
   await walk(root, '')
-  lines.sort()
-  return sha256(lines.join('\n'))
+
+  const digest = createHash('sha256')
+  files.sort((a, b) => (a.relative < b.relative ? -1 : 1))
+  for (const file of files) {
+    digest.update(`${file.relative}\0${(await stat(file.absolute)).size}\0`)
+    for await (const chunk of createReadStream(file.absolute)) {
+      digest.update(chunk as Buffer)
+    }
+  }
+  return digest.digest('hex')
+}
+
+/**
+ * Reads a response body, refusing rather than buffering once it passes `max`.
+ *
+ * Both the declared `content-length` and the bytes actually arriving are
+ * checked: a server may declare nothing, or lie about what it declares, so the
+ * only trustworthy number is the running total.
+ */
+async function readBoundedBody(
+  response: Response,
+  max: number,
+  what: 'download' | 'decompressed archive',
+): Promise<Buffer> {
+  const limit = `anatomy: ${what} exceeds the ${max}-byte limit`
+  const declared = Number(response.headers.get('content-length') ?? Number.NaN)
+  if (Number.isFinite(declared) && declared > max) throw new Error(limit)
+
+  const body = response.body as unknown as AsyncIterable<Uint8Array> | null
+  if (body === null) {
+    const bytes = Buffer.from(await response.arrayBuffer())
+    if (bytes.length > max) throw new Error(limit)
+    return bytes
+  }
+  const chunks: Buffer[] = []
+  let total = 0
+  for await (const chunk of body) {
+    total += chunk.length
+    if (total > max) throw new Error(limit)
+    chunks.push(Buffer.from(chunk))
+  }
+  return Buffer.concat(chunks)
 }
 
 /** Fetches the tarball `source` points at and returns the digest of what arrived. */
@@ -211,7 +278,7 @@ export async function downloadArchive(
   if (!response.ok) {
     throw new Error(`anatomy: download failed (${response.status}) for ${source.url}`)
   }
-  const bytes = Buffer.from(await response.arrayBuffer())
+  const bytes = await readBoundedBody(response, deps.maxBytes ?? DEFAULT_MAX_BYTES, 'download')
   await mkdir(path.dirname(destFile), { recursive: true })
   await writeFile(destFile, bytes)
   return { sha: sha256(bytes), bytes: bytes.length }
@@ -232,13 +299,20 @@ function stableJson(value: unknown): string {
   return JSON.stringify(value) ?? 'null'
 }
 
-/** Identity of an analysis: same commit, same subpath, same engine, same run. */
+/**
+ * Identity of an analysis: same commit, same subpath, same engine, same run.
+ *
+ * `sha` must be the digest of the downloaded (or hashed local) snapshot. An
+ * empty one would give every archive source the same run directory, so it is
+ * refused instead of silently aliasing snapshots together.
+ */
 export function deriveRunId(input: {
   sha: string
   ref: string
   subpath: string
   engineVersion: string
 }): string {
+  if (input.sha === '') throw new Error('anatomy: run id needs the downloaded sha')
   return sha256(stableJson(input)).slice(0, 12)
 }
 
@@ -263,15 +337,24 @@ const unsafe = (name: string, reason: string): Error =>
  *
  * The archive is parsed and validated into a plan before the first write, so a
  * rejection leaves `destDir` empty even when the offending entry comes last.
+ * Every byte that arrives is bounded by `opts.maxBytes` (raw input, inflated
+ * output), and `destDir` itself must be empty: a run directory is only ever
+ * extracted into once, and leftovers from an earlier attempt would mix two
+ * trees into one run.
  */
 export async function extractTarSafe(
   archivePath: string,
   destDir: string,
+  opts: { maxBytes?: number } = {},
 ): Promise<{ entries: number; bytes: number }> {
+  const max = opts.maxBytes ?? DEFAULT_MAX_BYTES
   const raw = await readFile(archivePath)
-  const bytes = isGzip(raw) ? gunzipSync(raw) : raw
+  if (raw.length > max) throw new Error(`anatomy: archive input exceeds the ${max}-byte limit`)
+  const bytes = isGzip(raw) ? inflate(raw, max) : raw
+
   const root = path.resolve(destDir)
   await mkdir(root, { recursive: true })
+  if ((await readdir(root)).length > 0) throw new Error('anatomy: destination is not empty')
 
   const plan = planEntries(bytes, root)
   let written = 0
@@ -285,6 +368,18 @@ export async function extractTarSafe(
     written += entry.data.length
   }
   return { entries: plan.length, bytes: written }
+}
+
+/** `gunzipSync` with an output ceiling, so a bomb fails instead of allocating. */
+function inflate(raw: Buffer, max: number): Buffer {
+  try {
+    return gunzipSync(raw, { maxOutputLength: max })
+  } catch (error) {
+    const tooLarge =
+      error instanceof RangeError || (error as { code?: unknown }).code === 'ERR_BUFFER_TOO_LARGE'
+    if (!tooLarge) throw error
+    throw new Error(`anatomy: decompressed archive exceeds the ${max}-byte limit`)
+  }
 }
 
 const isGzip = (bytes: Buffer): boolean => bytes[0] === 0x1f && bytes[1] === 0x8b
@@ -318,10 +413,14 @@ function entryName(header: Buffer): string {
   return prefix === '' ? name : `${prefix}/${name}`
 }
 
-/** pax record payload -> `path` value, if the extended header carries one. */
-function paxPath(body: Buffer): string | null {
-  const text = body.toString('utf8')
-  let rest = text
+/**
+ * pax extended header payload -> its records (`"<length> <key>=<value>\n"` per
+ * record, `<length>` counting the whole record). `path` and `size` are the two
+ * the extractor honours; the rest are carried so they can be refused by name.
+ */
+function paxRecords(body: Buffer): Map<string, string> {
+  const records = new Map<string, string>()
+  let rest = body.toString('utf8')
   while (rest.length > 0) {
     const space = rest.indexOf(' ')
     if (space === -1) break
@@ -329,10 +428,10 @@ function paxPath(body: Buffer): string | null {
     if (!Number.isFinite(length) || length <= 0 || length > rest.length) break
     const record = rest.slice(space + 1, length - 1) // drop the trailing \n
     const equals = record.indexOf('=')
-    if (equals !== -1 && record.slice(0, equals) === 'path') return record.slice(equals + 1)
+    if (equals !== -1) records.set(record.slice(0, equals), record.slice(equals + 1))
     rest = rest.slice(length)
   }
-  return null
+  return records
 }
 
 /**
@@ -359,19 +458,34 @@ function planEntries(bytes: Buffer, root: string): PlannedEntry[] {
   const plan: PlannedEntry[] = []
   /** Set by a GNU `L` entry or a pax `path` record; applies to the next entry. */
   let overrideName: string | null = null
+  /** Set by a pax `size` record: some archivers leave the header size at 0. */
+  let overrideSize: number | null = null
+  /** A well-formed archive ends with two zero blocks; without them it is cut. */
+  let terminated = false
   let offset = 0
 
   while (offset + BLOCK <= bytes.length) {
     const header = bytes.subarray(offset, offset + BLOCK)
-    if (isZeroBlock(header)) break
+    if (isZeroBlock(header)) {
+      const second = bytes.subarray(offset + BLOCK, offset + 2 * BLOCK)
+      if (second.length < BLOCK || !isZeroBlock(second)) {
+        throw new Error('anatomy: truncated tar archive')
+      }
+      terminated = true
+      break
+    }
 
-    const size = readSize(header)
+    const typeflag = String.fromCharCode(header[156] ?? 0)
+    const metadata = typeflag === 'L' || typeflag === 'K' || typeflag === 'x' || typeflag === 'g'
+    // Metadata headers carry their own payload; only a real entry takes the
+    // size a preceding pax record announced.
+    const size = metadata ? readSize(header) : (overrideSize ?? readSize(header))
+
     const bodyStart = offset + BLOCK
     const bodyEnd = bodyStart + size
     if (bodyEnd > bytes.length) throw new Error('anatomy: truncated tar archive')
     const body = bytes.subarray(bodyStart, bodyEnd)
     offset = bodyStart + Math.ceil(size / BLOCK) * BLOCK
-    const typeflag = String.fromCharCode(header[156] ?? 0)
 
     // Metadata entries describe the next real entry; they are never extracted.
     if (typeflag === 'L') {
@@ -380,14 +494,35 @@ function planEntries(bytes: Buffer, root: string): PlannedEntry[] {
     }
     if (typeflag === 'K') continue // long link name: the link itself is refused below
     if (typeflag === 'x' || typeflag === 'g') {
-      const paxName = typeflag === 'x' ? paxPath(body) : null
-      if (paxName !== null) overrideName = paxName
+      const records = paxRecords(body)
+      for (const key of records.keys()) {
+        // A sparse entry stores its holes as metadata and only the data blocks
+        // in the body, so it would be written as a short, silently wrong file.
+        if (key.startsWith('GNU.sparse.')) {
+          throw new Error('anatomy: sparse tar entries are not supported')
+        }
+      }
+      if (typeflag === 'x') {
+        const paxName = records.get('path')
+        if (paxName !== undefined) overrideName = paxName
+        const paxSize = records.get('size')
+        if (paxSize !== undefined) {
+          if (!/^[0-9]+$/.test(paxSize)) {
+            throw new Error(`anatomy: malformed pax size record "${paxSize}"`)
+          }
+          overrideSize = Number.parseInt(paxSize, 10)
+        }
+      }
       continue
     }
 
     const headerName = overrideName ?? entryName(header)
     overrideName = null
+    overrideSize = null
+    // `tar -cf x.tar .` starts with an entry named './' naming the destination
+    // itself: strip the prefix, and skip what strips down to nothing.
     const name = headerName.startsWith('./') ? headerName.slice(2) : headerName
+    if (name === '' || name === '.') continue
     const target = safeTarget(name, root)
 
     if (typeflag === '5') {
@@ -411,5 +546,7 @@ function planEntries(bytes: Buffer, root: string): PlannedEntry[] {
     throw unsafe(name, reason)
   }
 
+  if (!terminated) throw new Error('anatomy: truncated tar archive')
+  if (plan.length === 0) throw new Error('anatomy: tar archive contains no entries')
   return plan
 }

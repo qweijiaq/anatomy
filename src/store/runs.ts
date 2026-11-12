@@ -43,6 +43,23 @@ function artifactPath(dir: string, name: string): string {
   return path.join(dir, `${name}.json`)
 }
 
+/**
+ * A `JSON.stringify` replacer that refuses `NaN`/`±Infinity` instead of letting
+ * JSON turn them into `null`: a persisted `null` score reads back as "the
+ * pipeline produced nothing", which is a different and undetectable fact.
+ */
+function nonFiniteNumbers(name: string): (key: string, value: unknown) => unknown {
+  return (key, value) => {
+    if (typeof value === 'number' && !Number.isFinite(value)) {
+      throw new Error(
+        `anatomy: artifact "${name}" is not JSON-serialisable ` +
+          `(non-finite number at "${key}": ${String(value)})`,
+      )
+    }
+    return value
+  }
+}
+
 function isNotFound(error: unknown): boolean {
   return (
     typeof error === 'object' &&
@@ -68,7 +85,7 @@ export async function openRun(baseDir: string, manifest: RunManifest): Promise<R
     treeDir,
     async write(name: string, value: unknown): Promise<void> {
       const target = artifactPath(dir, name)
-      const text = JSON.stringify(value, null, 2)
+      const text = JSON.stringify(value, nonFiniteNumbers(name), 2)
       if (text === undefined) {
         throw new Error(`anatomy: artifact "${name}" is not JSON-serialisable`)
       }
@@ -105,5 +122,11 @@ export async function openRun(baseDir: string, manifest: RunManifest): Promise<R
 /** End of a run: drop the extracted tree unless asked to keep it. */
 export async function closeRun(run: Run, opts: { keepTree?: boolean } = {}): Promise<void> {
   if (opts.keepTree === true) return
+  const expected = path.join(path.resolve(run.dir), 'tree')
+  if (path.resolve(run.treeDir) !== expected) {
+    throw new Error(
+      `anatomy: refusing to delete "${run.treeDir}"; only "${expected}" belongs to this run`,
+    )
+  }
   await rm(run.treeDir, { recursive: true, force: true })
 }

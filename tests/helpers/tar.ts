@@ -25,6 +25,11 @@ export type EntrySpec = {
   /** ustar `prefix` field: the real path is `prefix + '/' + name`. */
   prefix?: string
   mode?: number
+  /**
+   * Value of the 12-byte `size` field, when the header must disagree with the
+   * body (a pax `size=` record is what carries the real length in that case).
+   */
+  size?: number
 }
 
 /** Octal field, zero padded to `width` with the trailing NUL the format requires. */
@@ -66,7 +71,7 @@ function padToBlock(body: Buffer): Buffer {
 
 function buildEntry(spec: EntrySpec): Buffer {
   const body = spec.body === undefined ? Buffer.alloc(0) : Buffer.from(spec.body)
-  return Buffer.concat([headerFor(spec, body.length), padToBlock(body)])
+  return Buffer.concat([headerFor(spec, spec.size ?? body.length), padToBlock(body)])
 }
 
 /** Full archive: entries in order, then the required two zero blocks. */

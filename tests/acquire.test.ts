@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 
 import {
   deriveRunId,
@@ -180,6 +180,18 @@ describe('resolveSource on GitHub references', () => {
       'HEAD@2026-11-12',
     )
   })
+
+  it('refuses a github.com URL that is neither a repository nor a /tree/ path', async () => {
+    const { impl, calls } = fakeFetch(() => {
+      throw new Error('a malformed GitHub URL must not reach the network')
+    })
+
+    const attempt = resolveSource('https://github.com/acme/widget/issues/5', {}, deps(impl))
+
+    await expect(attempt).rejects.toThrow(/anatomy: cannot parse GitHub URL/)
+    await expect(attempt).rejects.toThrow(/github\.com\/<owner>\/<repo>\/tree\/<ref>/)
+    expect(calls).toEqual([])
+  })
 })
 
 describe('resolveSource on other inputs', () => {
@@ -213,6 +225,7 @@ describe('resolveSource on other inputs', () => {
     expect(source.kind).toBe('local')
     expect(source.path).toBe(path.resolve(repo))
     expect(source.subpath).toBe('')
+    expect(source.ref).toBe('local')
     expect(source.sha).toMatch(/^[0-9a-f]{64}$/)
     expect(source.sha).toBe((await resolveSource(repo, {}, deps(impl))).sha)
 
@@ -220,6 +233,47 @@ describe('resolveSource on other inputs', () => {
     await writeFile(path.join(repo, 'README.md'), '# widget, edited\n')
     const renamed = await resolveSource(repo, {}, deps(impl))
     expect(renamed.sha).not.toBe(source.sha)
+  })
+
+  it('hashes file contents, so an edit that keeps the byte count changes the sha', async () => {
+    const repo = await tempDir()
+    const target = path.join(repo, 'index.ts')
+    const { impl } = fakeFetch(() => json({}))
+
+    await writeFile(target, 'const a = 1\n')
+    const before = await resolveSource(repo, {}, deps(impl))
+    await writeFile(target, 'const a = 2\n')
+    const after = await resolveSource(repo, {}, deps(impl))
+
+    expect((await stat(target)).size).toBe(Buffer.byteLength('const a = 2\n'))
+    expect(after.sha).not.toBe(before.sha)
+  })
+
+  it('derives one run id for a byte-identical local directory on two different days', async () => {
+    const repo = await tempDir()
+    await writeFile(path.join(repo, 'index.ts'), 'export const x = 1\n')
+    const { impl } = fakeFetch(() => json({}))
+
+    const first = await resolveSource(repo, {}, deps(impl))
+    const second = await resolveSource(repo, {}, {
+      fetchImpl: impl,
+      now: () => new Date('2026-11-13T23:59:59.000Z'),
+    })
+    const runId = (source: { sha: string; ref: string; subpath: string }): string =>
+      deriveRunId({ ...source, engineVersion: '0.0.1' })
+
+    expect(first.ref).toBe('local')
+    expect(second.ref).toBe('local')
+    expect(second.sha).toBe(first.sha)
+    expect(runId(second)).toBe(runId(first))
+  })
+
+  it('lets the caller name the ref of a local directory', async () => {
+    const repo = await tempDir()
+    await writeFile(path.join(repo, 'index.ts'), 'export const x = 1\n')
+    const { impl } = fakeFetch(() => json({}))
+    const source = await resolveSource(repo, { ref: 'nightly' }, deps(impl))
+    expect(source.ref).toBe('nightly')
   })
 
   it('rejects input that is neither a URL nor a directory', async () => {
@@ -265,6 +319,43 @@ describe('downloadArchive', () => {
       ),
     ).rejects.toThrow(/download failed/)
   })
+
+  const archiveSource = {
+    kind: 'archive',
+    url: 'https://example.com/w.tar.gz',
+    ref: 'v1',
+    sha: '',
+    subpath: '',
+  } as const
+
+  it('refuses a download whose declared length exceeds the limit', async () => {
+    const { impl } = fakeFetch(
+      () => new Response(Buffer.alloc(4096), { headers: { 'content-length': '4096' } }),
+    )
+    const dest = path.join(await tempDir(), 'w.tar.gz')
+
+    await expect(
+      downloadArchive(archiveSource, dest, { ...deps(impl), maxBytes: 1024 }),
+    ).rejects.toThrow(/anatomy: download exceeds/)
+    expect(await exists(dest)).toBe(false)
+  })
+
+  it('stops reading a body that runs past the limit', async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(1024))
+        controller.enqueue(new Uint8Array(1024))
+        controller.close()
+      },
+    })
+    const { impl } = fakeFetch(() => new Response(body))
+    const dest = path.join(await tempDir(), 'w.tar.gz')
+
+    await expect(
+      downloadArchive(archiveSource, dest, { ...deps(impl), maxBytes: 1500 }),
+    ).rejects.toThrow(/anatomy: download exceeds/)
+    expect(await exists(dest)).toBe(false)
+  })
 })
 
 // --- deriveRunId ----------------------------------------------------------
@@ -296,6 +387,18 @@ describe('deriveRunId', () => {
       expect(deriveRunId({ ...input, ...change })).not.toBe(deriveRunId(input))
     }
   })
+
+  it('gives two different shas two different run ids', () => {
+    const other = { ...input, sha: 'f'.repeat(64) }
+    expect(deriveRunId(other)).not.toBe(deriveRunId(input))
+    expect(deriveRunId(other)).toMatch(/^[0-9a-f]{12}$/)
+  })
+
+  it('refuses an empty sha, which would collapse every snapshot into one run', () => {
+    expect(() => deriveRunId({ ...input, sha: '' })).toThrow(
+      'anatomy: run id needs the downloaded sha',
+    )
+  })
 })
 
 // --- extractTarSafe: the malicious archives -------------------------------
@@ -318,14 +421,22 @@ const EVIL: Array<{ name: string; reason: RegExp; entries: EntrySpec[] }> = [
   },
 ]
 
-beforeAll(async () => {
-  await mkdir(EVIL_DIR, { recursive: true })
-  for (const evil of EVIL) {
-    await writeFile(path.join(EVIL_DIR, evil.name), tar(evil.entries))
-  }
-})
-
 describe('extractTarSafe rejects archives that escape the destination', () => {
+  // The committed fixtures are the source of truth. They are regenerated into a
+  // temp directory and compared byte for byte, so a test run never writes into
+  // `tests/fixtures` (which would dirty `git status` and fail on a read-only
+  // checkout) while a drifted helper still shows up as a diff.
+  it('reproduces the committed fixtures byte for byte', async () => {
+    const dir = await tempDir()
+    for (const evil of EVIL) {
+      const generated = path.join(dir, evil.name)
+      await writeFile(generated, tar(evil.entries))
+      expect(await readFile(generated)).toStrictEqual(
+        await readFile(path.join(EVIL_DIR, evil.name)),
+      )
+    }
+  })
+
   for (const evil of EVIL) {
     it(`rejects fixtures/evil/${evil.name} and leaves nothing behind`, async () => {
       const dest = await tempDir()
@@ -367,6 +478,125 @@ describe('extractTarSafe rejects archives that escape the destination', () => {
     const dest = await tempDir()
     const archive = await archiveOf([file('a/b/../../../escape.txt', 'pwned\n')])
     await expect(extractTarSafe(archive, dest)).rejects.toThrow(/unsafe entry/)
+    expect(await readdir(dest)).toEqual([])
+  })
+
+  // Both of these bypass the 100-byte header field, so they are the two name
+  // sources a `..` can hide in without the header ever showing it.
+  it('rejects a GNU long name that escapes', async () => {
+    const dest = await tempDir()
+    const archive = await archiveOf([
+      longName('../../escape'),
+      file('placeholder.txt', 'pwned\n'),
+    ])
+
+    await expect(extractTarSafe(archive, dest)).rejects.toThrow(
+      /unsafe entry: \.\.\/\.\.\/escape \(path traversal\)/,
+    )
+    expect(await readdir(dest)).toEqual([])
+  })
+
+  it('rejects a pax path record that escapes', async () => {
+    const dest = await tempDir()
+    const archive = await archiveOf([
+      pax({ path: '../../escape' }),
+      file('placeholder.txt', 'pwned\n'),
+    ])
+
+    await expect(extractTarSafe(archive, dest)).rejects.toThrow(
+      /unsafe entry: \.\.\/\.\.\/escape \(path traversal\)/,
+    )
+    expect(await readdir(dest)).toEqual([])
+  })
+
+  it('rejects a pax record that describes a sparse file', async () => {
+    const dest = await tempDir()
+    const archive = await archiveOf([
+      pax({ 'GNU.sparse.major': '1', 'GNU.sparse.minor': '0', 'GNU.sparse.name': 'sparse.bin' }),
+      file('sparse.bin', 'truncated\n'),
+    ])
+
+    await expect(extractTarSafe(archive, dest)).rejects.toThrow(/sparse/)
+    expect(await readdir(dest)).toEqual([])
+  })
+
+  it('refuses to extract into a destination that already has entries', async () => {
+    const dest = await tempDir()
+    await writeFile(path.join(dest, 'leftover.txt'), 'previous run\n')
+    const archive = await archiveOf([file('a.txt', 'a\n')])
+
+    await expect(extractTarSafe(archive, dest)).rejects.toThrow(
+      'anatomy: destination is not empty',
+    )
+    expect(await readdir(dest)).toStrictEqual(['leftover.txt'])
+    expect(await readFile(path.join(dest, 'leftover.txt'), 'utf8')).toBe('previous run\n')
+  })
+})
+
+// --- extractTarSafe: archives that are not whole --------------------------
+
+describe('extractTarSafe refuses archives that are not whole', () => {
+  it('refuses an empty file', async () => {
+    const dest = await tempDir()
+    const archive = path.join(await tempDir(), 'empty.tar')
+    await writeFile(archive, '')
+
+    await expect(extractTarSafe(archive, dest)).rejects.toThrow('anatomy: truncated tar archive')
+    expect(await readdir(dest)).toEqual([])
+  })
+
+  it('refuses an HTML error page served in place of a tarball', async () => {
+    const dest = await tempDir()
+    const archive = path.join(await tempDir(), 'not-found.tar.gz')
+    await writeFile(archive, '<!doctype html><h1>404 Not Found</h1>\n')
+
+    await expect(extractTarSafe(archive, dest)).rejects.toThrow('anatomy: truncated tar archive')
+    expect(await readdir(dest)).toEqual([])
+  })
+
+  it('refuses an archive that stops on a block boundary without its second zero block', async () => {
+    const dest = await tempDir()
+    const whole = tar([file('a.txt', 'a\n')])
+    const archive = path.join(await tempDir(), 'half.tar')
+    await writeFile(archive, whole.subarray(0, whole.length - 512))
+
+    await expect(extractTarSafe(archive, dest)).rejects.toThrow('anatomy: truncated tar archive')
+    expect(await readdir(dest)).toEqual([])
+  })
+
+  it('refuses an archive whose entries all describe other entries', async () => {
+    const dest = await tempDir()
+    const archive = await archiveOf([pax({ path: 'ignored.txt' })])
+
+    await expect(extractTarSafe(archive, dest)).rejects.toThrow(
+      'anatomy: tar archive contains no entries',
+    )
+    expect(await readdir(dest)).toEqual([])
+  })
+})
+
+// --- extractTarSafe: bounds -------------------------------------------------
+
+describe('extractTarSafe bounds what it inflates', () => {
+  it('refuses a small archive that inflates past the limit', async () => {
+    const archive = path.join(await tempDir(), 'bomb.tar.gz')
+    // ~1 KB of gzip that inflates to 1 MiB.
+    await writeFile(archive, gzip(Buffer.alloc(1024 * 1024)))
+    const dest = await tempDir()
+
+    await expect(extractTarSafe(archive, dest, { maxBytes: 64 * 1024 })).rejects.toThrow(
+      /anatomy: decompressed archive exceeds/,
+    )
+    expect(await readdir(dest)).toEqual([])
+  })
+
+  it('refuses a raw archive that is already past the limit', async () => {
+    const archive = await archiveOf([file('a.txt', 'a\n')])
+    const dest = await tempDir()
+
+    await expect(extractTarSafe(archive, dest, { maxBytes: 1024 })).rejects.toThrow(
+      /anatomy: archive input exceeds/,
+    )
     expect(await readdir(dest)).toEqual([])
   })
 })
@@ -435,6 +665,38 @@ describe('extractTarSafe on well-formed archives', () => {
     expect(await readFile(path.join(dest, 'pkg/nested/b.txt'), 'utf8')).toBe('b\n')
     // `./pkg` is stripped, not materialised as a literal `./` path segment.
     expect((await readdir(dest)).sort()).toStrictEqual(['pkg'])
+  })
+
+  it('accepts an archive rooted at ./ the way `tar -cf x.tar .` writes it', async () => {
+    const dest = await tempDir()
+    const archive = await archiveOf([
+      dirEntry('./'),
+      dirEntry('./pkg/'),
+      file('./pkg/a.txt', 'a\n'),
+    ])
+
+    const result = await extractTarSafe(archive, dest)
+
+    // The './' root names the destination itself: it is skipped, not refused.
+    expect(result.entries).toBe(2)
+    expect(await readFile(path.join(dest, 'pkg/a.txt'), 'utf8')).toBe('a\n')
+    expect((await readdir(dest)).sort()).toStrictEqual(['pkg'])
+  })
+
+  it('lets a pax size record override the header size of the next entry', async () => {
+    const dest = await tempDir()
+    const archive = await archiveOf([
+      pax({ size: '6' }),
+      file('placeholder.txt', 'hello\n', { size: 0 }),
+      file('after.txt', 'next\n'),
+    ])
+
+    await extractTarSafe(archive, dest)
+
+    expect(await readFile(path.join(dest, 'placeholder.txt'), 'utf8')).toBe('hello\n')
+    // The offset must follow the pax size too, or the next header is read from
+    // the middle of the previous body.
+    expect(await readFile(path.join(dest, 'after.txt'), 'utf8')).toBe('next\n')
   })
 
   it('follows a GNU long-name entry for the path that does not fit the header', async () => {
