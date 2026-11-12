@@ -635,6 +635,48 @@ describe('members of a wheel class', () => {
   })
 })
 
+describe('structural patterns that carry no keywords', () => {
+  it('scores a self-recursive function', () => {
+    // Termination and path bookkeeping live in the recursion; the body is short and
+    // flat, so length and nesting both miss it.
+    const file = fileOf(
+      [
+        'function merge(base, defaults, path = []) {',
+        '  for (const key of Object.keys(defaults)) {',
+        '    if (path.includes(key)) continue',
+        '    base[key] = merge(base[key], defaults[key], [...path, key])',
+        '  }',
+        '  return base',
+        '}',
+      ].join('\n'),
+      'src/merge.js',
+    )
+    const words = scoreFile(file, emptyIndex()).flatMap((candidate) => candidate.matched)
+    expect(words).toContain('complexity:self-recursive')
+  })
+
+  it('scores a function that returns a function', () => {
+    // Configuration by closure: `makeRetriable` bakes a policy, `createDefu(merger)`
+    // derives three merge semantics from one recursion.
+    const file = fileOf(
+      [
+        'export function makeRetriable(function_, options) {',
+        '  return (...arguments_) => function_(...arguments_)',
+        '}',
+      ].join('\n'),
+      'src/retry.js',
+    )
+    const words = scoreFile(file, emptyIndex()).flatMap((candidate) => candidate.matched)
+    expect(words).toContain('abstraction:returns-a-function')
+  })
+
+  it('does not call a plain callback a factory', () => {
+    const file = fileOf(['export function run(items) {', '  return items.map((item) => item + 1)', '}'].join('\n'), 'src/a.js')
+    const words = scoreFile(file, emptyIndex()).flatMap((candidate) => candidate.matched)
+    expect(words).not.toContain('abstraction:returns-a-function')
+  })
+})
+
 describe('snapshot before dispatch', () => {
   it('scores a handler list copied before it is iterated', () => {
     // `handlers.slice().map(...)` is how a callback can unregister itself mid-emit
