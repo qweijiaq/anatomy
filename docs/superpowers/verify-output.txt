@@ -1,0 +1,30 @@
+== tests ==
+      Tests  532 passed (532)
+   Start at  03:50:20
+   Duration  3.61s (transform 1.32s, setup 0ms, collect 5.92s, tests 8.44s, environment 3ms, prepare 1.54s)
+
+== typecheck ==
+== build ==
+== stub model ==
+== scan (github) ==
+run 62c3ec65279b  13 files, 2606 lines  nothing excluded
+index.js:26  3  custom-infra
+test.js:5  3  custom-infra
+== analyze (github) ==
+== report (tree deleted) ==
+== inspect ==
+== sample ==
+# quick-lru
+
+## 这次分析在解决什么
+
+一个小型工具库，用语言内建结构替代显式的数据结构。
+
+## 最值得学的 1 件事
+
+1. 用插入顺序维护淘汰顺序，不额外维护链表
+
+## 这次分析的可信度
+
+
+VERIFY: PASS (github, run 62c3ec65279b)

@@ -1,5 +1,10 @@
 # anatomy MVP Implementation Plan
 
+> **状态：15/15 完成**（分支 `mvp`，HEAD 见 `git log`）。验收只需 `npm run verify`，末行应为
+> `VERIFY: PASS`；状态摘要、任务到提交的对照、以及真机暴露的缺陷见
+> `docs/superpowers/PROGRESS.md`，逐任务审查记录见 `docs/superpowers/sdd/ledger.md`。
+> 下面的计划文本保留为执行当时的形式，勾选框未回填。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 一条命令把一个开源仓库拆成一份带行号证据的拆解报告，每个"值得学的点"都能被本地校验器证明没编造。
