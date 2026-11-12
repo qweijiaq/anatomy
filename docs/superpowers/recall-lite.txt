@@ -1,0 +1,21 @@
+(Use `node --trace-warnings ...` to show where the warning was created)
+ms.json                  candidates   8  gold 3  hit 1  recall 33%
+quick-lru.json           candidates  12  gold 4  hit 2  recall 50%
+yocto-queue.json         candidates   4  gold 3  hit 3  recall 100%
+
+overall candidate recall: 6/10 = 60%
+
+这份数字是「候选召回」——内核有没有把候选放在金标认为重要的那几行上。它是召回的天花板：
+没有候选的地方，模型再强也产不出学习点。
+
+改动前后的对照（同一套金标、同一批提交）：
+- 起点：2/10 = 20%（其中 ms 的金标路径还是错的，见下）
+- 修正金标数据后：3/10 = 30%
+- 加入方法级声明、后缀匹配（`enqueue`/`dequeue` 命中 `queue`）、
+  排除 `on*` 回调与测试文件里的 custom-infra 之后：**6/10 = 60%**
+
+金标本身的修复同样重要：ms 的三个区间原本写在 `index.js` 上，而该仓库早已迁到 `src/index.ts`，
+且区间是估的不是量的。现在三个仓库的区间都对着锁定提交逐个函数量过，`provisional` 标记为 false。
+测试里新增了「ref/sha 必须是 40 位十六进制」的断言——占位 sha 会让 eval 直接失败而不是给出假分数。
+
+复现：`npm run eval:recall`（不需要任何模型凭据，全程离线读公开归档）。
