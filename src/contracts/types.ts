@@ -51,12 +51,25 @@ export type CanonicalFile = {
   hadBom: boolean
 }
 
+/**
+ * A line-addressed view of a file.
+ *
+ * When `truncated` is false, `text` is exactly lines `startLine..endLine`.
+ *
+ * When `truncated` is true, `text` is the head lines, then one `...` elision
+ * line, then the tail lines. `omitted` says which real lines the elision
+ * replaced: the head text is `startLine..omitted.startLine-1` and the tail
+ * text is `omitted.endLine+1..endLine`. Consumers must address lines through
+ * `omitted`, never by counting `text` lines: `...` is legal source in some
+ * languages, so the marker is not a reliable string signal.
+ */
 export type Slice = {
   path: string
   startLine: number
   endLine: number
   text: string
   truncated: boolean
+  omitted: { startLine: number; endLine: number } | null
 }
 
 // --- repository shape -----------------------------------------------------

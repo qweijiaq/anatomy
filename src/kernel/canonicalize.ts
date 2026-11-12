@@ -14,6 +14,12 @@ import type { CanonicalFile, Slice } from '../contracts/types.js'
 import { DEFAULT_SLICE_MAX_LINES } from '../contracts/types.js'
 
 const UTF8_BOM = '\uFEFF'
+/**
+ * What a UTF-8 BOM looks like after decoding bytes as latin-1: the three bytes
+ * `EF BB BF` become `ï»¿`. `TextDecoder('utf-8')` strips the BOM itself, so only
+ * the latin-1 fallback can still carry it.
+ */
+const MOJIBAKE_BOM = '\u00EF\u00BB\u00BF'
 const ELISION = '...'
 
 /**
@@ -25,7 +31,11 @@ function decode(buffer: Buffer): { text: string; encoding: CanonicalFile['encodi
   try {
     return { text: new TextDecoder('utf-8', { fatal: true }).decode(buffer), encoding: 'utf8' }
   } catch {
-    return { text: buffer.toString('latin1'), encoding: 'latin1' }
+    const text = buffer.toString('latin1')
+    return {
+      text: text.startsWith(MOJIBAKE_BOM) ? text.slice(MOJIBAKE_BOM.length) : text,
+      encoding: 'latin1',
+    }
   }
 }
 
@@ -60,6 +70,21 @@ function countLines(text: string): number {
   return text.endsWith('\n') ? newlines : newlines + 1
 }
 
+/**
+ * The one canonicalization pipeline: strip one leading BOM, normalize newlines,
+ * strip trailing whitespace per line, count lines.
+ *
+ * The count is taken on the newline-normalized text, before trailing whitespace
+ * is stripped, so a whitespace-only final line without a trailing newline still
+ * counts as a line (it is stripped to empty, but it exists).
+ */
+export function canonicalizeText(raw: string): { text: string; lineCount: number } {
+  const withoutBom = raw.startsWith(UTF8_BOM) ? raw.slice(UTF8_BOM.length) : raw
+  const normalized = normalizeNewlines(withoutBom)
+  const lineCount = countLines(normalized)
+  return { text: stripTrailingWhitespace(normalized), lineCount }
+}
+
 /** Splits canonical text into real lines (drops the phantom element after a trailing `\n`). */
 function toLines(text: string): string[] {
   const lines = text.split('\n')
@@ -73,15 +98,12 @@ export async function canonicalizeFile(absPath: string): Promise<CanonicalFile> 
     buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf
 
   const decoded = decode(buffer)
-  let text = decoded.text
-  if (text.startsWith(UTF8_BOM)) text = text.slice(UTF8_BOM.length)
-
-  text = stripTrailingWhitespace(normalizeNewlines(text))
+  const canonical = canonicalizeText(decoded.text)
 
   return {
     path: absPath,
-    text,
-    lineCount: countLines(text),
+    text: canonical.text,
+    lineCount: canonical.lineCount,
     encoding: decoded.encoding,
     hadBom,
   }
@@ -89,13 +111,18 @@ export async function canonicalizeFile(absPath: string): Promise<CanonicalFile> 
 
 /**
  * 1-based line number -> 0-based character offset of that line's first character.
- * Line `lineCount` of a file ending in `\n` resolves to the offset just past the
- * final newline, which is where an empty last line would start.
+ *
+ * A text ending in `\n` has one addressable line start beyond `countLines`:
+ * `text.length`, where an empty final line would start. That is what a
+ * whitespace-only final line canonicalizes to (its content is stripped, only the
+ * newline before it remains), so it must stay addressable even though
+ * `countLines` does not count it.
  */
 export function offsetOfLine(text: string, line: number): number {
   const total = countLines(text)
-  if (!Number.isInteger(line) || line < 1 || line > total) {
-    throw new RangeError(`line ${line} is out of range 1..${total}`)
+  const lastAddressable = text.endsWith('\n') ? total + 1 : total
+  if (!Number.isInteger(line) || line < 1 || line > lastAddressable) {
+    throw new RangeError(`line ${line} is out of range 1..${lastAddressable}`)
   }
   if (line === 1) return 0
 
@@ -103,7 +130,7 @@ export function offsetOfLine(text: string, line: number): number {
   for (let seen = 1; seen < line; seen += 1) {
     const next = text.indexOf('\n', offset)
     if (next === -1) {
-      throw new RangeError(`line ${line} is out of range 1..${total}`)
+      throw new RangeError(`line ${line} is out of range 1..${lastAddressable}`)
     }
     offset = next + 1
   }
@@ -144,7 +171,8 @@ export function lineRangeOfSnippet(
  *
  * Bounds outside the file are clamped, not thrown. When the clamped span exceeds
  * `maxLines`, the head and tail halves are kept and joined with a `...` elision
- * line; `truncated` is then true.
+ * line; `truncated` is then true and `omitted` reports the first and last real
+ * line numbers that the elision replaced.
  */
 export async function readSlice(
   absPath: string,
@@ -154,10 +182,21 @@ export async function readSlice(
 ): Promise<Slice> {
   const file = await canonicalizeFile(absPath)
   const lines = toLines(file.text)
-  const maxLines = Math.max(1, Math.floor(opts?.maxLines ?? DEFAULT_SLICE_MAX_LINES))
+  const requestedMax = opts?.maxLines ?? DEFAULT_SLICE_MAX_LINES
+  const maxLines =
+    Number.isFinite(requestedMax) && requestedMax >= 1
+      ? Math.floor(requestedMax)
+      : DEFAULT_SLICE_MAX_LINES
 
   if (file.lineCount === 0) {
-    return { path: file.path, startLine: 0, endLine: 0, text: '', truncated: false }
+    return {
+      path: file.path,
+      startLine: 0,
+      endLine: 0,
+      text: '',
+      truncated: false,
+      omitted: null,
+    }
   }
 
   const requestedLow = Math.min(startLine, endLine)
@@ -173,6 +212,7 @@ export async function readSlice(
       endLine: last,
       text: lines.slice(first - 1, last).join('\n'),
       truncated: false,
+      omitted: null,
     }
   }
 
@@ -187,5 +227,6 @@ export async function readSlice(
     endLine: last,
     text: `${headText}\n${ELISION}${tailText}`,
     truncated: true,
+    omitted: { startLine: first + head, endLine: last - tail },
   }
 }
