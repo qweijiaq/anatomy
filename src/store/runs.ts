@@ -69,14 +69,52 @@ function isNotFound(error: unknown): boolean {
 }
 
 /**
+ * Reads one artifact of a run directory, or `null` when it is absent. Throws
+ * when it is present but not JSON.
+ */
+async function readArtifact<T>(dir: string, name: string): Promise<T | null> {
+  const target = artifactPath(dir, name)
+  let text: string
+  try {
+    text = await readFile(target, 'utf8')
+  } catch (error) {
+    if (isNotFound(error)) return null
+    throw error
+  }
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    throw new Error(`anatomy: artifact "${name}" in ${dir} is not valid JSON`)
+  }
+}
+
+/** The run directory `runId` resolves to under `baseDir`. */
+function runDirFor(baseDir: string, runId: string): string {
+  if (!ARTIFACT_NAME.test(runId)) {
+    throw new Error(`anatomy: invalid runId "${runId}"`)
+  }
+  return path.join(path.resolve(baseDir), runId)
+}
+
+/**
+ * The manifest already on disk for `runId`, or `null` if the run never opened.
+ *
+ * Exists so a caller can look at what a run directory held *before* `openRun`
+ * stamps over the manifest of the directory it reopens.
+ */
+export async function readManifest(
+  baseDir: string,
+  runId: string,
+): Promise<RunManifest | null> {
+  return readArtifact<RunManifest>(runDirFor(baseDir, runId), 'manifest')
+}
+
+/**
  * Creates (or reopens) the run directory and stamps the manifest. Calling it
  * twice for the same manifest is harmless and keeps existing artifacts.
  */
 export async function openRun(baseDir: string, manifest: RunManifest): Promise<Run> {
-  if (!ARTIFACT_NAME.test(manifest.runId)) {
-    throw new Error(`anatomy: invalid runId "${manifest.runId}"`)
-  }
-  const dir = path.join(path.resolve(baseDir), manifest.runId)
+  const dir = runDirFor(baseDir, manifest.runId)
   const treeDir = path.join(dir, 'tree')
   await mkdir(treeDir, { recursive: true })
 
@@ -99,19 +137,7 @@ export async function openRun(baseDir: string, manifest: RunManifest): Promise<R
       }
     },
     async read<T>(name: string): Promise<T | null> {
-      const target = artifactPath(dir, name)
-      let text: string
-      try {
-        text = await readFile(target, 'utf8')
-      } catch (error) {
-        if (isNotFound(error)) return null
-        throw error
-      }
-      try {
-        return JSON.parse(text) as T
-      } catch {
-        throw new Error(`anatomy: artifact "${name}" in ${dir} is not valid JSON`)
-      }
+      return readArtifact<T>(dir, name)
     },
   }
 

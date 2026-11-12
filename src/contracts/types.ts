@@ -204,6 +204,14 @@ export type RunManifest = {
   subpath: string
   engineVersion: string
   startedAt: string
+  /**
+   * `complete` only once every artifact is on disk. A run that opened and then
+   * failed stays `failed`, so a directory full of manifest-but-no-artifacts can
+   * never be mistaken for something worth reporting.
+   */
+  status: 'complete' | 'failed'
+  /** When the last artifact landed. Absent for a `failed` run. */
+  completedAt?: string
 }
 
 export type ReportInput = {

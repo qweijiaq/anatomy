@@ -49,13 +49,22 @@ export class ScanUsageError extends Error {
   }
 }
 
-export type ScanArgs = { repo: string; options: ScanOptions }
+/**
+ * Either a request for the usage line — `--help` says nothing about the run, so
+ * it needs no repository — or a scan to perform.
+ */
+export type ScanArgs = { help: true } | { help: false; repo: string; options: ScanOptions }
 
 /**
  * Parses `scan` arguments: exactly one repository, then `--top`, `--subpath` and
  * `--ref`. Both a flag's value and the repository are positional in the sense that
  * order does not matter, but a value never starts with `--`: that is the shape of a
  * forgotten argument, and guessing would analyse the wrong thing.
+ *
+ * `--flag=value` and `--flag value` are the same grammar — the `=` form is what
+ * `--top=5` looks like to everyone who has used a unix tool — and `--help`/`-h`
+ * short-circuits the grammar entirely, so `ana scan --help` answers instead of
+ * complaining that a repository is missing.
  */
 export function parseScanArgs(argv: string[]): ScanArgs {
   const positional: string[] = []
@@ -63,16 +72,27 @@ export function parseScanArgs(argv: string[]): ScanArgs {
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index] as string
+    if (arg === '--help' || arg === '-h') return { help: true }
 
-    if (arg === '--top' || arg === '--subpath' || arg === '--ref') {
-      const value = argv[index + 1]
-      if (value === undefined || value.startsWith('--')) {
-        throw new ScanUsageError(`${arg} needs a value`)
+    if (arg.startsWith('--')) {
+      const equals = arg.indexOf('=')
+      const name = equals === -1 ? arg : arg.slice(0, equals)
+      let value: string
+      if (equals === -1) {
+        const next = argv[index + 1]
+        if (next === undefined || next.startsWith('--')) {
+          throw new ScanUsageError(`${name} needs a value`)
+        }
+        value = next
+        index += 1
+      } else {
+        value = arg.slice(equals + 1)
+        if (value === '') throw new ScanUsageError(`${name} needs a value`)
       }
-      index += 1
-      if (arg === '--top') options.topK = positiveInteger(value)
-      else if (arg === '--subpath') options.subpath = value
-      else options.ref = value
+      if (name === '--top') options.topK = positiveInteger(value)
+      else if (name === '--subpath') options.subpath = value
+      else if (name === '--ref') options.ref = value
+      else throw new ScanUsageError(`unknown option "${name}"`)
       continue
     }
 
@@ -86,7 +106,7 @@ export function parseScanArgs(argv: string[]): ScanArgs {
   if (positional.length > 1) {
     throw new ScanUsageError(`scan takes one repository, got ${positional.length}`)
   }
-  return { repo: positional[0] as string, options }
+  return { help: false, repo: positional[0] as string, options }
 }
 
 function positiveInteger(value: string): number {

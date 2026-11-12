@@ -80,6 +80,11 @@ export async function runCli(
         io.err.write(`ana: ${error.message}\n\n${SCAN_USAGE}\n`)
         return 2
       }
+      if (args.help) {
+        // Asking how to use a command is not a misuse of it.
+        io.out.write(`${SCAN_USAGE}\n`)
+        return 0
+      }
       try {
         await runScan(args.repo, args.options, io satisfies ScanIo)
         return 0

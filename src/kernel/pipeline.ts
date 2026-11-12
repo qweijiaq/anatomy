@@ -32,7 +32,7 @@ import type {
   StructureIndex,
 } from '../contracts/types.js'
 import { readVersion } from '../version.js'
-import { closeRun, openRun, type Run } from '../store/runs.js'
+import { closeRun, openRun, readManifest, type Run } from '../store/runs.js'
 import {
   deriveRunId,
   downloadArchive,
@@ -58,6 +58,12 @@ export type PipelineOptions = {
   topK?: number
   /** Run directory parent. Defaults to `<cwd>/.ana/runs`. */
   baseDir?: string
+  /**
+   * Keep the extracted tree instead of deleting it when the run ends. The tree
+   * is the only place a later stage can slice evidence out of, and re-acquiring
+   * an archive means downloading it again.
+   */
+  keepTree?: boolean
   /** Injected acquisition dependencies, so tests never touch the network. */
   deps?: AcquireDeps
 }
@@ -65,6 +71,12 @@ export type PipelineOptions = {
 export type PipelineResult = {
   runId: string
   run: Run
+  /**
+   * The repository root the stages read. For a local source this is the user's
+   * own directory; for an archive it is `<run>/tree`, which only survives the
+   * call when `keepTree` was set.
+   */
+  root: string
   scope: Scope
   profile: Profile
   structure: StructureIndex
@@ -121,6 +133,9 @@ export async function scanRepo(
     const sha = archive === null ? source.sha : archive.sha
 
     const runId = deriveRunId({ sha, ref: source.ref, subpath, engineVersion })
+    // Read what this directory held *before* it is stamped over: a re-scan that
+    // fails must not erase the record of an earlier run that finished.
+    const previous = await readManifest(baseDir, runId)
     const manifest: RunManifest = {
       runId,
       source: input,
@@ -129,19 +144,26 @@ export async function scanRepo(
       subpath,
       engineVersion,
       startedAt: new Date().toISOString(),
+      // Nothing is complete until the last artifact lands; see `settleFailure`.
+      status: 'failed',
     }
     const run = await openRun(baseDir, manifest)
 
+    let result: PipelineResult | undefined
+    let failure: unknown
     try {
       const root = await materialize(run, source, archive)
       const scope = await selectScope(root, subpath === '' ? {} : { subpath })
       const profile = await profileRepo(root, scope)
       // One language family per pass, merged afterwards: a polyglot tree has no
-      // shared compilation to hang a single index on.
-      const structure = mergeIndexes([
-        await indexTypeScript(root, scope),
-        await indexPython(root, scope),
+      // shared compilation to hang a single index on. The two walks are
+      // independent, so they run at once rather than paying the Python
+      // interpreter start after the whole TypeScript walk.
+      const [typescript, python] = await Promise.all([
+        indexTypeScript(root, scope),
+        indexPython(root, scope),
       ])
+      const structure = mergeIndexes([typescript, python])
       const candidates = await collectSignals(
         root,
         scope,
@@ -149,19 +171,88 @@ export async function scanRepo(
         opts.topK === undefined ? {} : { topK: opts.topK },
       )
 
+      // `scope` leads the list because it is the one artifact that cannot be
+      // recomputed once the tree is gone: a later report renders from here.
+      await run.write('scope', scope)
       await run.write('profile', profile)
       await run.write('structure', structure)
       await run.write('candidates', candidates)
+      await run.write('manifest', {
+        ...manifest,
+        status: 'complete',
+        completedAt: new Date().toISOString(),
+      })
 
-      return { runId, run, scope, profile, structure, candidates }
-    } finally {
-      // The tree is a means to the artifacts, and it is re-acquirable from
-      // `source` + `ref`. `closeRun` removes only `tree/`, never an artifact.
-      await closeRun(run)
+      result = { runId, run, root, scope, profile, structure, candidates }
+    } catch (error) {
+      failure = error
     }
+
+    // Settle the tree before surfacing anything: the caller may be handed `root`
+    // and must not be handed a directory that is about to disappear.
+    const cleanup = await closeSafely(run, opts.keepTree === true)
+
+    if (failure !== undefined) throw await settleFailure(run, manifest, previous, failure)
+    if (cleanup !== null) throw cleanup
+    if (result === undefined) throw new Error(`anatomy: run ${runId} ended without a result`)
+    return result
   } finally {
     if (archive !== null) await rm(archive.dir, { recursive: true, force: true })
   }
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * Ends the run: drops the extracted tree unless `keepTree` was asked for.
+ *
+ * Returns the failure instead of throwing it. At this point a stage error may
+ * already be in flight, and a `finally` that throws would replace it; wrapping
+ * keeps the cleanup cause (`EPERM`, `EBUSY`) visible when there is nothing else
+ * to report.
+ */
+async function closeSafely(run: Run, keepTree: boolean): Promise<Error | null> {
+  try {
+    await closeRun(run, keepTree ? { keepTree: true } : {})
+    return null
+  } catch (error) {
+    return new Error(
+      `anatomy: could not clean up run ${path.basename(run.dir)}: ${messageOf(error)}`,
+      { cause: error },
+    )
+  }
+}
+
+/**
+ * Records what a failed scan leaves behind, and returns the error to throw.
+ *
+ * With no earlier result the manifest is downgraded to `failed`: the directory
+ * opened, so it exists, and an empty artifact-less run must not read as a result.
+ *
+ * Over an earlier *complete* run the previous manifest is restored rather than
+ * overwritten — those artifacts are still the last thing that worked, and
+ * deleting them would destroy a reportable run because a re-scan went wrong. The
+ * failure is then reported against the run it preserved instead of being
+ * swallowed.
+ */
+async function settleFailure(
+  run: Run,
+  manifest: RunManifest,
+  previous: RunManifest | null,
+  failure: unknown,
+): Promise<unknown> {
+  if (previous !== null && previous.status === 'complete') {
+    await run.write('manifest', previous)
+    return new Error(
+      `anatomy: scan of ${manifest.source} failed; run ${manifest.runId} keeps its ` +
+        `earlier complete result (${messageOf(failure)})`,
+      { cause: failure },
+    )
+  }
+  await run.write('manifest', manifest)
+  return failure
 }
 
 /**

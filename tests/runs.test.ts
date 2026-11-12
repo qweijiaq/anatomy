@@ -36,6 +36,7 @@ const manifest: RunManifest = {
   subpath: '',
   engineVersion: '0.0.1',
   startedAt: '2026-11-12T03:04:05.000Z',
+  status: 'failed',
 }
 
 describe('openRun', () => {
