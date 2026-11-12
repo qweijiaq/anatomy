@@ -1,4 +1,3 @@
-(Use `node --trace-warnings ...` to show where the warning was created)
 cachecontrol-adapter.json candidates  33  gold 3  hit 0  recall 0%
 cast.json                candidates  17  gold 3  hit 1  recall 33%
 chroma.json              candidates  62  gold 3  hit 1  recall 33%
