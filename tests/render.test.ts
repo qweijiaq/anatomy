@@ -112,7 +112,7 @@ describe('renderMarkdown — one page, in the promised order', () => {
 
     expect(md.split('\n')[0]).toBe('# anatomy-fixture')
     const problem = md.indexOf('## 这次分析在解决什么')
-    const topFive = md.indexOf('## 最值得学的 5 件事')
+    const topFive = md.indexOf('## 最值得学的 1 件事')
     const firstPoint = md.indexOf('## 1. 用队列把并发写串起来')
     const tail = md.indexOf('## 没看的部分')
 
@@ -361,5 +361,140 @@ describe('renderJson — the same data, machine-readable', () => {
 
     expect(renderJson(broken)).toContain('"points": []')
     expect(renderMarkdown(broken)).toContain('## 没找到值得学的点')
+  })
+})
+
+// --- accounting for every point ------------------------------------------
+
+/** Nothing declared but the malformed points: the tail has only them to report. */
+function bareOf(over: Partial<ReportInput> = {}): ReportInput {
+  return reportOf({
+    topFive: [],
+    skipped: [],
+    profile: { ...profile, notes: [] },
+    validation: { ...validation, dropped: [], downgraded: [], kept: [] },
+    ...over,
+  })
+}
+
+describe('buildReport — a point that cannot be normalised is still declared', () => {
+  it('declares a nested array where a point should be', () => {
+    const md = renderMarkdown(bareOf({ points: [[pointOf()] as unknown as LearningPoint] }))
+
+    expect(md).not.toContain('没有需要声明的遗漏')
+    expect(md).toContain('没有可核对证据的点：1 个')
+  })
+
+  it('declares every null in the list', () => {
+    const input = bareOf({ points: [null, null] as unknown as LearningPoint[] })
+    const md = renderMarkdown(input)
+
+    expect(md).not.toContain('没有需要声明的遗漏')
+    expect(md).toContain('没有可核对证据的点：2 个')
+    expect(JSON.parse(renderJson(input)).notRendered).toHaveLength(2)
+  })
+
+  it('declares a points field that is not a list at all', () => {
+    const md = renderMarkdown(bareOf({ points: {} as unknown as LearningPoint[] }))
+
+    expect(md).not.toContain('没有需要声明的遗漏')
+    expect(md).toContain('## 没看的部分')
+  })
+
+  it('carries a reason for each withheld point, never an empty one', () => {
+    const parsed = JSON.parse(
+      renderJson(bareOf({ points: ['p1', null] as unknown as LearningPoint[] })),
+    )
+
+    expect(parsed.notRendered).toHaveLength(2)
+    for (const item of parsed.notRendered) expect(item.reason).not.toBe('')
+  })
+})
+
+describe('renderMarkdown — the top list does not advertise a withheld point', () => {
+  it('marks a top-five entry whose section the page withheld', () => {
+    const withheld = pointOf({
+      id: 'p-absent',
+      title: 'advertised but absent',
+      theirs: { summary: 's', evidence: [] },
+    })
+    const md = renderMarkdown(
+      reportOf({
+        points: [pointOf(), withheld],
+        topFive: ['用队列把并发写串起来', 'advertised but absent'],
+      }),
+    )
+
+    expect(md).toContain('1. 用队列把并发写串起来')
+    expect(md).toContain('advertised but absent（未进正文）')
+    expect(md).not.toContain('2. advertised but absent\n')
+    expect(md).not.toContain('## 2. advertised but absent')
+    expect(md).toContain('没有可核对证据的点：1 个')
+  })
+
+  it('leaves a top-five entry unmarked when its section is on the page', () => {
+    const md = renderMarkdown(input)
+
+    expect(md).toContain('1. 用队列把并发写串起来')
+    expect(md).not.toContain('未进正文')
+  })
+})
+
+describe('renderMarkdown — an unmeasured number is not a zero', () => {
+  it('prints 未知 when the run carried no validation stats', () => {
+    const md = renderMarkdown(
+      reportOf({ validation: { ...validation, stats: undefined as unknown as ValidationResult['stats'] } }),
+    )
+
+    expect(md).toContain('已取证点占比：未知')
+    expect(md).toContain('被丢弃证据数：未知')
+    expect(md).toContain('每点平均证据数：未知')
+    expect(md).not.toContain('已取证点占比：0')
+  })
+
+  it('keeps an absent statistic absent in the json', () => {
+    const parsed = JSON.parse(
+      renderJson(
+        reportOf({ validation: { ...validation, stats: undefined as unknown as ValidationResult['stats'] } }),
+      ),
+    )
+
+    expect(parsed.trust).toEqual({})
+  })
+})
+
+describe('renderMarkdown — blank declarations are not omissions', () => {
+  it('filters blank skipped entries instead of printing bare bullets', () => {
+    const md = renderMarkdown(
+      reportOf({ skipped: ['', '   '], profile: { ...profile, notes: [] }, validation: { ...validation, dropped: [] } }),
+    )
+
+    expect(md).not.toContain('- 跳过：')
+    expect(md).toContain('没有需要声明的遗漏')
+  })
+
+  it('filters blank notes as well', () => {
+    const md = renderMarkdown(
+      reportOf({ skipped: [], profile: { ...profile, notes: [' ', ''] }, validation: { ...validation, dropped: [] } }),
+    )
+
+    expect(md).not.toContain('- 备注：')
+    expect(md).toContain('没有需要声明的遗漏')
+  })
+})
+
+describe('renderMarkdown — the heading counts what is listed', () => {
+  it('uses the actual number of top items', () => {
+    const md = renderMarkdown(reportOf({ topFive: ['用队列把并发写串起来'] }))
+
+    expect(md).toContain('## 最值得学的 1 件事')
+    expect(md).not.toContain('5 件事')
+  })
+
+  it('still names the section when nothing was selected', () => {
+    const md = renderMarkdown(reportOf({ points: [], topFive: [] }))
+
+    expect(md).toContain('## 没找到值得学的点')
+    expect(md).not.toContain('0 件事')
   })
 })

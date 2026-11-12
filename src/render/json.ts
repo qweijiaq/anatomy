@@ -12,7 +12,9 @@
  * without a followable citation is not a point the report may show. Such a point
  * is not silently deleted; it moves to `notRendered` with a reason, so the
  * markdown tail can say how many claims were withheld and the JSON consumer sees
- * the same tally.
+ * the same tally. That applies to every entry in `points`, including one that is
+ * not an object at all: dropping it without a reason would let the page assert
+ * completeness over a claim it lost.
  *
  * Nothing here recomputes a statistic. `trust` is a copy of
  * `validation.stats`, and the scope numbers are copies of `scope.totals`: the
@@ -46,10 +48,14 @@ export type ReportPoint = {
   recipe: { prereqs: string[]; minimalForm: string; avoidWhen: string[] } | null
 }
 
+/**
+ * `undefined` means the run never measured it, which is not the same as zero.
+ * The writers print 未知 and the JSON omits the key; neither invents a reading.
+ */
 export type ReportTrust = {
-  evidenceRate: number
-  droppedEvidence: number
-  avgEvidence: number
+  evidenceRate: number | undefined
+  droppedEvidence: number | undefined
+  avgEvidence: number | undefined
 }
 
 export type ReportAnalysis = {
@@ -83,6 +89,12 @@ export type ReportDocument = {
 /** Why a point could not be shown. One reason, and it is our own text. */
 export const NOT_RENDERED_REASON = '没有可核对的证据（path:startLine-endLine 或原文片段缺失）'
 
+/** Why an entry in `points` was not a point at all. Also our own text. */
+export const MALFORMED_POINT_REASON = '这一条不是学习点（points 里出现了数组、null、字符串或其它非对象）'
+
+/** Why the whole `points` field was unusable. */
+export const MALFORMED_POINTS_REASON = 'points 不是一个数组，整份学习点列表都没能进入正文'
+
 // --- defensive readers ----------------------------------------------------
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -101,13 +113,23 @@ function count(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0
 }
 
+/**
+ * A measured number, or `undefined` when nothing measured it.
+ *
+ * Counts of things we actually enumerated may default to 0; a statistic the
+ * pipeline never produced may not, because 0 is a reading and absence is not.
+ */
+function measurement(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
 function integers(value: unknown): number | null {
   return Number.isInteger(value) ? (value as number) : null
 }
 
 function stringList(value: unknown): string[] {
   return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === 'string')
+    ? value.filter((item): item is string => typeof item === 'string' && item.trim() !== '')
     : []
 }
 
@@ -254,27 +276,36 @@ export function buildReport(input: ReportInput): ReportDocument {
   const stats = record(validation['stats'])
   const totals = record(scope['totals'])
 
-  const pointsRaw = Array.isArray(source['points']) ? source['points'] : []
   const points: ReportPoint[] = []
   const notRendered: ReportNotRendered[] = []
-  pointsRaw.forEach((item, index) => {
-    const point = normalizePoint(item, index)
-    if (point === null) return
-    if (point.theirs.evidence.length === 0) {
-      notRendered.push({ pointId: point.id, reason: NOT_RENDERED_REASON })
-      return
-    }
-    points.push(point)
-  })
+  const pointsInput = source['points']
+  if (Array.isArray(pointsInput)) {
+    pointsInput.forEach((item, index) => {
+      const point = normalizePoint(item, index)
+      if (point === null) {
+        // Not a point at all, but still a claim the input made: declare it, so
+        // the page never claims completeness over something it silently lost.
+        notRendered.push({ pointId: `point-${index + 1}`, reason: MALFORMED_POINT_REASON })
+        return
+      }
+      if (point.theirs.evidence.length === 0) {
+        notRendered.push({ pointId: point.id, reason: NOT_RENDERED_REASON })
+        return
+      }
+      points.push(point)
+    })
+  } else if (pointsInput !== undefined && pointsInput !== null) {
+    notRendered.push({ pointId: 'points', reason: MALFORMED_POINTS_REASON })
+  }
 
   return {
     repo: repoName(scope['root']),
     problem: text(source['problem']),
     topFive: stringList(source['topFive']),
     trust: {
-      evidenceRate: count(stats['evidenceRate']),
-      droppedEvidence: count(stats['droppedEvidence']),
-      avgEvidence: count(stats['avgEvidence']),
+      evidenceRate: measurement(stats['evidenceRate']),
+      droppedEvidence: measurement(stats['droppedEvidence']),
+      avgEvidence: measurement(stats['avgEvidence']),
     },
     analysis: {
       root: text(scope['root']),

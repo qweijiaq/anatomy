@@ -104,13 +104,13 @@ function fenced(code: string): string {
 // --- numbers --------------------------------------------------------------
 
 /** Stats are copied verbatim by `buildReport`; this only spells them. */
-function numberText(value: number): string {
-  return Number.isFinite(value) ? String(value) : '0'
+function numberText(value: number | undefined): string {
+  return value === undefined || !Number.isFinite(value) ? '未知' : String(value)
 }
 
 /** A rate is stored as a fraction and shown as a percentage. Not recomputed. */
-function percentText(rate: number): string {
-  return `${(Number.isFinite(rate) ? rate * 100 : 0).toFixed(1)}%`
+function percentText(rate: number | undefined): string {
+  return rate === undefined || !Number.isFinite(rate) ? '未知' : `${(rate * 100).toFixed(1)}%`
 }
 
 // --- sections -------------------------------------------------------------
@@ -121,11 +121,20 @@ function brief(doc: ReportDocument): string {
   lines.push('## 这次分析在解决什么', '')
   lines.push(proseOr(doc.problem, '这次没有拿到对仓库整体问题的概括。'), '')
 
-  lines.push('## 最值得学的 5 件事', '')
+  const heading =
+    doc.topFive.length === 0 ? '## 最值得学的点' : `## 最值得学的 ${doc.topFive.length} 件事`
+  lines.push(heading, '')
   if (doc.topFive.length === 0) {
     lines.push('- 这次没有选出最值得学的条目。')
   } else {
-    doc.topFive.forEach((item, index) => lines.push(`${index + 1}. ${prose(item)}`))
+    // A point the page withheld must not be advertised as if it were below:
+    // the list stays, but the entry says where it went.
+    const rendered = new Set(doc.points.map((point) => prose(point.title)))
+    doc.topFive.forEach((item, index) => {
+      const shown = prose(item)
+      const absent = !rendered.has(shown) ? '（未进正文）' : ''
+      lines.push(`${index + 1}. ${shown}${absent}`)
+    })
   }
   lines.push('')
 
