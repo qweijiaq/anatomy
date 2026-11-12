@@ -59,18 +59,34 @@ const REASON_ORDER: readonly ScopeExclusionReason[] = [
 ]
 
 /**
- * Hardcoded directory reasons. `.git` is bookkeeping rather than project source;
- * there is no dedicated reason in the contract, so it travels with `vendored`
- * (third-party-managed data, never the project's own design).
+ * Hardcoded directory reasons, by name at any depth. `.git` is bookkeeping rather
+ * than project source; there is no dedicated reason in the contract, so it
+ * travels with `vendored` (third-party-managed data, never the project's own
+ * design). `target`, `__pycache__` and `coverage` are build/test output exactly
+ * like `dist`; `.venv` is an installed dependency tree exactly like `vendor`.
  */
 const DIRECTORY_REASONS: ReadonlyMap<string, ScopeExclusionReason> = new Map([
   ['vendor', 'vendored'],
   ['third_party', 'vendored'],
   ['node_modules', 'vendored'],
+  ['.venv', 'vendored'],
   ['.git', 'vendored'],
   ['dist', 'generated'],
   ['build', 'generated'],
+  ['target', 'generated'],
+  ['__pycache__', 'generated'],
+  ['coverage', 'generated'],
 ])
+
+/**
+ * Every directory anatomy never reads, by name at any depth.
+ *
+ * One list, imported by `selectScope`, `hashTree` and `profileRepo`. The three
+ * used to keep their own copies, and they disagreed: the tree digest ignored
+ * `target` only accidentally, so a `cargo build` moved the `sha` and minted a new
+ * `runId` for input whose analysed content was byte-identical.
+ */
+export const IGNORED_DIRECTORIES: ReadonlySet<string> = new Set(DIRECTORY_REASONS.keys())
 
 const LOCKFILES: ReadonlySet<string> = new Set([
   'package-lock.json',

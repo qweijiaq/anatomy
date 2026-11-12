@@ -27,6 +27,8 @@ import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { gunzipSync } from 'node:zlib'
 
+import { IGNORED_DIRECTORIES } from './scope.js'
+
 /** The global `fetch`, injectable so tests never touch the network. */
 export type FetchLike = typeof fetch
 
@@ -198,28 +200,28 @@ export async function resolveSource(
 }
 
 /**
- * Directories the digest ignores. `.git` is bookkeeping that changes on every
- * commit, checkout and fetch; the rest is dependency or build output that the
- * analysis never reads. Hashing them would move the `sha` — and with it the
- * `runId` — for input whose analysed content is byte-identical, which is exactly
- * the reproducibility the run id exists to provide. Composition is by name at
- * any depth, matching how `selectScope` excludes the same trees.
+ * Domain tag in front of the tree digest, so it is never mistaken for a digest of
+ * something else and an all-excluded tree is not `sha256("")`.
  */
-const HASH_IGNORED_DIRS: ReadonlySet<string> = new Set([
-  '.git',
-  'build',
-  'dist',
-  'node_modules',
-  'vendor',
-])
+const TREE_DIGEST_DOMAIN = 'anatomy-tree-v2\0'
 
 /**
- * sha256 over the tree's contents: per regular file, `path\0len\0content`,
- * files walked in sorted path order. Content, not shape — two trees whose files
- * merely have the same lengths (`const a = 1` rewritten as `const a = 2`) are
- * different snapshots, and reusing the previous run's artifacts for them is
- * silently wrong. Files are streamed, so one large file is not read into memory.
- * A symlink is deliberately not followed: it can point out of the tree.
+ * sha256 over a domain tag and the tree's contents: per regular file,
+ * `path\0len\0content`, files walked in sorted path order.
+ *
+ * The tag (`anatomy-tree-v2\0`, see above) is fed before the first file: a tree
+ * whose every file is excluded used to digest to `sha256("")`, the same value as
+ * an empty tree and as any unrelated hash of nothing. Content, not shape — two
+ * trees whose files merely have the same lengths (`const a = 1` rewritten as
+ * `const a = 2`) are different snapshots, and reusing the previous run's
+ * artifacts for them is silently wrong. Files are streamed, so one large file is
+ * not read into memory. A symlink is deliberately not followed: it can point out
+ * of the tree.
+ *
+ * `IGNORED_DIRECTORIES` is the analysis scope's own exclusion list: `.git`
+ * bookkeeping and dependency/build output move on every checkout without changing
+ * one byte the analysis reads, and a digest that moves with them mints a new
+ * `runId` for an identical analysis.
  */
 async function hashTree(root: string): Promise<string> {
   const files: Array<{ relative: string; absolute: string }> = []
@@ -229,7 +231,7 @@ async function hashTree(root: string): Promise<string> {
       const absolute = path.join(dir, dirent.name)
       const relative = prefix === '' ? dirent.name : `${prefix}/${dirent.name}`
       if (dirent.isDirectory()) {
-        if (HASH_IGNORED_DIRS.has(dirent.name)) continue
+        if (IGNORED_DIRECTORIES.has(dirent.name)) continue
         await walk(absolute, relative)
       } else if (dirent.isFile()) {
         files.push({ relative, absolute })
@@ -239,6 +241,7 @@ async function hashTree(root: string): Promise<string> {
   await walk(root, '')
 
   const digest = createHash('sha256')
+  digest.update(TREE_DIGEST_DOMAIN)
   files.sort((a, b) => (a.relative < b.relative ? -1 : 1))
   for (const file of files) {
     digest.update(`${file.relative}\0${(await stat(file.absolute)).size}\0`)
@@ -319,9 +322,11 @@ function stableJson(value: unknown): string {
 /**
  * Identity of an analysis: same commit, same subpath, same engine, same run.
  *
- * `sha` must be the digest of the downloaded (or hashed local) snapshot. An
- * empty one would give every archive source the same run directory, so it is
- * refused instead of silently aliasing snapshots together.
+ * `sha` must be the digest of the downloaded archive or of the local tree as
+ * `hashTree` computes it — domain-tagged, so a tree whose every file was excluded
+ * does not collapse into `sha256("")`. An empty one would give every archive
+ * source the same run directory, so it is refused instead of silently aliasing
+ * snapshots together.
  */
 export function deriveRunId(input: {
   sha: string

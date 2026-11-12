@@ -15,36 +15,20 @@
  */
 
 import type { Dirent } from 'node:fs'
-import { readdir, stat } from 'node:fs/promises'
+import { lstat, readdir } from 'node:fs/promises'
 import path from 'node:path'
 
 import type { Profile, Scope } from '../contracts/types.js'
 import { canonicalizeFile } from './canonicalize.js'
-import { detectLanguage } from './scope.js'
+import { detectLanguage, IGNORED_DIRECTORIES } from './scope.js'
 
 /** Exact filenames that make a directory a project root, matched at the analysis root and one level down. */
 const MANIFEST_NAMES = ['Cargo.toml', 'go.mod', 'package.json', 'pyproject.toml', 'setup.py'] as const
 
 /**
- * Directories whose manifests are never the project's own. Same structural
- * exclusion `selectScope` applies, for the same reason: a `package.json` inside
- * an installed dependency must not become the entry point of the analysis.
- */
-const SKIPPED_MANIFEST_DIRS: ReadonlySet<string> = new Set([
-  'build',
-  'dist',
-  'node_modules',
-  'target',
-  'third_party',
-  'vendor',
-])
-
-/**
  * Extensions of languages anatomy cannot analyse, mapped to the name the report
- * prints. Only programming languages are listed: a repository that is mostly
- * Markdown, JSON or CSS has no unanalysed *language* to warn about, and saying
- * so would bury the caveat that matters — a tree that is mostly Rust cannot be
- * read at all.
+ * prints. Only names are listed here; a file with an extension that is missing
+ * from this map is still reported, under `other`.
  */
 const UNSUPPORTED_LANGUAGES: ReadonlyMap<string, string> = new Map([
   ['rs', 'rust'],
@@ -88,6 +72,29 @@ const UNSUPPORTED_LANGUAGES: ReadonlyMap<string, string> = new Map([
   ['zsh', 'shell'],
 ])
 
+/**
+ * Extensions that name a file *format* rather than a language. A repository that
+ * is mostly Markdown, JSON or CSS has no unreadable language to warn about, and
+ * saying so would bury the caveat that matters — a tree that is mostly Rust
+ * cannot be read at all. Dotfile extensions appear here without their dot, so
+ * `.gitignore` reads as `gitignore`.
+ */
+const NON_CODE_EXTENSIONS: ReadonlySet<string> = new Set([
+  'md',
+  'json',
+  'toml',
+  'yaml',
+  'yml',
+  'css',
+  'scss',
+  'html',
+  'txt',
+  'svg',
+  'lock',
+  'gitignore',
+  'editorconfig',
+])
+
 /** A language below this share of kept files is not worth a caveat. */
 const UNANALYSED_LANGUAGE_THRESHOLD = 5
 
@@ -118,9 +125,14 @@ const DOCS_DIR = /(?:^|\/)docs\//
 
 // --- small filesystem helpers --------------------------------------------
 
+/**
+ * `lstat`, not `stat`: `selectScope` refuses every symlink, so a linked file or
+ * directory must not satisfy a flag here either — the bytes behind it live
+ * outside the analysed root.
+ */
 async function isFile(absolute: string): Promise<boolean> {
   try {
-    return (await stat(absolute)).isFile()
+    return (await lstat(absolute)).isFile()
   } catch {
     return false
   }
@@ -128,16 +140,39 @@ async function isFile(absolute: string): Promise<boolean> {
 
 async function isDirectory(absolute: string): Promise<boolean> {
   try {
-    return (await stat(absolute)).isDirectory()
+    return (await lstat(absolute)).isDirectory()
   } catch {
     return false
   }
 }
 
-function extensionOf(filePath: string): string {
-  const base = filePath.slice(filePath.lastIndexOf('/') + 1)
+/**
+ * Whether `segments` names a real directory below `rootAbs`. Every segment is
+ * checked, because `lstat` refuses only the *last* component: a symlinked
+ * `.github` would still let `.github/workflows` resolve to a directory outside
+ * the root.
+ */
+async function isDirectoryPath(rootAbs: string, ...segments: string[]): Promise<boolean> {
+  let current = rootAbs
+  for (const segment of segments) {
+    current = path.join(current, segment)
+    if (!(await isDirectory(current))) return false
+  }
+  return true
+}
+
+/** Last path segment, for deciding whether a file is a manifest rather than a language. */
+function baseName(filePath: string): string {
+  return filePath.slice(Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\')) + 1)
+}
+
+/** `README.md` -> `md`, `.gitignore` -> `gitignore`, `Makefile` -> ''. */
+function extensionKey(filePath: string): string {
+  const base = baseName(filePath)
   const dot = base.lastIndexOf('.')
-  return dot <= 0 ? '' : base.slice(dot + 1).toLowerCase()
+  if (dot === -1) return ''
+  if (dot === 0) return base.slice(1).toLowerCase()
+  return base.slice(dot + 1).toLowerCase()
 }
 
 /** One line, whatever the error was: a note is a line in a report header, not a stack trace. */
@@ -180,7 +215,7 @@ async function findManifests(rootAbs: string): Promise<string[]> {
   }
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.isSymbolicLink()) continue
-    if (entry.name.startsWith('.') || SKIPPED_MANIFEST_DIRS.has(entry.name)) continue
+    if (entry.name.startsWith('.') || IGNORED_DIRECTORIES.has(entry.name)) continue
     await consider(path.join(rootAbs, entry.name), entry.name)
   }
 
@@ -231,6 +266,11 @@ async function packageEntryPoints(
     for (const key of Object.keys(bin).sort()) {
       const target = bin[key]
       if (typeof target === 'string') declared.push(target)
+      else {
+        notes.push(
+          `could not resolve ${relative} entry "${key}": ${JSON.stringify(target)} is not a string`,
+        )
+      }
     }
   }
   const main = value['main']
@@ -239,8 +279,15 @@ async function packageEntryPoints(
   return declared
 }
 
+/** A TOML string literal's contents; anything else is left exactly as written. */
+function unquote(text: string): string {
+  return /^"(?:[^"\\]|\\.)*"$/.test(text) || /^'[^']*'$/.test(text)
+    ? text.slice(1, -1)
+    : text
+}
+
 /**
- * Script keys declared in `[project.scripts]` or `[tool.poetry.scripts]`.
+ * Script names and declared values in `[project.scripts]` / `[tool.poetry.scripts]`.
  *
  * A TOML parser is not a dependency this project is willing to add for two table
  * lookups, so this is a *structure* scan, not a TOML implementation. It tracks
@@ -248,20 +295,24 @@ async function packageEntryPoints(
  * tables and triple-quoted strings, which is where a line-by-line regex would
  * report false failures. Limits, deliberately:
  *
- * - It reads section names and key names only. It never interprets values, so
- *   resolving `"widget.cli:main"` to `widget/cli.py` is out of scope.
+ * - It reads section names, key names and the raw text of a script value. It never
+ *   interprets them, so resolving `"widget.cli:main"` to `widget/cli.py` is out of
+ *   scope: the caller reports every script it found as unresolved instead of
+ *   pretending the resolution happened.
  * - TOML that is genuinely malformed is caught only where the shape is
  *   unambiguous: a table header without its closing bracket, an unterminated
  *   single-line string, or a top-level line that is neither `key = value` nor a
  *   `[table]`. Anything subtler passes silently, and the note is then simply
  *   absent rather than wrong.
  */
-function scanPyprojectScripts(text: string): string[] {
+function scanPyprojectScripts(text: string): Array<{ name: string; value: string }> {
   const SCRIPT_SECTIONS: ReadonlySet<string> = new Set(['project.scripts', 'tool.poetry.scripts'])
-  const TABLE = /^\[\[?\s*(.+?)\s*\]\]?$/
+  // A trailing comment is legal after a table header, so it must not be mistaken
+  // for part of the closing bracket.
+  const TABLE = /^\[\[?\s*(.+?)\s*\]\]?(?:\s*#.*)?$/
   const KEY_LINE = /^(?:"[^"]*"|'[^']*'|[A-Za-z0-9_.-]+)\s*=/
 
-  const scripts: string[] = []
+  const scripts: Array<{ name: string; value: string }> = []
   let section = ''
   let depth = 0
   let quote: string | null = null
@@ -283,8 +334,11 @@ function scanPyprojectScripts(text: string): string[] {
         } else if (!KEY_LINE.test(statement)) {
           throw new Error(`line ${lineNumber}: not a "key = value" or "[table]" line`)
         } else if (SCRIPT_SECTIONS.has(section)) {
-          const key = statement.slice(0, statement.indexOf('=')).trim().replace(/^["']|["']$/g, '')
-          scripts.push(key)
+          const equals = statement.indexOf('=')
+          scripts.push({
+            name: unquote(statement.slice(0, equals).trim()),
+            value: unquote(statement.slice(equals + 1).trim()),
+          })
         }
       }
     }
@@ -329,18 +383,18 @@ function scanPyprojectScripts(text: string): string[] {
   return scripts
 }
 
-async function pyprojectDeclaresScripts(
+async function pyprojectScripts(
   rootAbs: string,
   relative: string,
   notes: string[],
-): Promise<boolean> {
+): Promise<Array<{ name: string; value: string }>> {
   const text = await readManifestText(rootAbs, relative, notes)
-  if (text === null) return false
+  if (text === null) return []
   try {
-    return scanPyprojectScripts(text).length > 0
+    return scanPyprojectScripts(text)
   } catch (error) {
     notes.push(`could not parse ${relative}: ${reasonOf(error)}`)
-    return false
+    return []
   }
 }
 
@@ -348,6 +402,15 @@ async function pyprojectDeclaresScripts(
 
 /**
  * One note per language that is present in bulk but cannot be parsed.
+ *
+ * The bucketing is inverted on purpose: *every* kept file `detectLanguage` cannot
+ * parse is counted, named when its extension is a language this report knows, and
+ * counted as `other` when it is not. An allowlist of known languages reported
+ * nothing about the files it had never heard of, so ten `.vue` files beside ten
+ * `.ts` files produced silence — the honesty channel going quiet exactly where it
+ * was needed. What stays out is only what is not a language at all: a non-code
+ * format (`NON_CODE_EXTENSIONS`) or a manifest (`.toml`, `go.mod`) says nothing
+ * about analysable code.
  *
  * The share is computed over every kept file, so it answers "how much of what we
  * are reading can we not read". Decimal percentages are rounded for the header;
@@ -362,8 +425,13 @@ function unanalysedLanguageNotes(scope: Scope): string[] {
     // `ScopeFile.language` is derived from the same extension, but asking
     // `detectLanguage` keeps this module honest if a Scope arrives from elsewhere.
     if (detectLanguage(file.path) !== null) continue
-    const name = UNSUPPORTED_LANGUAGES.get(extensionOf(file.path))
-    if (name === undefined) continue
+    // A manifest is not written in some other language; `go.mod` would otherwise
+    // be reported as "other" in every Go project.
+    if ((MANIFEST_NAMES as readonly string[]).includes(baseName(file.path))) continue
+    const extension = extensionKey(file.path)
+    // No extension, no claim about a language to check.
+    if (extension === '' || NON_CODE_EXTENSIONS.has(extension)) continue
+    const name = UNSUPPORTED_LANGUAGES.get(extension) ?? 'other'
     counts.set(name, (counts.get(name) ?? 0) + 1)
   }
 
@@ -375,12 +443,26 @@ function unanalysedLanguageNotes(scope: Scope): string[] {
 }
 
 /**
+ * A declared path as this module spells it: `\` is a separator on one platform and
+ * a legal filename byte on another, so it is normalised to `/` before anything
+ * compares the path to a scope entry.
+ */
+function normalizeDeclared(declared: string): string {
+  return declared
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^\.\//, '')
+}
+
+/**
  * A declared entry is only an entry point of *this* analysis if it survived the
  * scope: `bin` pointing at `dist/cli.js` names a file the report will never
- * quote, and a `main` that does not exist names nothing at all.
+ * quote, and a `main` that does not exist names nothing at all. `null` means "not
+ * resolveable"; the caller turns that into a note, because a declared entry that
+ * silently vanishes reads as a project that declared nothing.
  */
 function normalizeEntryPoint(declared: string, directory: string): string | null {
-  const cleaned = declared.trim().replace(/^\.\//, '')
+  const cleaned = normalizeDeclared(declared)
   if (cleaned === '' || path.isAbsolute(cleaned) || cleaned.split('/').includes('..')) return null
   return directory === '' ? cleaned : `${directory}/${cleaned}`
 }
@@ -410,22 +492,36 @@ export async function profileRepo(root: string, scope: Scope): Promise<Profile> 
   }
 
   const manifests = await findManifests(rootAbs)
+  const named = (name: string): string[] =>
+    manifests.filter((manifest) => path.posix.basename(manifest) === name)
 
-  for (const manifest of manifests) {
-    const base = path.posix.basename(manifest)
+  // Two passes, because the declared precedence is every `package.json` before any
+  // `pyproject.toml`, and a single sorted pass would let `apps/web/pyproject.toml`
+  // outrank the root `package.json`.
+  for (const manifest of named('package.json')) {
     const dirname = path.posix.dirname(manifest)
     const directory = dirname === '.' ? '' : dirname
-    if (base === 'package.json') {
-      for (const declared of await packageEntryPoints(rootAbs, manifest, notes)) {
-        const resolved = normalizeEntryPoint(declared, directory)
-        if (resolved !== null) addEntry(resolved)
+    for (const declared of await packageEntryPoints(rootAbs, manifest, notes)) {
+      const resolved = normalizeEntryPoint(declared, directory)
+      if (resolved !== null && kept.has(resolved)) {
+        addEntry(resolved)
+        continue
       }
-    } else if (base === 'pyproject.toml') {
-      // Script values are `module:callable` strings; mapping those to files is a
-      // resolver question, not a manifest question, so the manifest itself is
-      // what gets recorded. Only when it actually declares a script, so a plain
-      // library does not show up as its own entry point.
-      if (await pyprojectDeclaresScripts(rootAbs, manifest, notes)) addEntry(manifest)
+      // The shipped CLI of a generated-code package is a caveat, not a fact to
+      // drop: say which declaration could not be followed and why.
+      notes.push(
+        `could not resolve ${manifest} entry "${normalizeDeclared(declared)}": ` +
+          'outside the analysed scope',
+      )
+    }
+  }
+
+  for (const manifest of named('pyproject.toml')) {
+    // Script values are `module:callable` strings; mapping those to files is a
+    // resolver question this module does not answer, so each declared script is
+    // reported as unresolved rather than the manifest being listed as code.
+    for (const script of await pyprojectScripts(rootAbs, manifest, notes)) {
+      notes.push(`could not resolve ${manifest} script ${script.name}: ${script.value}`)
     }
   }
 
@@ -437,16 +533,16 @@ export async function profileRepo(root: string, scope: Scope): Promise<Profile> 
 
   const hasTests =
     sortedKept.some((file) => TEST_FILE.test(file) || PY_TEST_FILE.test(file) || TESTS_DIR.test(file)) ||
-    (await isDirectory(path.join(rootAbs, 'tests')))
+    (await isDirectoryPath(rootAbs, 'tests'))
 
   const hasCi =
     sortedKept.some((file) => CI_WORKFLOW_DIR.test(file)) ||
-    (await isDirectory(path.join(rootAbs, '.github', 'workflows'))) ||
+    (await isDirectoryPath(rootAbs, '.github', 'workflows')) ||
     (await Promise.all(CI_FILES.map((name) => isFile(path.join(rootAbs, name))))).includes(true)
 
   const hasDocs =
     sortedKept.some((file) => DOC_FILES.test(file) || DOCS_DIR.test(file)) ||
-    (await isDirectory(path.join(rootAbs, 'docs')))
+    (await isDirectoryPath(rootAbs, 'docs'))
 
   return {
     languages: { ...scope.byLanguage },

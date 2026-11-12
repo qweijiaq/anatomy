@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -257,8 +258,8 @@ describe('resolveSource on other inputs', () => {
     const before = await resolveSource(repo, {}, deps(impl))
 
     // Everything a checkout accumulates without changing one byte of source: git
-    // bookkeeping, installed dependencies, build output, vendored code. A sha that
-    // moves for these mints a new run id for an identical analysis.
+    // bookkeeping, installed dependencies, build output, vendored code, and the
+    // caches a Rust build or a virtualenv leaves behind.
     for (const [relative, body] of [
       ['.git/index', 'binary-ish bookkeeping\n'],
       ['.git/refs/heads/main', 'deadbeef\n'],
@@ -266,6 +267,11 @@ describe('resolveSource on other inputs', () => {
       ['dist/index.js', 'export {};\n'],
       ['build/out.txt', 'artifact\n'],
       ['vendor/lib.c', 'int f(void) { return 0; }\n'],
+      ['third_party/dep/lib.c', 'int f(void) { return 0; }\n'],
+      ['target/debug/widget', 'binary-ish\n'],
+      ['.venv/lib/site.py', 'value = 1\n'],
+      ['__pycache__/module.pyc', 'binary-ish\n'],
+      ['coverage/lcov.info', 'TN:\n'],
     ] as Array<[string, string]>) {
       await mkdir(path.dirname(path.join(repo, relative)), { recursive: true })
       await writeFile(path.join(repo, relative), body)
@@ -278,6 +284,29 @@ describe('resolveSource on other inputs', () => {
     await writeFile(path.join(repo, 'src/index.ts'), 'export const x = 2\n')
     const afterEdit = await resolveSource(repo, {}, deps(impl))
     expect(afterEdit.sha).not.toBe(before.sha)
+  })
+
+  it('signs the tree digest, so an all-excluded tree is not the hash of nothing', async () => {
+    const { impl } = fakeFetch(() => json({}))
+    const digestOf = async (dir: string): Promise<string> =>
+      (await resolveSource(dir, {}, deps(impl))).sha
+
+    const first = await tempDir()
+    const second = await tempDir()
+    await mkdir(path.join(first, 'dist'), { recursive: true })
+    await mkdir(path.join(second, 'dist'), { recursive: true })
+    await writeFile(path.join(first, 'dist/a.js'), 'export {};\n')
+    await writeFile(path.join(second, 'dist/b.js'), 'export {};\n')
+
+    // Both trees are nothing but build output, so they describe the same analysed
+    // content. The domain tag is what keeps that value from being sha256('').
+    expect(await digestOf(first)).toBe(await digestOf(second))
+    expect(await digestOf(first)).not.toBe(createHash('sha256').update('').digest('hex'))
+
+    // The digest still separates two trees on anything that survives exclusion.
+    await writeFile(path.join(first, 'a.ts'), 'export const a = 1\n')
+    await writeFile(path.join(second, 'b.ts'), 'export const b = 1\n')
+    expect(await digestOf(first)).not.toBe(await digestOf(second))
   })
 
   it('derives one run id for a byte-identical local directory on two different days', async () => {
