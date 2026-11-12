@@ -198,6 +198,22 @@ export async function resolveSource(
 }
 
 /**
+ * Directories the digest ignores. `.git` is bookkeeping that changes on every
+ * commit, checkout and fetch; the rest is dependency or build output that the
+ * analysis never reads. Hashing them would move the `sha` — and with it the
+ * `runId` — for input whose analysed content is byte-identical, which is exactly
+ * the reproducibility the run id exists to provide. Composition is by name at
+ * any depth, matching how `selectScope` excludes the same trees.
+ */
+const HASH_IGNORED_DIRS: ReadonlySet<string> = new Set([
+  '.git',
+  'build',
+  'dist',
+  'node_modules',
+  'vendor',
+])
+
+/**
  * sha256 over the tree's contents: per regular file, `path\0len\0content`,
  * files walked in sorted path order. Content, not shape — two trees whose files
  * merely have the same lengths (`const a = 1` rewritten as `const a = 2`) are
@@ -213,6 +229,7 @@ async function hashTree(root: string): Promise<string> {
       const absolute = path.join(dir, dirent.name)
       const relative = prefix === '' ? dirent.name : `${prefix}/${dirent.name}`
       if (dirent.isDirectory()) {
+        if (HASH_IGNORED_DIRS.has(dirent.name)) continue
         await walk(absolute, relative)
       } else if (dirent.isFile()) {
         files.push({ relative, absolute })

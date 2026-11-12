@@ -249,6 +249,37 @@ describe('resolveSource on other inputs', () => {
     expect(after.sha).not.toBe(before.sha)
   })
 
+  it('ignores .git and build output, so ordinary git activity keeps the sha', async () => {
+    const repo = await tempDir()
+    await mkdir(path.join(repo, 'src'), { recursive: true })
+    await writeFile(path.join(repo, 'src/index.ts'), 'export const x = 1\n')
+    const { impl } = fakeFetch(() => json({}))
+    const before = await resolveSource(repo, {}, deps(impl))
+
+    // Everything a checkout accumulates without changing one byte of source: git
+    // bookkeeping, installed dependencies, build output, vendored code. A sha that
+    // moves for these mints a new run id for an identical analysis.
+    for (const [relative, body] of [
+      ['.git/index', 'binary-ish bookkeeping\n'],
+      ['.git/refs/heads/main', 'deadbeef\n'],
+      ['node_modules/left-pad/index.js', 'module.exports = {}\n'],
+      ['dist/index.js', 'export {};\n'],
+      ['build/out.txt', 'artifact\n'],
+      ['vendor/lib.c', 'int f(void) { return 0; }\n'],
+    ] as Array<[string, string]>) {
+      await mkdir(path.dirname(path.join(repo, relative)), { recursive: true })
+      await writeFile(path.join(repo, relative), body)
+    }
+
+    const afterChurn = await resolveSource(repo, {}, deps(impl))
+    expect(afterChurn.sha).toBe(before.sha)
+
+    // A real source edit still has to move the digest.
+    await writeFile(path.join(repo, 'src/index.ts'), 'export const x = 2\n')
+    const afterEdit = await resolveSource(repo, {}, deps(impl))
+    expect(afterEdit.sha).not.toBe(before.sha)
+  })
+
   it('derives one run id for a byte-identical local directory on two different days', async () => {
     const repo = await tempDir()
     await writeFile(path.join(repo, 'index.ts'), 'export const x = 1\n')
