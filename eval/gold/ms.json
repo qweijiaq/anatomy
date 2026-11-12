@@ -1,0 +1,27 @@
+{
+  "repo": "https://github.com/vercel/ms",
+  "ref": "main",
+  "sha": "0000000000000000000000000000000000000001",
+  "provisional": true,
+  "note": "PROVISIONAL LINE NUMBERS: nothing was fetched. The ranges were taken from a local copy of ms 2.x index.js and have NOT been pinned against `main`, which may have moved to TypeScript and renamed the file; check out the sha above and re-point every range (and the path) before trusting a score.",
+  "points": [
+    {
+      "path": "index.js",
+      "startLine": 48,
+      "endLine": 60,
+      "why": "解析交给一条正则,数字与单位一次匹配,单位缺省按毫秒算,认不出的输入返回 undefined 而不是抛错。"
+    },
+    {
+      "path": "index.js",
+      "startLine": 113,
+      "endLine": 128,
+      "why": "短格式按量级从大到小挑单位并统一四舍五入,于是 90 秒读成 2m,而不是只在最细的单位上取整。"
+    },
+    {
+      "path": "index.js",
+      "startLine": 26,
+      "endLine": 38,
+      "why": "对外只暴露一个 ms() 入口,字符串进得到数字、数字进得到字符串,凭入参类型分流而不必记两个函数名。"
+    }
+  ]
+}

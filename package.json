@@ -12,6 +12,7 @@
   "scripts": {
     "build": "tsc && node scripts/copy-sidecar.mjs",
     "test": "vitest run",
+    "eval": "node --experimental-strip-types eval/run.ts",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json"
   },
   "dependencies": {

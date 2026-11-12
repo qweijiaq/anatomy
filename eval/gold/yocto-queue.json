@@ -1,0 +1,27 @@
+{
+  "repo": "https://github.com/sindresorhus/yocto-queue",
+  "ref": "main",
+  "sha": "0000000000000000000000000000000000000002",
+  "provisional": true,
+  "note": "PROVISIONAL LINE NUMBERS: nothing was fetched. The ranges were written from the shape of index.js and have NOT been pinned against the real checkout; check out the sha above and move every startLine/endLine onto the code it names before trusting a score.",
+  "points": [
+    {
+      "path": "index.js",
+      "startLine": 10,
+      "endLine": 24,
+      "why": "队列不预分配容量,enqueue 时才按需增长,空队列几乎不占内存,入队因此是均摊 O(1)。"
+    },
+    {
+      "path": "index.js",
+      "startLine": 26,
+      "endLine": 40,
+      "why": "出队只把头部索引/头指针推到下一位,不搬移已有元素,于是省掉 Array#shift 那种线性搬移。"
+    },
+    {
+      "path": "index.js",
+      "startLine": 58,
+      "endLine": 70,
+      "why": "实现 Symbol.iterator,用一条只读的 yield 循环遍历,使 for...of 与展开运算符直接可用且不复制队列。"
+    }
+  ]
+}
