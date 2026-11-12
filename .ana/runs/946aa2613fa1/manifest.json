@@ -1,9 +1,0 @@
-{
-  "runId": "946aa2613fa1",
-  "source": "tests/fixtures/scan-repo",
-  "ref": "local",
-  "sha": "cc79dfd8ace784f8f7d07a5abc4a5344fdd8d02c37be0aa2e55be92a2fb9f49a",
-  "subpath": "",
-  "engineVersion": "0.0.1",
-  "startedAt": "2026-11-12T17:29:34.552Z"
-}

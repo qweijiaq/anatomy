@@ -14,3 +14,4 @@ ANA/
 # .gitignore matches are force-added once; tracked files are immune to ignore rules.
 !tests/fixtures/repo-small/dist/
 !tests/fixtures/repo-small/node_modules/
+.ana/runs/
