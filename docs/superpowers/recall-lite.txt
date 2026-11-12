@@ -13,6 +13,8 @@ quick-lru.json           candidates  21  gold 4  hit 4  recall 100%
 slugify.json             candidates   6  gold 3  hit 2  recall 67%
 yocto-queue.json         candidates   7  gold 3  hit 3  recall 100%
 
+overall candidate recall: 23/44 = 52%
+
 这份数字是「候选召回」——内核有没有把候选放在金标认为重要的那几行上。它是召回的天花板：
 没有候选的地方，模型再强也产不出学习点。复现：`npm run eval:recall`（不需要任何模型凭据，
 全程离线读公开归档）。
