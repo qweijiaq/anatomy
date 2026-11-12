@@ -286,6 +286,24 @@ describe('resolveSource on other inputs', () => {
     expect(afterEdit.sha).not.toBe(before.sha)
   })
 
+  it('ignores what .gitignore excludes, so a local cache cannot mint a new run id', async () => {
+    const repo = await tempDir()
+    await writeFile(path.join(repo, '.gitignore'), 'local-cache/\n*.log\n')
+    await mkdir(path.join(repo, 'src'), { recursive: true })
+    await writeFile(path.join(repo, 'src/index.ts'), 'export const x = 1\n')
+    const { impl } = fakeFetch(() => json({}))
+    const before = await resolveSource(repo, {}, deps(impl))
+
+    // Neither of these is analysed, so neither may move the digest: a checkout
+    // that regenerates a cache would otherwise land in a different run.
+    await mkdir(path.join(repo, 'local-cache'), { recursive: true })
+    await writeFile(path.join(repo, 'local-cache/data.bin'), 'x'.repeat(4096))
+    await writeFile(path.join(repo, 'debug.log'), 'noise\n')
+
+    const after = await resolveSource(repo, {}, deps(impl))
+    expect(after.sha).toBe(before.sha)
+  })
+
   it('signs the tree digest, so an all-excluded tree is not the hash of nothing', async () => {
     const { impl } = fakeFetch(() => json({}))
     const digestOf = async (dir: string): Promise<string> =>

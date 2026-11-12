@@ -27,7 +27,7 @@ import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { gunzipSync } from 'node:zlib'
 
-import { IGNORED_DIRECTORIES } from './scope.js'
+import { selectScope } from './scope.js'
 
 /** The global `fetch`, injectable so tests never touch the network. */
 export type FetchLike = typeof fetch
@@ -224,28 +224,23 @@ const TREE_DIGEST_DOMAIN = 'anatomy-tree-v2\0'
  * `runId` for an identical analysis.
  */
 async function hashTree(root: string): Promise<string> {
-  const files: Array<{ relative: string; absolute: string }> = []
-  const walk = async (dir: string, prefix: string): Promise<void> => {
-    const dirents = await readdir(dir, { withFileTypes: true })
-    for (const dirent of dirents.sort((a, b) => (a.name < b.name ? -1 : 1))) {
-      const absolute = path.join(dir, dirent.name)
-      const relative = prefix === '' ? dirent.name : `${prefix}/${dirent.name}`
-      if (dirent.isDirectory()) {
-        if (IGNORED_DIRECTORIES.has(dirent.name)) continue
-        await walk(absolute, relative)
-      } else if (dirent.isFile()) {
-        files.push({ relative, absolute })
-      }
-    }
-  }
-  await walk(root, '')
+  // The digest covers what the analysis reads, which is exactly the scope — so a
+  // gitignored local cache or a build directory cannot move the runId. Hashing
+  // the raw directory instead made two identical analyses land in two runs.
+  const scope = await selectScope(root, {
+    limits: {
+      maxBytes: Number.MAX_SAFE_INTEGER,
+      maxFiles: Number.MAX_SAFE_INTEGER,
+      maxLines: Number.MAX_SAFE_INTEGER,
+    },
+  })
 
   const digest = createHash('sha256')
   digest.update(TREE_DIGEST_DOMAIN)
-  files.sort((a, b) => (a.relative < b.relative ? -1 : 1))
-  for (const file of files) {
-    digest.update(`${file.relative}\0${(await stat(file.absolute)).size}\0`)
-    for await (const chunk of createReadStream(file.absolute)) {
+  for (const file of [...scope.files].sort((a, b) => (a.path < b.path ? -1 : 1))) {
+    const absolute = path.join(root, file.path)
+    digest.update(`${file.path}\0${file.bytes}\0`)
+    for await (const chunk of createReadStream(absolute)) {
       digest.update(chunk as Buffer)
     }
   }
