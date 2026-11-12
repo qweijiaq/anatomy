@@ -1,7 +1,7 @@
 == tests ==
       Tests  533 passed (533)
-   Start at  04:10:24
-   Duration  3.80s (transform 1.27s, setup 0ms, collect 5.66s, tests 8.98s, environment 3ms, prepare 1.81s)
+   Start at  04:12:47
+   Duration  3.46s (transform 1.10s, setup 0ms, collect 5.52s, tests 8.35s, environment 2ms, prepare 1.35s)
 
 == typecheck ==
 == build ==
