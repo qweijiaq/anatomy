@@ -61,9 +61,10 @@ describe('detectLanguage', () => {
     expect(detectLanguage('package-lock.json')).toBeNull()
     expect(detectLanguage('Makefile')).toBeNull()
     expect(detectLanguage('.gitignore')).toBeNull()
-    expect(detectLanguage('src/A.java')).toBeNull()
-    expect(detectLanguage('src/a.rb')).toBeNull()
-    expect(detectLanguage('src/a.go')).toBeNull()
+    // Java and Ruby are the approximate pass' business now, so they have names.
+    expect(detectLanguage('src/A.java')).toBe('java')
+    expect(detectLanguage('src/a.rb')).toBe('ruby')
+    expect(detectLanguage('src/a.go')).toBe('go')
   })
 })
 
@@ -150,10 +151,9 @@ describe('selectScope on the fixture repository', () => {
 
     const scope = await selectScope(dir)
 
-    // A Rust file is not analysable here, and saying so is the difference between
-    // "we read this repository" and "we read the one TypeScript file in it".
-    expect(reasonCount(scope, 'unsupported-language')).toBe(1)
-    expect(scope.files.map((f) => f.path)).toEqual(['lib.ts'])
+    // Rust is read by the approximate pass now, so it is *analysable* — what stays
+    // unavailable is its import graph and the block scan, and the profile says so.
+    expect(scope.files.map((f) => f.path).sort()).toEqual(['core.rs', 'lib.ts'])
   })
 
   it('reports files it cannot read even when the language is unknown', async () => {
@@ -200,10 +200,12 @@ describe('selectScope on the fixture repository', () => {
 
     const scope = await selectScope(dir)
 
-    // The report can now say "we read one of six files" instead of presenting a
-    // one-file analysis of a Go and Rust project as if it were the repository.
-    expect(reasonCount(scope, 'unsupported-language')).toBe(5)
-    expect(scope.files.map((f) => f.path)).toEqual(['index.ts'])
+    // Go and Rust are read approximately now; the tally that used to name them is
+    // gone, and the coverage note is what tells the reader the analysis is partial.
+    expect(reasonCount(scope, 'unsupported-language')).toBe(0)
+    expect(scope.files.map((f) => f.path).sort()).toEqual([
+      'a.go', 'b.go', 'c.go', 'd.rs', 'e.rs', 'index.ts',
+    ])
   })
 
   it('counts each excluded file exactly once, under the first matching reason', async () => {

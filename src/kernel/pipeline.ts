@@ -44,7 +44,7 @@ import {
 import { profileRepo } from './profile.js'
 import { selectScope } from './scope.js'
 import { collectSignals } from './signals.js'
-import { indexPython, indexTypeScript, mergeIndexes } from './structure/index.js'
+import { indexGeneric, indexPython, indexTypeScript, mergeIndexes } from './structure/index.js'
 
 /** Where runs land when the caller names no directory: `<cwd>/.ana/runs`. */
 export const DEFAULT_RUNS_DIR = path.join('.ana', 'runs')
@@ -194,11 +194,12 @@ export async function scanRepo(
       // shared compilation to hang a single index on. The two walks are
       // independent, so they run at once rather than paying the Python
       // interpreter start after the whole TypeScript walk.
-      const [typescript, python] = await Promise.all([
+      const [typescript, python, generic] = await Promise.all([
         indexTypeScript(root, scope),
         indexPython(root, scope),
+        indexGeneric(root, scope),
       ])
-      const structure = mergeIndexes([typescript, python])
+      const structure = mergeIndexes([typescript, python, generic])
       const candidates = await collectSignals(
         root,
         scope,

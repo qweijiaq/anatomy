@@ -94,7 +94,7 @@ describe('profileRepo', () => {
     expect(profile.hasTests).toBe(true)
     expect(profile.hasCi).toBe(true)
     expect(profile.hasDocs).toBe(true)
-    expect(profile.languages).toEqual({ ts: 3, js: 1 })
+    expect(profile.languages).toEqual({ ts: 3, js: 1, rust: 1 })
     // 1 of 11 kept files is Rust; markdown/toml/json/go.mod are not "languages".
     // The script the manifest declares is reported as *unresolved* instead of the
     // manifest being recorded as if it were an entry point.

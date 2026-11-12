@@ -1,3 +1,4 @@
+(Use `node --trace-warnings ...` to show where the warning was created)
 cachecontrol-adapter.json candidates  33  gold 3  hit 0  recall 0%
 clack-multiline.json     candidates  47  gold 3  hit 1  recall 33%
 colorette.json           candidates   0  gold 4  hit 0  recall 0%
@@ -15,14 +16,15 @@ p-retry.json             candidates  22  gold 3  hit 1  recall 33%
 p-timeout.json           candidates   5  gold 3  hit 1  recall 33%
 quick-lru.json           candidates  21  gold 4  hit 4  recall 100%
 slugify.json             candidates   6  gold 3  hit 2  recall 67%
-tealdeer.json            candidates   0  gold 3  hit 0  recall 0%
+tealdeer.json            candidates  11  gold 3  hit 1  recall 33%
 yocto-queue.json         candidates   7  gold 3  hit 3  recall 100%
+overall candidate recall: 25/60 = 42%
 
 这份数字是「候选召回」——内核有没有把候选放在金标认为重要的那几行上。它是召回的天花板：
 没有候选的地方，模型再强也产不出学习点。复现：`npm run eval:recall`（不需要任何模型凭据，
 全程离线读公开归档）。
 
-## 20 个仓库 / 60 个点：40%
+## 20 个仓库 / 60 个点：42%
 
 | 金标规模 | 召回 |
 |---|---|
@@ -31,31 +33,32 @@ yocto-queue.json         candidates   7  gold 3  hit 3  recall 100%
 | 10 仓库 / 32 点 | 66% |
 | 14 仓库 / 44 点 | 52% |
 | 18 仓库 / 56 点 | 43% |
-| **20 仓库 / 60 点** | **40%** |
+| 20 仓库 / 60 点（加语言支持前） | 40% |
+| **20 仓库 / 60 点（加语言支持后）** | **42%** |
 
-样本翻到 20 个仓库，数字稳定在 40% 附近。这是目前对「这个扫描器真的能看见多少设计」最诚实的估计。
-前面 90% 那个数字是自我挑选的产物：最初三个仓库都是手写数据结构，正是规则的舒适区。
+## 这轮做的是"补语言"，不是"调规则"
 
-## 这轮发现的最大一个洞：看不见的语言
+`dbrgn/tealdeer`（Rust）此前召回 **0/3**，并不是规则不好——它的源码根本不在分析口径里。
+补法分三处，都用近似而非解析来换诚实：
 
-`dbrgn/tealdeer`（Rust）被扫描时**一个候选都没有**，而且不只是没候选——它的大部分源码根本
-不在分析口径里，报告却看起来是正常的。这是最糟的一类错误：**读者以为读了整个仓库，实际只读了一份
-README**。
+1. **近似结构索引**（`src/kernel/structure/generic.ts`）：按行首关键字识别 `fn`/`struct`/`impl`/
+   `func`/`def`/`function`/`class` 等声明，覆盖 Rust、Go、C/C++/ObjC/C#、Java/Kotlin/Swift/Dart/Zig、
+   Ruby/PHP/Lua。**不声明任何 import 边**——近似的边就是编造，而报告已经写明这个语言是近似读取。
+2. **近似函数体**（`signals.ts` 的 `genericFunctionSpans`）：从声明行到匹配的大括号，`{` 若在声明后
+   两行以外就放弃。跨语言的括号语义一致，猜错的代价是漏一个候选，不是编造一个。
+3. **语言名单**：`detectLanguage` 现在认识这些扩展名，`unsupported-language` 只留给真正的未知语言
+   （`.vue`、`.svelte` 这类单文件组件仍按未知计），因此报告能同时说「读了什么语言」和「哪些文件读不了」。
 
-修法：口径里新增 `unsupported-language` 这一排除原因，把 Rust/Go/Java/C/C++/Swift/Ruby 等
-源码扩展名单独计数。报告现在能说「哪些文件因为语言不支持而没有读」，而不是把它们算作
-「被排除的文件」里的模糊一项。三个测试分别钉住：单个 `.rs` 被计数、十个 `.vue` 被计数、
-Go+Rust 混合的仓库能把「六个文件里只读了一个」说清楚。
+效果：`tealdeer` 从 0 候选到 11 个候选、1/3 命中；全局 40% → 42%。数字只涨了两个点，但**那是一个
+整类仓库从"不可用"变成"可用"**。
 
-## 金标里有一份是诚实的失败
+## 仍然诚实的一件事
 
-`tealdeer` 的金标 3 个点，召回 0——因为语言不支持，这是**产品能力的真实边界**，不是规则的缺陷。
-把它留在金标里，就是为了让这个数字不被悄悄抹掉。
+`src/lib.rs` 的 import 图依旧是空的，`src/kernel/structure/generic.ts` 在 notes 里明写
+`approximate structure: declarations only, no import graph`。报告不会假装知道 Rust 的模块依赖。
 
 ## 下一步
 
-门槛已到（20 / 60）。但先补的不是规则，是**语言**：`tealdeer` 说明「不支持的语言」不是边缘情况，
-而是一个整类仓库的不可用。要不要支持 Rust/Go 的符号索引，比再调一条扫描规则重要得多——那会改变
-1/5 的金标仓库从「0 候选」变成「可分析」。
-
-在那之前不再加扫描规则：40% 这个数字本身说明，规则能触发不等于它在抓该抓的东西。
+剩下的 4 条 `tealdeer` 金标缺口（`format`、`cache`）落在「短函数里的一处判断」，需要语言层面的
+真正解析器才抓得准，而不是再加一条正则。下一步更值得做的是把近似索引也用在 Go 与 Java 的两个
+真实仓库上验证——目前只有 Rust 一个样本证明这条路成立。

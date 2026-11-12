@@ -30,6 +30,7 @@ import type {
   ScopeOptions,
 } from '../contracts/types.js'
 import { DEFAULT_LIMITS } from '../contracts/types.js'
+import { GENERIC_LANGUAGES } from './structure/generic.js'
 
 export type ScopeLimitDimension = 'bytes' | 'files' | 'lines'
 
@@ -127,6 +128,10 @@ const EXTENSION_LANGUAGES: ReadonlyMap<string, string> = new Map([
   ['mjs', 'mjs'],
   ['cjs', 'cjs'],
   ['py', 'py'],
+  // Languages only the approximate structure pass reads. They are analysable in
+  // the sense that matters to the report — declarations are found — while the
+  // import graph and the block scan stay unavailable, which the profile notes say.
+  ...GENERIC_LANGUAGES,
 ])
 
 /** Extension mapping for the languages this product actually reasons about. */

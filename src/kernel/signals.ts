@@ -37,7 +37,7 @@ import type {
 } from '../contracts/types.js'
 import { DEFAULT_TOP_K } from '../contracts/types.js'
 import { canonicalizeFile } from './canonicalize.js'
-import { detectLanguage } from './scope.js'
+import { detectLanguage, isUnsupportedSource } from './scope.js'
 
 export const SIGNAL_WEIGHTS: Record<SignalKind, number> = {
   'custom-infra': 3,
@@ -95,7 +95,7 @@ const MEMBER_CANDIDATES = 10
 
 // --- language families ----------------------------------------------------
 
-type Family = 'js' | 'py'
+type Family = 'js' | 'py' | 'generic'
 
 const JS_LANGUAGES: ReadonlySet<string> = new Set(['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs'])
 
@@ -111,7 +111,11 @@ function familyOf(filePath: string): Family | null {
   const language = detectLanguage(filePath)
   if (language === null) return null
   if (language === 'py') return 'py'
-  return JS_LANGUAGES.has(language) ? 'js' : null
+  if (JS_LANGUAGES.has(language)) return 'js'
+  // Everything else is read by the approximate pass: declaration-recognising only,
+  // which is still enough for a hand-written `fn` or `impl` to become a candidate
+  // instead of a Rust crate producing nothing at all.
+  return isUnsupportedSource(filePath) ? 'generic' : null
 }
 
 // --- one line-oriented view of the text -----------------------------------
@@ -542,6 +546,40 @@ function isFunctionHeader(header: string): boolean {
   // An anonymous function expression has no name to look at.
   if (word === null) return true
   return !CONTROL_KEYWORDS.has((word[1] as string).toLowerCase())
+}
+
+/**
+ * Function bodies for the languages with no parser here.
+ *
+ * A declaration's body starts at the first `{` after its header and ends at the
+ * matching brace, which is true for Rust, Go, C-family, C#, Java, Kotlin, Swift,
+ * Dart, Zig, Ruby and PHP alike. A language without braces falls back to a single
+ * line, so the span is wrong rather than invented — a wrong span costs a candidate,
+ * a fabricated one costs trust.
+ */
+const GENERIC_FN_HEADER =
+  /^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?(?:export[ \t]+)?(?:public|private|protected|internal|static|final|abstract|override|async|unsafe|fun|func|fn|def|function)[ \t]*(?:[\w<>[\]?,.&*]+[ \t]+)*([A-Za-z_]\w*)[ \t]*(?:<[^>]*>)?[ \t]*\(/gm
+
+function genericFunctionSpans(code: string, newlines: readonly number[]): FunctionSpan[] {
+  const spans: FunctionSpan[] = []
+  for (const match of matches(code, GENERIC_FN_HEADER)) {
+    const brace = code.indexOf('{', match.index + match[0].length)
+    if (brace === -1) continue
+    // A `{` on a line far below the header belongs to something else; the
+    // declaration's body opens within a line or two in every language here.
+    const headerLine = lineAt(newlines, match.index)
+    if (lineAt(newlines, brace) - headerLine > 2) continue
+    const end = matchBrace(code, brace)
+    const endOffset = end === -1 ? code.length - 1 : end
+    spans.push({
+      startLine: headerLine,
+      endLine: lineAt(newlines, endOffset),
+      nesting: maxBraceDepth(code, brace, endOffset),
+      bodyStart: brace,
+      bodyEnd: endOffset,
+    })
+  }
+  return spans
 }
 
 function jsFunctionSpans(code: string, newlines: readonly number[]): FunctionSpan[] {
@@ -1481,7 +1519,12 @@ function contextOf(file: CanonicalFile, structure: StructureIndex): FileContext 
     lines: file.text.split('\n'),
     newlines,
     blocks: family === 'js' ? jsBlocks(scan.code) : pyBlocks(file.text),
-    functions: family === 'js' ? jsFunctionSpans(scan.code, newlines) : pythonFunctionSpans(file.text),
+    functions:
+      family === 'js'
+        ? jsFunctionSpans(scan.code, newlines)
+        : family === 'py'
+          ? pythonFunctionSpans(file.text)
+          : genericFunctionSpans(scan.code, newlines),
     structure,
     relativePath,
     borrowed: borrowedNames(file, family, structure, relativePath),
