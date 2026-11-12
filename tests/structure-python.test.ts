@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -19,6 +21,12 @@ afterAll(async () => {
 
 /** The sidecar the module itself runs; a fake interpreter forwards to it. */
 const SIDECAR = fileURLToPath(new URL('../src/kernel/structure/python_index.py', import.meta.url))
+
+/** The build step that puts the sidecar next to the compiled client. */
+const COPY_SIDECAR = fileURLToPath(new URL('../scripts/copy-sidecar.mjs', import.meta.url))
+
+/** The package root, for invoking its own scripts the way `npm run build` does. */
+const PACKAGE_ROOT = fileURLToPath(new URL('..', import.meta.url))
 
 async function tempDir(prefix: string): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), prefix))
@@ -153,12 +161,12 @@ describe('indexPython', () => {
       specifier: 'fastjson',
       resolved: null,
     })
-    // `from . import util` names the package itself: level 1 is the file's own
-    // directory, so the module is `pkg/__init__.py`.
+    // `from . import util` names a *member* of the package, not the package: the
+    // alias is what identifies the module, so this is `pkg/util.py`.
     expect(core.imports).toContainEqual({
       from: 'pkg/core.py',
       specifier: '.',
-      resolved: 'pkg/__init__.py',
+      resolved: 'pkg/util.py',
     })
     expect(core.imports).toContainEqual({
       from: 'pkg/core.py',
@@ -332,5 +340,122 @@ describe('indexPython', () => {
 
     expect(index).toEqual({ modules: [], symbols: [], unresolved: 0, notes: [] })
     await expect(readFile(logPath, 'utf8')).rejects.toThrow()
+  })
+
+  it('resolves `from . import name` to the module the name imports', async () => {
+    const index = await indexOf({
+      'pkg/__init__.py': 'from . import x\n',
+      'pkg/x.py': 'FLAG = True\n',
+      'pkg/core.py': 'from . import util\nfrom .missing import gone\n',
+      'pkg/util.py': 'def helper():\n    return 1\n',
+      // An alias that names a package rather than a module.
+      'pkg/deep/__init__.py': 'from . import sub\n',
+      'pkg/deep/sub/__init__.py': 'FLAG = True\n',
+    })
+
+    // The alias is a member of the package: `from . import util` is `pkg/util.py`,
+    // not the package `__init__`. Inside `pkg/__init__.py` the difference is a
+    // self-edge — a module importing itself, which no reader can act on.
+    expect(moduleAt(index, 'pkg/core.py').imports).toEqual([
+      { from: 'pkg/core.py', specifier: '.', resolved: 'pkg/util.py' },
+      { from: 'pkg/core.py', specifier: '.missing', resolved: null },
+    ])
+    expect(moduleAt(index, 'pkg/__init__.py').imports).toEqual([
+      { from: 'pkg/__init__.py', specifier: '.', resolved: 'pkg/x.py' },
+    ])
+    // The same probe in package form: `<base>/<alias>/__init__.py`.
+    expect(moduleAt(index, 'pkg/deep/__init__.py').imports).toEqual([
+      { from: 'pkg/deep/__init__.py', specifier: '.', resolved: 'pkg/deep/sub/__init__.py' },
+    ])
+    // `from . import missing` names nothing on disk and is the only miss here.
+    expect(index.unresolved).toBe(1)
+  })
+
+  it('never imports a stdlib module shadowed from the environment', async () => {
+    const trap = await tempDir('anatomy-pythonpath-trap-')
+    const marker = path.join(trap, 'pwned')
+    // Anything on PYTHONPATH wins over the stdlib, so this file would run the
+    // instant the sidecar imported `ast` — before it had read a single target.
+    await writeFile(path.join(trap, 'ast.py'), `open(${JSON.stringify(marker)}, 'w').write('ran')\n`)
+
+    const previous = process.env['PYTHONPATH']
+    process.env['PYTHONPATH'] = trap
+    let index: StructureIndex
+    try {
+      index = await indexOf(fixtureFiles())
+    } finally {
+      if (previous === undefined) delete process.env['PYTHONPATH']
+      else process.env['PYTHONPATH'] = previous
+    }
+
+    // The headline invariant: reading a repository must never run code, including
+    // code a poisoned environment smuggles into the reader's own interpreter.
+    expect(existsSync(marker)).toBe(false)
+    expect(index.modules).toHaveLength(7)
+    expect(index.notes).toEqual(['parse errors in 1 files'])
+  })
+
+  it('speaks utf-8 to an interpreter whose locale codec is not', async () => {
+    const root = await tempDir('anatomy-locale-')
+    const logPath = path.join(root, 'spawn.log')
+    // The interpreter is told to use latin-1 for its stdio, which is what
+    // PYTHONIOENCODING in a user's environment can do without anyone noticing.
+    const pythonPath = await fakePython(`PYTHONIOENCODING=latin-1 exec python3 '${SIDECAR}'`, logPath)
+
+    const index = await indexOf({ 'caf\u00e9.py': 'VALUE = 1\n' }, { pythonPath, timeoutMs: 3000 })
+
+    // The wire format is utf-8 by contract; a request path that is re-decoded
+    // through another codec matches nothing and every reply is dropped.
+    expect(index.modules).toEqual([{ path: 'caf\u00e9.py', imports: [] }])
+    expect(spelled(index)).toEqual(['caf\u00e9.py:VALUE:const:1'])
+    expect(index.notes).toEqual([])
+  })
+
+  it('keeps serving after a file raises during collection', async () => {
+    const root = await tempDir('anatomy-collect-')
+    const logPath = path.join(root, 'spawn.log')
+    // A pathological target — two hundred nested tuple targets — parses in C but
+    // walks off the end of the interpreter's stack in `collect`. The lowered limit
+    // makes that reachable on a normal interpreter rather than needing megabytes
+    // of input, and the walk is the thing under test.
+    const pythonPath = await fakePython(
+      `exec python3 -c 'import runpy, sys; sys.setrecursionlimit(120); ` +
+        `runpy.run_path("${SIDECAR}", run_name="__main__")'`,
+      logPath,
+    )
+
+    const index = await indexOf(
+      {
+        'a_nested.py': `x = 1\n${'('.repeat(200)}a${',)'.repeat(200)} = x\n`,
+        'z_next.py': 'VALUE = 1\n',
+      },
+      { pythonPath },
+    )
+
+    // One unreadable file is a note; the batch, and the files after it, survive.
+    expect(index.modules.map((module) => module.path)).toEqual(['a_nested.py', 'z_next.py'])
+    expect(moduleAt(index, 'a_nested.py').imports).toEqual([])
+    expect(spelled(index)).toEqual(['z_next.py:VALUE:const:1'])
+    expect(index.notes).toEqual(['parse errors in 1 files'])
+  })
+
+  it('ships the sidecar next to the compiled client', async () => {
+    const outDir = path.join(await tempDir('anatomy-build-'), 'dist')
+    await mkdir(path.join(outDir, 'kernel/structure'), { recursive: true })
+    await writeFile(path.join(outDir, 'kernel/structure/python.js'), '// compiled\n')
+
+    execFileSync(process.execPath, [COPY_SIDECAR, outDir], { cwd: PACKAGE_ROOT, stdio: 'pipe' })
+
+    // The module spawns `./python_index.py` relative to its own compiled location,
+    // so a build that drops the script leaves every installed user with code 2 and
+    // no Python structure at all.
+    expect(await readFile(path.join(outDir, 'kernel/structure/python_index.py'), 'utf8')).toBe(
+      await readFile(SIDECAR, 'utf8'),
+    )
+    // And the copy is part of `build`, not a step someone has to remember.
+    const manifest = JSON.parse(await readFile(path.join(PACKAGE_ROOT, 'package.json'), 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    expect(manifest.scripts['build']).toContain('copy-sidecar.mjs')
   })
 })

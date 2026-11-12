@@ -10,7 +10,7 @@
     "node": ">=22.14"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-sidecar.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json"
   },

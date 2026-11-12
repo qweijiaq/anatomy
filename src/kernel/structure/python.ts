@@ -44,6 +44,37 @@ const EXIT_GRACE_MS = 1_000
 const SIDECAR_SCRIPT = fileURLToPath(new URL('./python_index.py', import.meta.url))
 
 /**
+ * Where the child runs: beside the sidecar, never inside the tree being analysed.
+ *
+ * With `-I` the script's own directory is what Python would put on `sys.path`
+ * anyway, and the analysed repository is nowhere near it.
+ */
+const SIDECAR_CWD = path.dirname(SIDECAR_SCRIPT)
+
+/**
+ * `-I` is the whole isolation of item one: it implies `-E` and `-s`, so
+ * `PYTHONPATH`, `PYTHONHOME` and the user's site-packages are all ignored. Without
+ * it a `PYTHONPATH` holding an `ast.py` — or a repository that is itself on the
+ * path — is imported and *run* before a single file of the target is read, which
+ * is the one thing this module promises never to do.
+ */
+const SIDECAR_FLAGS = ['-I']
+
+/**
+ * The environment the child is given: this process's, minus every variable that
+ * could add code to it. `-I` already ignores the `PYTHON*` family, so this is the
+ * second lock on the same door — cheap, and it survives a future flag change.
+ */
+function sidecarEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key.startsWith('PYTHON')) continue
+    env[key] = value
+  }
+  return env
+}
+
+/**
  * The answer when there is no interpreter to run. One caveat and no structure:
  * a guessed index would be indistinguishable from a read one.
  */
@@ -192,7 +223,11 @@ async function runBatch(
 ): Promise<Batch> {
   let child: ChildProcess
   try {
-    child = spawn(pythonPath, [SIDECAR_SCRIPT], { stdio: ['pipe', 'pipe', 'pipe'] })
+    child = spawn(pythonPath, [...SIDECAR_FLAGS, SIDECAR_SCRIPT], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      cwd: SIDECAR_CWD,
+      env: sidecarEnv(),
+    })
   } catch {
     return { outcome: 'missing' }
   }
@@ -223,8 +258,12 @@ async function runBatch(
         )
       })
       // A child that never starts makes every write fail with EPIPE; the failure is
-      // already reported through `error` above.
+      // already reported through `error` above. The same holds for the reader
+      // streams: an `error` nobody listens to is the one throw left in a module
+      // whose contract is that a failure is a note.
       child.stdin?.on('error', () => {})
+      child.stdout?.on('error', () => {})
+      child.stderr?.on('error', () => {})
       // Unread stderr would eventually fill its pipe and wedge the child.
       child.stderr?.resume()
 
@@ -267,10 +306,16 @@ async function runBatch(
  * dot climbs one directory; a climb above the analysed root names a file the
  * reader will never see and is not followed. The module path is then probed as a
  * module and as a package, which is exactly how Python itself finds them.
+ *
+ * `from . import name` is the case that needs `names`: the dots name the package,
+ * and it is the alias that names the module. Every name is probed before the
+ * package itself, because `pkg/__init__.py` claiming a self-edge — or claiming
+ * `pkg/core.py`'s import of a sibling — is wrong data of the most confusing kind.
  */
 function resolveRelativePython(
   level: number,
   module: string,
+  names: readonly string[],
   fromPath: string,
   kept: ReadonlySet<string>,
 ): string | null {
@@ -283,6 +328,19 @@ function resolveRelativePython(
   }
 
   const dotted = module.split('.').filter((part) => part !== '').join('/')
+  // `from . import a, b` is one edge per statement; the first alias that names a
+  // kept file is the one the edge can honestly point at.
+  if (dotted === '') {
+    for (const name of names) {
+      const member = name.split('.').filter((part) => part !== '').join('/')
+      if (member === '') continue
+      const relative = base === '' ? member : `${base}/${member}`
+      for (const candidate of [`${relative}.py`, `${relative}/__init__.py`]) {
+        if (kept.has(candidate)) return candidate
+      }
+    }
+  }
+
   const relative = dotted === '' ? base : base === '' ? dotted : `${base}/${dotted}`
   const candidates =
     relative === '' ? ['__init__.py'] : [`${relative}.py`, `${relative}/__init__.py`]
@@ -339,7 +397,7 @@ export async function indexPython(
   const kept = new Set(pythonFiles)
   const modules: ModuleNode[] = []
   const symbols: SymbolRef[] = []
-  const pending: Array<{ edge: ImportEdge; level: number }> = []
+  const pending: Array<{ edge: ImportEdge; level: number; names: string[] }> = []
   let parseErrors = 0
   let unresolved = 0
 
@@ -361,9 +419,13 @@ export async function indexPython(
         const rawLevel = entry['level']
         const level =
           typeof rawLevel === 'number' && Number.isInteger(rawLevel) && rawLevel >= 0 ? rawLevel : 0
+        const rawNames = entry['names']
+        const names = Array.isArray(rawNames)
+          ? rawNames.filter((name): name is string => typeof name === 'string')
+          : []
         const edge: ImportEdge = { from: file, specifier, resolved: null }
         imports.push(edge)
-        pending.push({ edge, level })
+        pending.push({ edge, level, names })
       }
 
       for (const entry of reply.symbols) {
@@ -384,9 +446,9 @@ export async function indexPython(
   // path is in the index": a relative import that lands on a file this batch never
   // reached is left null rather than promising a node that is not there.
   const emitted = new Set(modules.map((module) => module.path))
-  for (const { edge, level } of pending) {
+  for (const { edge, level, names } of pending) {
     if (level === 0) continue
-    const target = resolveRelativePython(level, edge.specifier.slice(level), edge.from, kept)
+    const target = resolveRelativePython(level, edge.specifier.slice(level), names, edge.from, kept)
     if (target === null) {
       unresolved += 1
     } else if (emitted.has(target)) {

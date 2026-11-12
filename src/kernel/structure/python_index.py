@@ -102,12 +102,12 @@ def is_import_guard(node):
     return any(catches_import_error(handler) for handler in node.handlers)
 
 
-def add_import(imports, seen, specifier, level):
+def add_import(imports, seen, specifier, level, names=()):
     """One edge per specifier: `import os` twice is one dependency."""
     if specifier in seen:
         return
     seen.add(specifier)
-    imports.append({'specifier': specifier, 'level': level})
+    imports.append({'specifier': specifier, 'level': level, 'names': list(names)})
 
 
 def collect(body, symbols, imports, seen, guarded=False):
@@ -128,7 +128,11 @@ def collect(body, symbols, imports, seen, guarded=False):
         if isinstance(node, ast.ImportFrom):
             module = node.module or ''
             level = node.level or 0
-            add_import(imports, seen, '.' * level + module, level)
+            # `from . import name` names a *member* of the package: the caret of the
+            # statement is the package, the alias is the module. The reader needs the
+            # alias to follow it, so the names travel with the edge.
+            names = [alias.name for alias in node.names]
+            add_import(imports, seen, '.' * level + module, level, names)
             continue
         if guarded:
             continue
@@ -176,10 +180,14 @@ def index_file(path):
         source = decode(path)
         # The only thing this process does to the analysed repository: parse it.
         tree = ast.parse(source, filename=path)
+        # The walk is inside the guard too: a pathological file can exhaust the
+        # stack while being read, and that is still one bad file, not the end of
+        # the batch.
+        collect(tree.body, reply['symbols'], reply['imports'], set())
     except Exception as error:  # noqa: BLE001 - one bad file must not kill the sidecar
+        reply['imports'] = []
+        reply['symbols'] = []
         reply['error'] = describe(error)
-        return reply
-    collect(tree.body, reply['symbols'], reply['imports'], set())
     return reply
 
 
@@ -187,6 +195,15 @@ def index_file(path):
 
 
 def main():
+    # The protocol is utf-8 in both directions, whatever the locale says. The parent
+    # writes utf-8 JSON, so an interpreter whose stdio codec is latin-1 (a
+    # PYTHONIOENCODING in some profile) would silently re-decode every path, drop
+    # every reply and look exactly like a sidecar that hangs. `reconfigure` is 3.7+;
+    # on anything older the default codec is the best that can be done.
+    if hasattr(sys.stdin, 'reconfigure'):
+        sys.stdin.reconfigure(encoding='utf-8', errors='replace')
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
     for line in sys.stdin:
         line = line.strip()
         if not line:
