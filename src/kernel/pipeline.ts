@@ -49,6 +49,13 @@ import { indexPython, indexTypeScript, mergeIndexes } from './structure/index.js
 /** Where runs land when the caller names no directory: `<cwd>/.ana/runs`. */
 export const DEFAULT_RUNS_DIR = path.join('.ana', 'runs')
 
+/**
+ * Every artifact a finished run owns. `manifest` is not in the list: it is
+ * stamped at open and again at settle, so it cannot testify about the files
+ * beside it.
+ */
+const RUN_ARTIFACTS = ['scope', 'profile', 'structure', 'candidates'] as const
+
 export type PipelineOptions = {
   /** Analyse only this subdirectory of the repository. Defaults to the source's own. */
   subpath?: string
@@ -148,6 +155,10 @@ export async function scanRepo(
       status: 'failed',
     }
     const run = await openRun(baseDir, manifest)
+    // What this scan has already replaced in the directory. A failure part-way
+    // through leaves a directory that is part this scan and part the previous
+    // one, and no manifest can honestly describe that. See `settleFailure`.
+    const written = new Set<string>()
 
     let result: PipelineResult | undefined
     let failure: unknown
@@ -171,12 +182,17 @@ export async function scanRepo(
         opts.topK === undefined ? {} : { topK: opts.topK },
       )
 
+      const write = async (name: string, value: unknown): Promise<void> => {
+        await run.write(name, value)
+        written.add(name)
+      }
+
       // `scope` leads the list because it is the one artifact that cannot be
       // recomputed once the tree is gone: a later report renders from here.
-      await run.write('scope', scope)
-      await run.write('profile', profile)
-      await run.write('structure', structure)
-      await run.write('candidates', candidates)
+      await write('scope', scope)
+      await write('profile', profile)
+      await write('structure', structure)
+      await write('candidates', candidates)
       await run.write('manifest', {
         ...manifest,
         status: 'complete',
@@ -192,7 +208,7 @@ export async function scanRepo(
     // and must not be handed a directory that is about to disappear.
     const cleanup = await closeSafely(run, opts.keepTree === true)
 
-    if (failure !== undefined) throw await settleFailure(run, manifest, previous, failure)
+    if (failure !== undefined) throw await settleFailure(run, manifest, previous, written, failure)
     if (cleanup !== null) throw cleanup
     if (result === undefined) throw new Error(`anatomy: run ${runId} ended without a result`)
     return result
@@ -228,31 +244,69 @@ async function closeSafely(run: Run, keepTree: boolean): Promise<Error | null> {
 /**
  * Records what a failed scan leaves behind, and returns the error to throw.
  *
- * With no earlier result the manifest is downgraded to `failed`: the directory
- * opened, so it exists, and an empty artifact-less run must not read as a result.
+ * The manifest is the only thing that says whether the files next to it belong
+ * to one analysis, so it must never overstate:
  *
- * Over an earlier *complete* run the previous manifest is restored rather than
- * overwritten — those artifacts are still the last thing that worked, and
- * deleting them would destroy a reportable run because a re-scan went wrong. The
- * failure is then reported against the run it preserved instead of being
- * swallowed.
+ * - Every artifact written by this scan → `complete`. The content is this run's;
+ *   only the closing bookkeeping went wrong.
+ * - Nothing written over an earlier *complete* run → that run's manifest is
+ *   restored, because the directory still is exactly what that manifest says.
+ *   The failure is reported against the run it preserved rather than swallowed.
+ * - Anything else → `failed`. A re-scan that got as far as overwriting
+ *   `scope`/`profile`/`structure` and then died has left a directory that is
+ *   part this scan and part the last one, and calling that complete would
+ *   describe a mixed set of artifacts as a single run.
  */
 async function settleFailure(
   run: Run,
   manifest: RunManifest,
   previous: RunManifest | null,
+  written: ReadonlySet<string>,
   failure: unknown,
 ): Promise<unknown> {
-  if (previous !== null && previous.status === 'complete') {
-    await run.write('manifest', previous)
-    return new Error(
+  if (RUN_ARTIFACTS.every((name) => written.has(name))) {
+    return await stampManifest(
+      run,
+      { ...manifest, status: 'complete', completedAt: new Date().toISOString() },
+      failure,
+    )
+  }
+
+  if (written.size === 0 && previous !== null && previous.status === 'complete') {
+    const preserved = new Error(
       `anatomy: scan of ${manifest.source} failed; run ${manifest.runId} keeps its ` +
         `earlier complete result (${messageOf(failure)})`,
       { cause: failure },
     )
+    return await stampManifest(run, previous, preserved, failure)
   }
-  await run.write('manifest', manifest)
-  return failure
+
+  return await stampManifest(run, manifest, failure)
+}
+
+/**
+ * Writes the manifest that settles a failed scan and returns what to throw.
+ *
+ * A failure here must not mask the stage error that got us here: the stage error
+ * stays the `cause`, and the write failure is named alongside it, so the reason
+ * the scan died is still the first thing a reader sees.
+ */
+async function stampManifest(
+  run: Run,
+  next: RunManifest,
+  outcome: unknown,
+  stageFailure: unknown = outcome,
+): Promise<unknown> {
+  try {
+    await run.write('manifest', next)
+    return outcome
+  } catch (error) {
+    return new Error(
+      `anatomy: run ${path.basename(run.dir)} could not record its outcome ` +
+        `(${messageOf(error)}); the scan had failed with: ${messageOf(stageFailure)}`,
+      { cause: stageFailure },
+    )
+  }
 }
 
 /**

@@ -397,21 +397,47 @@ describe('scanRepo', () => {
     expect(existsSync(path.join(out, runId as string, 'tree'))).toBe(false)
   })
 
-  it('keeps an earlier complete run complete when a re-scan cannot finish', async () => {
+  it('marks a re-scan failed when it overwrote only part of an earlier run', async () => {
     const out = await temporaryDir('ana-scan-')
     const first = await scanRepo(fixtureRepo, { baseDir: out, topK: 5 })
     const completed = await artifact<RunManifest>(out, first.runId, 'manifest')
+    expect(completed.status).toBe('complete')
 
     // Occupy the candidates path with a directory: the second scan reopens the
-    // same run id, then fails while writing its last artifact.
+    // same run id, then fails on its last artifact — after scope, profile and
+    // structure were already replaced.
     const blocked = path.join(out, first.runId, 'candidates.json')
     await rm(blocked, { force: true })
     await mkdir(blocked)
 
-    await expect(scanRepo(fixtureRepo, { baseDir: out, topK: 5 })).rejects.toThrow(/complete/)
+    // The stage error itself surfaces; the manifest is what reports the outcome.
+    await expect(scanRepo(fixtureRepo, { baseDir: out, topK: 5 })).rejects.toThrow(
+      /EISDIR|ENOTDIR|EEXIST/,
+    )
 
-    // The earlier run is still the last thing that worked; it is neither deleted
-    // nor downgraded to `failed`.
+    // scope/profile/structure are this scan's, candidates is the last good one:
+    // no single run describes that directory, so the manifest must not claim one.
+    const manifest = await artifact<RunManifest>(out, first.runId, 'manifest')
+    expect(manifest.status).toBe('failed')
+    expect(manifest.completedAt).toBeUndefined()
+    expect(manifest.startedAt >= completed.startedAt).toBe(true)
+  })
+
+  it('keeps an earlier complete run complete when a re-scan wrote nothing', async () => {
+    const out = await temporaryDir('ana-scan-')
+    const first = await scanRepo(fixtureRepo, { baseDir: out, topK: 5 })
+    const completed = await artifact<RunManifest>(out, first.runId, 'manifest')
+
+    // The first artifact write fails, so every file of the earlier run is still
+    // on disk and its manifest is still the truth about them.
+    const blocked = path.join(out, first.runId, 'scope.json')
+    await rm(blocked, { force: true })
+    await mkdir(blocked)
+
+    await expect(scanRepo(fixtureRepo, { baseDir: out, topK: 5 })).rejects.toThrow(
+      /earlier complete result/,
+    )
+
     expect(await artifact<RunManifest>(out, first.runId, 'manifest')).toStrictEqual(completed)
   })
 
