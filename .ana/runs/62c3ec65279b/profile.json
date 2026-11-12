@@ -1,0 +1,14 @@
+{
+  "languages": {
+    "ts": 2,
+    "js": 2
+  },
+  "manifests": [
+    "package.json"
+  ],
+  "entryPoints": [],
+  "hasTests": false,
+  "hasCi": true,
+  "hasDocs": true,
+  "notes": []
+}

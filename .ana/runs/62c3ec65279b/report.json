@@ -1,0 +1,117 @@
+{
+  "source": "https://github.com/sindresorhus/quick-lru",
+  "repo": "quick-lru",
+  "problem": "一个小型工具库，用语言内建结构替代显式的数据结构。",
+  "topFive": [
+    "用插入顺序维护淘汰顺序，不额外维护链表"
+  ],
+  "trust": {
+    "evidenceRate": 1,
+    "droppedEvidence": 0,
+    "avgEvidence": 1
+  },
+  "analysis": {
+    "root": "/Users/weijia/Desktop/anatomy/.ana/runs/62c3ec65279b/tree/sindresorhus-quick-lru-29bdd4c",
+    "totals": {
+      "files": 13,
+      "bytes": 62687,
+      "lines": 2606
+    },
+    "excluded": [],
+    "languages": [
+      {
+        "language": "js",
+        "files": 2
+      },
+      {
+        "language": "ts",
+        "files": 2
+      }
+    ]
+  },
+  "points": [
+    {
+      "id": "verify-point",
+      "title": "用插入顺序维护淘汰顺序，不额外维护链表",
+      "kind": "data-model",
+      "confidence": "high",
+      "problem": {
+        "constraint": "需要在常数时间内命中并淘汰",
+        "stakes": "内存无限增长"
+      },
+      "alternatives": [
+        {
+          "approach": "定时器定期扫描全部条目",
+          "cost": "每个实例一个定时器"
+        }
+      ],
+      "theirs": {
+        "summary": "命中时先删再插，淘汰时取最早插入的键",
+        "evidence": [
+          {
+            "id": "62c3ec65279b-989134",
+            "path": "index.js",
+            "startLine": 1,
+            "endLine": 1,
+            "snippet": "export default class QuickLRU extends Map {"
+          }
+        ]
+      },
+      "mechanism": "有序映射保留插入顺序，删除后重新插入即等于移动到队尾",
+      "tradeoffs": [
+        {
+          "cost": "依赖映射的顺序语义",
+          "whenItHurts": "条目极多时删除插入的常数开销上升"
+        }
+      ],
+      "unknowns": [],
+      "recipe": null
+    },
+    {
+      "id": "verify-point",
+      "title": "用插入顺序维护淘汰顺序，不额外维护链表",
+      "kind": "data-model",
+      "confidence": "high",
+      "problem": {
+        "constraint": "需要在常数时间内命中并淘汰",
+        "stakes": "内存无限增长"
+      },
+      "alternatives": [
+        {
+          "approach": "定时器定期扫描全部条目",
+          "cost": "每个实例一个定时器"
+        }
+      ],
+      "theirs": {
+        "summary": "命中时先删再插，淘汰时取最早插入的键",
+        "evidence": [
+          {
+            "id": "62c3ec65279b-d1550d",
+            "path": "test.js",
+            "startLine": 1,
+            "endLine": 1,
+            "snippet": "import {setTimeout as delay} from 'node:timers/promises';"
+          }
+        ]
+      },
+      "mechanism": "有序映射保留插入顺序，删除后重新插入即等于移动到队尾",
+      "tradeoffs": [
+        {
+          "cost": "依赖映射的顺序语义",
+          "whenItHurts": "条目极多时删除插入的常数开销上升"
+        }
+      ],
+      "unknowns": [],
+      "recipe": null
+    }
+  ],
+  "notRendered": [],
+  "skipped": [
+    "synthesis chose 1 of 2 rendered points"
+  ],
+  "notes": [],
+  "validation": {
+    "downgraded": [],
+    "dropped": []
+  }
+}

@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# One command that answers "does this still work?".
+#
+# It runs the machine gates, then drives the built CLI end to end against a real
+# public repository when the network allows it and against a local fixture
+# otherwise. The model is a local stand-in, so no provider key is needed and the
+# run is deterministic; every citation in the report is still checked against the
+# bytes on disk by the product's own validator.
+set -u
+
+cd "$(dirname "$0")/.." || exit 1
+fail() { echo "VERIFY: FAIL — $*"; exit 1; }
+
+echo "== tests =="
+npm test --silent 2>&1 | tail -4 || fail "tests"
+echo "== typecheck =="
+npm run typecheck --silent 2>&1 | tail -2 || fail "typecheck"
+echo "== build =="
+npm run build --silent >/dev/null 2>&1 || fail "build"
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+
+echo "== stub model =="
+node scripts/verify-stub.mjs > "$work/port" 2>"$work/stub.err" &
+stub=$!
+trap 'kill $stub 2>/dev/null; wait $stub 2>/dev/null; rm -rf "$work"' EXIT
+for _ in $(seq 1 50); do [ -s "$work/port" ] && break; sleep 0.1; done
+port=$(cat "$work/port" 2>/dev/null)
+[ -n "${port:-}" ] || fail "stub did not start: $(cat "$work/stub.err")"
+export ANA_BASE_URL="http://127.0.0.1:$port/v1"
+export ANA_API_KEY="verify-only"
+
+target="https://github.com/sindresorhus/quick-lru"
+kind="github"
+if ! node dist/cli.js scan "$target" --top 2 > "$work/scan.txt" 2>"$work/scan.err"; then
+  kind="fixture"
+  target="tests/fixtures/scan-repo"
+  node dist/cli.js scan "$target" --top 2 > "$work/scan.txt" 2>"$work/scan.err" \
+    || fail "scan: $(cat "$work/scan.err")"
+fi
+echo "== scan ($kind) =="
+head -3 "$work/scan.txt"
+grep -qE '^[^ ]+:[0-9]+' "$work/scan.txt" || fail "scan produced no path:line candidate"
+
+echo "== analyze ($kind) =="
+node dist/cli.js analyze "$target" --model stub --top 2 > "$work/report-path.txt" 2>"$work/analyze.err" \
+  || fail "analyze: $(cat "$work/analyze.err")"
+report=$(cat "$work/report-path.txt")
+[ -f "$report" ] || fail "analyze did not write a report"
+run_dir=$(dirname "$report")
+
+grep -q '^# ' "$report" || fail "report has no title"
+grep -q '已取证点占比' "$report" || fail "report has no trust numbers"
+grep -q '没看的部分' "$report" || fail "report has no coverage tail"
+grep -qE '^`[^`]+:[0-9]+-[0-9]+`$' "$report" || fail "report cites no path:line"
+
+echo "== report (tree deleted) =="
+run_id=$(basename "$run_dir")
+rm -rf "$run_dir/tree"
+node dist/cli.js report "$run_id" > "$work/replay.md" 2>"$work/replay.err" \
+  || fail "report: $(cat "$work/replay.err")"
+grep -q '^# ' "$work/replay.md" || fail "re-render has no title"
+
+echo "== inspect =="
+evidence=$(node -e '
+const fs = require("node:fs")
+const raw = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))
+const points = Array.isArray(raw) ? raw : (raw.points ?? [])
+const first = points.find((p) => (p.theirs?.evidence ?? []).length > 0)
+process.stdout.write(first?.theirs.evidence[0].id ?? "")
+' "$run_dir/points.json")
+[ -n "$evidence" ] || fail "no evidence id to inspect"
+node dist/cli.js inspect "$evidence" > "$work/inspect.txt" 2>&1 || fail "inspect"
+grep -qE '^[^ ]+:[0-9]+-[0-9]+$' "$work/inspect.txt" || fail "inspect printed no range"
+
+echo "== sample =="
+sed -n '1,12p' "$report"
+echo
+echo "VERIFY: PASS ($kind, run $run_id)"

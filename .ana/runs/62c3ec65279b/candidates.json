@@ -1,0 +1,22 @@
+[
+  {
+    "id": "index.js:26:custom-infra",
+    "path": "index.js",
+    "line": 26,
+    "kind": "custom-infra",
+    "score": 3,
+    "matched": [
+      "custom-infra:lru"
+    ]
+  },
+  {
+    "id": "test.js:5:custom-infra",
+    "path": "test.js",
+    "line": 5,
+    "kind": "custom-infra",
+    "score": 3,
+    "matched": [
+      "custom-infra:lru"
+    ]
+  }
+]
