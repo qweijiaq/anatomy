@@ -58,8 +58,9 @@ function pathKey(value: unknown): string {
   return value.replace(/\\/g, '/').replace(/^\.\//, '')
 }
 
+/** Arrays are objects at runtime and are not points; `synthesis.ts` agrees. */
 function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function evidenceOf(point: LearningPoint): Evidence[] {

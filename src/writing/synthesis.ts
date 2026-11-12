@@ -22,7 +22,12 @@
 
 import type { Profile, StructureIndex } from '../contracts/types.js'
 import type { ModelClient, ModelRequest } from './client.js'
-import { MissingCredentialsError, ModelReplyError, ModelRequestError } from './client.js'
+import {
+  EMPTY_CONTENT_MESSAGE,
+  MissingCredentialsError,
+  ModelReplyError,
+  ModelRequestError,
+} from './client.js'
 import type { Lang } from './prompts/zh.js'
 
 /** How many modules the summary names as "most imported". */
@@ -37,7 +42,18 @@ const MAX_ATTEMPTS = 2
  * would feed untrusted output back in as instructions. The prompt gets our own
  * words or nothing.
  */
-const UNUSABLE_REPLY = 'the reply could not be read as JSON'
+const UNREADABLE_REPLY = 'the reply could not be read as JSON'
+/**
+ * The empty-content case is a different failure with a different fix: the model
+ * said nothing, so the repair must ask for an answer, not for valid JSON. Both
+ * strings are ours; neither quotes the reply.
+ */
+const EMPTY_REPLY = 'the reply had no content at all'
+
+/** Whether a reply error was "nothing came back" rather than "garbage came back". */
+function isEmptyReply(error: ModelReplyError): boolean {
+  return error.message === EMPTY_CONTENT_MESSAGE
+}
 
 /** Fewer surviving titles than this means the reply did not do the task. */
 const MIN_TOP_FIVE = 3
@@ -399,7 +415,7 @@ export async function synthesize(deps: SynthesisDeps): Promise<Synthesis> {
       // our own code, and another identical request would hide it instead of
       // fixing it.
       if (!(error instanceof ModelReplyError)) throw error
-      reason = UNUSABLE_REPLY
+      reason = isEmptyReply(error) ? EMPTY_REPLY : UNREADABLE_REPLY
       continue
     }
 

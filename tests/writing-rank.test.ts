@@ -270,6 +270,14 @@ describe('rankPoints — pure and tolerant', () => {
     ])
   })
 
+  it('refuses an array smuggled into the points list', () => {
+    // An array is an object at runtime; returning it as a LearningPoint would
+    // hand the renderer a "point" with no title and no evidence.
+    const smuggled = [[] as unknown as LearningPoint, pointOf('real', 'architecture', [])]
+
+    expect(ids(rankPoints(smuggled, []))).toEqual(['real'])
+  })
+
   it('skips a null evidence element instead of throwing', () => {
     const holed = pointOf('holed', 'architecture', [
       null as unknown as Evidence,

@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest'
 import type { Profile, StructureIndex } from '../src/contracts/types.js'
 import type { ModelClient, ModelRequest, ModelResponse } from '../src/writing/client.js'
 import {
+  EMPTY_CONTENT_MESSAGE,
   MissingCredentialsError,
   ModelReplyError,
   ModelRequestError,
@@ -316,6 +317,33 @@ describe('synthesize — a bad reply is never fatal', () => {
     // The client already spent its retry budget; retrying here would multiply
     // the latency instead of the odds.
     expect(client.calls).toHaveLength(1)
+  })
+
+  it('tells an empty reply apart from an unreadable one in the repair note', async () => {
+    const empty = scriptedClient(
+      { error: new ModelReplyError(EMPTY_CONTENT_MESSAGE) },
+      { json: { problem: 'p2', topFive: titles.slice(0, 3) } },
+    )
+
+    const result = await synthesize(deps(empty))
+
+    const note = empty.calls[1]?.user ?? ''
+    expect(note).toContain('no content')
+    expect(note).not.toContain('could not be read as JSON')
+    expect(result.problem).toBe('p2')
+  })
+
+  it('keeps the unreadable-reply wording for a reply that is not JSON', async () => {
+    const unreadable = scriptedClient(
+      { error: new ModelReplyError('model reply content is not JSON: nope') },
+      { json: { problem: 'p2', topFive: titles.slice(0, 3) } },
+    )
+
+    await synthesize(deps(unreadable))
+
+    const note = unreadable.calls[1]?.user ?? ''
+    expect(note).toContain('could not be read as JSON')
+    expect(note).not.toContain('no content')
   })
 
   it('rethrows a client bug instead of spending a repair on it', async () => {

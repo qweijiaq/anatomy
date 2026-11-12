@@ -78,6 +78,16 @@ export class ModelRequestError extends Error {
 }
 
 /**
+ * The one message that means "the reply was empty".
+ *
+ * Exported because the caller's repair note has to tell an empty reply apart
+ * from an unreadable one: the fix for "say something" is a different instruction
+ * than the fix for "your JSON was broken", and the message itself never carries
+ * model text.
+ */
+export const EMPTY_CONTENT_MESSAGE = 'model reply has no message content'
+
+/**
  * A reply that arrived but is unusable: no message content, or content that is
  * not the JSON object the prompt asked for. The tokens were spent, so `usage`
  * is carried even though this is an error.
@@ -242,7 +252,7 @@ async function readReply(response: Response): Promise<ModelResponse> {
   const usage = usageOf(payload)
   const content = contentOf(payload)
   if (content === null) {
-    throw new ModelReplyError('model reply has no message content', usage, response.status)
+    throw new ModelReplyError(EMPTY_CONTENT_MESSAGE, usage, response.status)
   }
 
   const text = stripFence(content)
