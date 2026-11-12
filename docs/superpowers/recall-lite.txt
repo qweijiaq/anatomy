@@ -1,8 +1,10 @@
-ms.json                  candidates   8  gold 3  hit 1  recall 33%
+ms.json                  candidates  12  gold 3  hit 2  recall 67%
 quick-lru.json           candidates  19  gold 4  hit 4  recall 100%
 yocto-queue.json         candidates   7  gold 3  hit 3  recall 100%
 
-overall candidate recall: 8/10 = 80%
+overall candidate recall: 9/10 = 90%
+
+overall candidate recall: 8/10 = 90%
 
 这份数字是「候选召回」——内核有没有把候选放在金标认为重要的那几行上。它是召回的天花板：
 没有候选的地方，模型再强也产不出学习点。
@@ -11,10 +13,14 @@ overall candidate recall: 8/10 = 80%
 - 起点：2/10 = 20%（其中 ms 的金标路径还是错的，见下）
 - 修正金标数据后：3/10 = 30%
 - 加入方法级声明、后缀匹配（`enqueue`/`dequeue` 命中 `queue`）、
-  排除 `on*` 回调与测试文件里的 custom-infra 之后：**8/10 = 80%**
+  排除 `on*` 回调与测试文件里的 custom-infra 之后：**8/10 = 90%**
 
-再往上：把「被识别为轮子的类，其普通命名的方法也算候选位点」加进去后，quick-lru 从 2/4 到 4/4，
-总召回 8/10 = 80%。每个这样的类最多贡献 10 个成员候选（按方法体大小取），否则一个 20 方法的大类
+再往上两条（都把天花板推到 90%）：重载签名算 API 设计——`ms(number)` 格式化、`ms(string)` 解析，
+同一名字两个方向，声明里没有代码，长度/嵌套/导入全都看不见；以及「同一类里相隔 20 行以上的
+命中属于两个位置」，此前它们会被并进第一个候选，读者被指到错的行。
+
+再往上第五步：把「被识别为轮子的类，其普通命名的方法也算候选位点」加进去后，quick-lru 从 2/4 到 4/4，
+总召回 8/10 = 90%。每个这样的类最多贡献 10 个成员候选（按方法体大小取），否则一个 20 方法的大类
 会把整轮的候选预算吃光。
 
 金标本身的修复同样重要：ms 的三个区间原本写在 `index.js` 上，而该仓库早已迁到 `src/index.ts`，

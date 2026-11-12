@@ -635,6 +635,45 @@ describe('members of a wheel class', () => {
   })
 })
 
+describe('overload signatures and distant hits', () => {
+  it('scores a two-directional API declared by overloads', () => {
+    // `ms(number)` formats, `ms(string)` parses: one name, two directions. The
+    // declarations carry no code, so length, nesting and imports all see nothing.
+    const file = fileOf(
+      [
+        'export function ms(value: string, options?: Options): number;',
+        'export function ms(value: number, options?: Options): string;',
+        'export function ms(',
+        '  value: string | number,',
+        '  options?: Options,',
+        ') {',
+        '  return 0',
+        '}',
+      ].join('\n'),
+      'src/index.ts',
+    )
+    const words = scoreFile(file, emptyIndex()).flatMap((candidate) => candidate.matched)
+    expect(words).toContain('abstraction:overload:ms')
+  })
+
+  it('does not score a single declaration as an overload', () => {
+    const file = fileOf('export function ms(value: string): number {\n  return 0\n}\n', 'src/index.ts')
+    const words = scoreFile(file, emptyIndex()).flatMap((candidate) => candidate.matched)
+    expect(words.some((word) => word.startsWith('abstraction:overload'))).toBe(false)
+  })
+
+  it('keeps two distant hits in one kind as separate candidates', () => {
+    // Merging a hit far below into the first hit's candidate points the reader at
+    // the wrong code, and the distant decision then has no candidate at all.
+    const lines = ['// we chose a queue instead of a stack', 'export const a = 1']
+    for (let i = 0; i < 60; i += 1) lines.push(`export const pad${i} = ${i}`)
+    lines.push('// because memory is cheaper than latency here', 'export const b = 2')
+    const candidates = scoreFile(fileOf(lines.join('\n'), 'src/a.ts'), emptyIndex())
+    expect(candidates.length).toBeGreaterThanOrEqual(2)
+    expect(new Set(candidates.map((candidate) => candidate.line)).size).toBe(candidates.length)
+  })
+})
+
 describe('test-spec chained calls', () => {
   it('counts the assertions of an it.each table', () => {
     // Vitest's table form opens two argument lists; only the second holds the

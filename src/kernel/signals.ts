@@ -82,6 +82,9 @@ const GROUP_MAX_LINES = 120
 /** ...and each finding is at most this many lines. */
 const BUCKET_LINES = 50
 
+/** Hits further apart than this are separate places, not one merged candidate. */
+const GROUP_MERGE_LINES = 20
+
 /**
  * How many member candidates one wheel class may contribute.
  *
@@ -800,6 +803,12 @@ const JS_DECLARATION = /(?:^|[^\w$.])(class|function|const|let|var)[ \t]+([A-Za-
  * decisions a reader actually learns from — were invisible.
  */
 const JS_METHOD = /^[ \t]+(?:static[ \t]+)?(?:async[ \t]+)?#?([A-Za-z_$][\w$]*)[ \t]*\([^)]*\)[ \t]*\{/gm
+/**
+ * A declaration with no body on its line: an overload signature, or an ambient
+ * declaration. Two of the same name in one file is a deliberate API shape.
+ */
+const OVERLOAD_SIGNATURE = /(?:^|[^\w$.])(?:export[ \t]+)?(?:declare[ \t]+)?function[ \t]+([A-Za-z_$][\w$]*)[ \t]*\([^)]*\)[ \t]*:[^{\n]*$/gm
+
 const CLASS_DECLARATION = /(?:^|[^\w$.])class[ \t]+([A-Za-z_$][\w$]*)/g
 
 /**
@@ -1145,6 +1154,27 @@ function abstractionHits(context: FileContext): Hit[] {
     hits.push(hit('abstraction', 1, 'interfaces-outnumber-classes'))
   }
 
+  // Overload signatures: the same name declared twice or more with no body. That is
+  // how a module states "one API, two directions" in TypeScript, and it is invisible
+  // to every other rule — the declarations carry no code, so they have no length,
+  // no nesting and no imports. It is a design decision about the public surface, and
+  // `ms` is the textbook case: `ms(number)` formats, `ms(string)` parses.
+  if (context.family === 'js') {
+    const seen = new Map<string, { count: number; first: number }>()
+    for (const match of matches(code, OVERLOAD_SIGNATURE)) {
+      const name = match[1]
+      if (name === undefined) continue
+      const at = match.index + match[0].indexOf(name)
+      const entry = seen.get(name)
+      if (entry === undefined) seen.set(name, { count: 1, first: at })
+      else entry.count += 1
+    }
+    for (const [name, entry] of seen) {
+      if (entry.count < 2) continue
+      hits.push(hit('abstraction', lineAt(context.newlines, entry.first), `overload:${name}`))
+    }
+  }
+
   const relativePath = context.relativePath
   if (relativePath !== null) {
     const self = context.structure.modules.find((candidate) => candidate.path === relativePath)
@@ -1296,7 +1326,11 @@ function groupHits(
   const anchored = new Set(
     entries.map((entry) => functionAt(functions, entry.line)).filter((index) => index >= 0),
   )
-  if (span <= GROUP_MAX_LINES && anchored.size <= 1) {
+  // A group is "one place to look": merging a hit 40 lines away into the first
+  // hit's candidate points the reader at the wrong code, and the distant decision
+  // then has no candidate of its own.
+  const spread = Math.max(...lines) - Math.min(...lines)
+  if (span <= GROUP_MAX_LINES && anchored.size <= 1 && spread <= GROUP_MERGE_LINES) {
     return [{ entries, line: Math.min(...lines) }]
   }
 
