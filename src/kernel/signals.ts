@@ -807,6 +807,14 @@ const JS_METHOD = /^[ \t]+(?:static[ \t]+)?(?:async[ \t]+)?#?([A-Za-z_$][\w$]*)[
  * A declaration with no body on its line: an overload signature, or an ambient
  * declaration. Two of the same name in one file is a deliberate API shape.
  */
+/**
+ * A collection copied immediately before it is iterated.
+ *
+ * `handlers.slice().map(...)` is how a hand-written emitter lets a callback
+ * unregister itself mid-dispatch without skipping or repeating a handler.
+ */
+const SNAPSHOT_BEFORE_ITERATE = /\.slice\(\)\s*\.\s*(?:map|forEach|filter)\s*\(/g
+
 const OVERLOAD_SIGNATURE = /(?:^|[^\w$.])(?:export[ \t]+)?(?:declare[ \t]+)?function[ \t]+([A-Za-z_$][\w$]*)[ \t]*\([^)]*\)[ \t]*:[^{\n]*$/gm
 
 const CLASS_DECLARATION = /(?:^|[^\w$.])class[ \t]+([A-Za-z_$][\w$]*)/g
@@ -1036,6 +1044,10 @@ const hit = (kind: SignalKind, line: number, label: string): Hit => ({
 
 function decisionHits(context: FileContext): Hit[] {
   const hits: Hit[] = []
+  // A comment in a test explains the test, not the design: on a real repository
+  // two such comments spent two of five candidate slots. `test-spec` is the
+  // signal that owns tests.
+  if (context.isTestFile) return hits
   const read = (span: Span): void => {
     for (const pattern of DECISION_PATTERNS) {
       if (pattern.re.test(span.text)) hits.push(hit('decision-trace', span.line, pattern.label))
@@ -1063,6 +1075,15 @@ function customInfraHits(context: FileContext): Hit[] {
     if (context.borrowed.has(normalizeName(name))) continue
     if (VALUE_BINDINGS.has(keyword) && !definesCode(code, match.index + match[0].length)) continue
     hits.push(hit('custom-infra', lineAt(context.newlines, match.index + match[0].lastIndexOf(name)), word))
+  }
+
+  // Snapshot before dispatch: copying the handler list before iterating lets a
+  // callback unregister itself mid-emit without skipping or repeating a handler.
+  // Invisible to every other rule — the code is short, un-nested and importless.
+  if (!context.isTestFile) {
+    for (const match of matches(code, SNAPSHOT_BEFORE_ITERATE)) {
+      hits.push(hit('custom-infra', lineAt(context.newlines, match.index), 'snapshot-before-dispatch'))
+    }
   }
 
   // Method names carry the design in a hand-written structure, but only in the

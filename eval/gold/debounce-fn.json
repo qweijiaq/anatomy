@@ -1,0 +1,33 @@
+{
+  "repo": "https://github.com/sindresorhus/debounce-fn",
+  "ref": "6cce35773725f039e004afbb8012c2f1f8881c9f",
+  "sha": "6cce35773725f039e004afbb8012c2f1f8881c9f",
+  "provisional": false,
+  "note": "sha 是标注当日该仓库 main 的真实提交；区间对着这个提交的 index.js 量过。",
+  "points": [
+    {
+      "path": "index.js",
+      "startLine": 3,
+      "endLine": 65,
+      "why": "用一个 timer 变量加 before/after 两个标志位实现前缘与后缘合并，而不是维护队列或状态机"
+    },
+    {
+      "path": "index.js",
+      "startLine": 67,
+      "endLine": 72,
+      "why": "用 mimicFunction 把被包装函数的 name、length 等属性复制到 debounced 包装器上，使包装后的函数对外仍然像原函数"
+    },
+    {
+      "path": "index.js",
+      "startLine": 55,
+      "endLine": 70,
+      "why": "延迟调用前先把 latestContext/latestArguments 抓成局部变量再 cancel()，因此在 later 执行期间再次触发也不会读到被覆盖的参数"
+    },
+    {
+      "path": "index.js",
+      "startLine": 43,
+      "endLine": 53,
+      "why": "shouldCallNow = before && !timeout 用一个判据同时表达「前缘触发」与「已有待执行任务」，不需要额外的状态机"
+    }
+  ]
+}

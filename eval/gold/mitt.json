@@ -1,0 +1,27 @@
+{
+  "repo": "https://github.com/developit/mitt",
+  "ref": "6b41670516ed8e8b738612f60491995470aa63b3",
+  "sha": "6b41670516ed8e8b738612f60491995470aa63b3",
+  "provisional": false,
+  "note": "sha 是标注当日该仓库 main 的真实提交；区间对着这个提交的 src/index.ts 逐个成员量过。",
+  "points": [
+    {
+      "path": "src/index.ts",
+      "startLine": 46,
+      "endLine": 123,
+      "why": "用工厂函数返回闭包对象而不是 class：实例就是普通对象，可序列化、可被任意对象当作原型，也没有 new 与 this 的负担"
+    },
+    {
+      "path": "src/index.ts",
+      "startLine": 86,
+      "endLine": 104,
+      "why": "off 用 splice(handlers.indexOf(handler) >>> 0, 1) 处理「找不到就删第 0 个」的越界情形，用一个位运算代替分支"
+    },
+    {
+      "path": "src/index.ts",
+      "startLine": 105,
+      "endLine": 123,
+      "why": "emit 先取本类型处理器再取通配 '*'，且都先 slice() 再遍历，因此在回调里增删监听不会改变本轮遍历的集合"
+    }
+  ]
+}

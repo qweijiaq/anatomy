@@ -635,6 +635,42 @@ describe('members of a wheel class', () => {
   })
 })
 
+describe('snapshot before dispatch', () => {
+  it('scores a handler list copied before it is iterated', () => {
+    // `handlers.slice().map(...)` is how a callback can unregister itself mid-emit
+    // without skipping or repeating a handler.
+    const file = fileOf(
+      [
+        'const handlers = map.get(type)',
+        'if (handlers) {',
+        '  handlers.slice().map((handler) => {',
+        '    handler(evt)',
+        '  })',
+        '}',
+      ].join('\n'),
+      'src/emitter.js',
+    )
+    const words = scoreFile(file, emptyIndex()).flatMap((candidate) => candidate.matched)
+    expect(words).toContain('custom-infra:snapshot-before-dispatch')
+  })
+
+  it('does not fire on an ordinary slice', () => {
+    const file = fileOf(['const head = list.slice()', 'export const n = head.length'].join('\n'), 'src/a.js')
+    const words = scoreFile(file, emptyIndex()).flatMap((candidate) => candidate.matched)
+    expect(words).not.toContain('custom-infra:snapshot-before-dispatch')
+  })
+
+  it('does not read design out of comments in a test file', () => {
+    // Two such comments once spent two of five candidate slots on a real repo.
+    const file = fileOf(
+      ['// because the emitter is synchronous, this order matters', 'it("x", () => {', '  expect(1).toBe(1)', '})'].join('\n'),
+      'test/emitter.test.js',
+    )
+    const words = scoreFile(file, emptyIndex()).flatMap((candidate) => candidate.matched)
+    expect(words.some((word) => word.startsWith('decision-trace'))).toBe(false)
+  })
+})
+
 describe('overload signatures and distant hits', () => {
   it('scores a two-directional API declared by overloads', () => {
     // `ms(number)` formats, `ms(string)` parses: one name, two directions. The
