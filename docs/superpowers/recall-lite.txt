@@ -17,6 +17,8 @@ quick-lru.json           candidates  21  gold 4  hit 4  recall 100%
 slugify.json             candidates   6  gold 3  hit 2  recall 67%
 yocto-queue.json         candidates   7  gold 3  hit 3  recall 100%
 
+overall candidate recall: 24/56 = 43%
+
 ## 到 18 个仓库 / 56 个点
 
 | 金标规模 | 召回 |
