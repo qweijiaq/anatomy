@@ -1,0 +1,27 @@
+{
+  "repo": "https://github.com/lukeed/dlv",
+  "ref": "827954487f2ac84b36672f925a0e57ca7c94dcd3",
+  "sha": "827954487f2ac84b36672f925a0e57ca7c94dcd3",
+  "provisional": false,
+  "note": "sha 是标注当日该仓库默认分支的真实提交；区间对着这个提交的源码逐行量过。",
+  "points": [
+    {
+      "path": "index.js",
+      "startLine": 1,
+      "endLine": 6,
+      "why": "用 while 循环一次走完路径，把「对象存在」「路径还有剩余」两个终止条件合成一个判断，失败时返回调用方给的默认值"
+    },
+    {
+      "path": "index.js",
+      "startLine": 1,
+      "endLine": 6,
+      "why": "key.split ? key.split('.') : key —— 用鸭子类型判断入参是字符串还是已拆好的数组，省掉一个重载或一个第二个函数"
+    },
+    {
+      "path": "index.js",
+      "startLine": 1,
+      "endLine": 6,
+      "why": "六行的实现里没有任何提前 return：失败与成功都走同一个 return 表达式，靠三元运算区分"
+    }
+  ]
+}

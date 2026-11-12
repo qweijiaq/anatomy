@@ -1,0 +1,27 @@
+{
+  "repo": "https://github.com/lukeed/dset",
+  "ref": "05b1ec0f8cebe3b5d5667285bc7da90f38a7215e",
+  "sha": "05b1ec0f8cebe3b5d5667285bc7da90f38a7215e",
+  "provisional": false,
+  "note": "sha 是标注当日该仓库默认分支的真实提交；区间对着这个提交的源码逐行量过。",
+  "points": [
+    {
+      "path": "src/index.js",
+      "startLine": 1,
+      "endLine": 9,
+      "why": "写路径时在每一层判断下一个键像不像数组下标，决定建 {} 还是 []，因此不用预先声明目标结构"
+    },
+    {
+      "path": "src/index.js",
+      "startLine": 1,
+      "endLine": 9,
+      "why": "对 __proto__/constructor/prototype 三个键直接 break，用一行拦截原型污染而不是事后清洗"
+    },
+    {
+      "path": "src/merge.js",
+      "startLine": 1,
+      "endLine": 18,
+      "why": "merge 递归到最底层才写入，值类型直接覆盖、容器继续下钻，因此同一份逻辑既能合并对象也能合并数组"
+    }
+  ]
+}

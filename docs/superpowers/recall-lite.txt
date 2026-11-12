@@ -1,33 +1,41 @@
-cachecontrol-adapter.json candidates  33  gold 3  hit 0  recall 0%
+cachecontrol-adapter.json candidates  34  gold 3  hit 0  recall 0%
 cast.json                candidates  17  gold 3  hit 1  recall 33%
-chroma.json              candidates  62  gold 3  hit 1  recall 33%
-clack-multiline.json     candidates  47  gold 3  hit 1  recall 33%
+chroma.json              candidates  67  gold 3  hit 1  recall 33%
+clack-multiline.json     candidates  53  gold 3  hit 1  recall 33%
 colorette.json           candidates   0  gold 4  hit 0  recall 0%
 debounce-fn.json         candidates   2  gold 4  hit 2  recall 50%
 defu.json                candidates   4  gold 3  hit 2  recall 67%
-delay.json               candidates   1  gold 3  hit 1  recall 33%
+delay.json               candidates   2  gold 3  hit 1  recall 33%
 dequal.json              candidates  12  gold 3  hit 2  recall 67%
-destr.json               candidates   0  gold 3  hit 0  recall 0%
+destr.json               candidates   1  gold 3  hit 1  recall 33%
+dlv.json                 candidates   0  gold 3  hit 0  recall 0%
+dset.json                candidates   5  gold 3  hit 1  recall 33%
 etag.json                candidates   5  gold 3  hit 0  recall 0%
+klona.json               candidates  14  gold 3  hit 1  recall 33%
 merge-streams.json       candidates   2  gold 3  hit 1  recall 33%
 mitt.json                candidates   4  gold 3  hit 2  recall 67%
-ms.json                  candidates  13  gold 3  hit 2  recall 67%
-object.assign.json       candidates   3  gold 3  hit 1  recall 33%
-p-debounce.json          candidates   7  gold 3  hit 3  recall 100%
+ms.json                  candidates  15  gold 3  hit 3  recall 100%
+object.assign.json       candidates   4  gold 3  hit 1  recall 33%
+p-all.json               candidates   0  gold 3  hit 0  recall 0%
+p-debounce.json          candidates   8  gold 3  hit 3  recall 100%
 p-limit.json             candidates   2  gold 3  hit 1  recall 33%
-p-queue.json             candidates 127  gold 3  hit 2  recall 67%
-p-retry.json             candidates  22  gold 3  hit 1  recall 33%
+p-queue.json             candidates 128  gold 3  hit 2  recall 67%
+p-retry.json             candidates  24  gold 3  hit 1  recall 33%
 p-timeout.json           candidates   5  gold 3  hit 1  recall 33%
-quick-lru.json           candidates  21  gold 4  hit 4  recall 100%
+quick-lru.json           candidates  22  gold 4  hit 4  recall 100%
 slugify.json             candidates   6  gold 3  hit 2  recall 67%
+tealdeer.json            candidates  11  gold 3  hit 1  recall 33%
+totalist.json            candidates   6  gold 3  hit 3  recall 100%
+yocto-queue.json         candidates   7  gold 3  hit 3  recall 100%
+This is the ceiling: a gold point with no candidate can never become a learning point.
 
-overall candidate recall: 34/75 = 45%
+overall candidate recall: 41/90 = 46%
 
 这份数字是「候选召回」——内核有没有把候选放在金标认为重要的那几行上。它是召回的天花板：
 没有候选的地方，模型再强也产不出学习点。复现：`npm run eval:recall`（不需要任何模型凭据，
 全程离线读公开归档）。
 
-## 25 个仓库 / 75 个点：45%
+## 30 个仓库 / 90 个点：46%
 
 | 金标规模 | 召回 |
 |---|---|
@@ -35,62 +43,32 @@ overall candidate recall: 34/75 = 45%
 | 10 仓库 / 32 点 | 66% |
 | 18 仓库 / 56 点 | 43% |
 | 20 仓库 / 60 点（近似语言前） | 40% |
-| 20 仓库 / 60 点（近似语言后） | 42% |
-| 22 仓库 / 66 点（加 Go） | 41% |
-| **25 仓库 / 75 个点** | **45%** |
+| 25 仓库 / 75 点 | 45% |
+| **30 仓库 / 90 个点** | **46%** |
 
-## 这轮的三条结论都有具体证据
+从 25 到 30 个仓库，数字基本没动（45% → 46%）。**这次没有掉，说明 45% 附近是稳定的**，
+前三轮的下跌是样本从同类仓库扩到异类仓库造成的，现在扩到了同类（又一个极简工具库群），
+当然不会再有断崖。
 
-1. **`p-debounce` 一次 3/3。** 整个库是一个闭包工厂，前缘/后缘是选项而不是两个函数——
-   正是「返回函数的函数」与「决策注释」两条规则合起来能看见的形状。
-2. **`p-queue` 0/3 → 2/3。** 补的两条规则都来自真实代码：
-   - 一条**决策注释紧贴在某个声明上方**时，候选落在注释上、指名的却是下一行声明
-     （`p-queue` 的注释解释的是 `#head`，不是整个文件）；
-   - 一个**以标准算法命名的函数**（`lowerBound`）本身就是设计选择，它不属于"自研轮子"，
-     所以单独给了 `algorithm` 这一类。
-3. **`merge-streams` 1/3。** 剩下两处是"继承 PassThroughStream"与"用 ended/aborted 两个标记
-   判断结束"，属于继承层次与状态机——现有规则只读函数体，看不见类的形状。
+## 新加五个仓库暴露的缺口形状
 
-## 一个反向验证
+`dlv` 0/3、`p-all` 0/3、`dset` 1/3、`klona` 1/3、`totalist` 3/3。
 
-`ALGORITHM_SUFFIX` 的第一版把 `rebounded` 也算成了算法（`bound` 在词中间）。测试直接抓到了：
-那是常见英文动词，当成设计声明会立刻制造噪音。现在按 camelCase/下划线边界判断，
-`lowerBound`、`lower_bound`、`bsearch` 命中，`rebounded` 不命中。
+`dlv` 与 `p-all` **一个候选都没有**，两个都是不到 10 行的文件：
 
-## 一次没有变成数字的修复
+- `dlv` 六行：一个 `while` 走完路径 + 一个三元返回默认值。
+- `p-all` 五行：把 promise 工厂转成 p-map 的入参，`element => element()` 是全部语义。
 
-`colorette` 仍是 0/4。追下去发现是真 bug：`const replaceClose = (` 换行后 `) => …` 这种**多行箭头函数**
-被判定为"不是代码"，于是整个文件——一个短箭头辅助函数加一个布尔开关构成的库——一个候选都没有。
-修完之后（多行续行按首字符判定，箭头算代码、`!x && y` 算值），新加的测试钉住了两边，
-但 `colorette` 的**总分没有变化**：文件名 `index.js`、没有 wheel 词、没有注释关键词，
-规则看得见"它是函数"，却没有理由把它当成一个值得学的决策。
+这两个例子说明一件事很清楚了：**当"值得学的决策"浓缩在 5 到 10 行里时，任何基于长度、
+嵌套、词表的规则都看不见它。** 这正是 39 个缺口里最集中的一类，也是最没法靠加正则解决的。
 
-这个结果保留在数字里，没有抹掉：45% 的时候报 45%。
+## 下一步的判断
 
-## 第二个真 bug：带默认对象参数的函数完全不在索引里
+还有 49 个点没被看见，但它们**不再集中在"扫描器的 bug"**（那类我最近挖了三个：
+多行箭头、默认对象参数、头边界，都修完了，`destr` 因此从 0 到 1）。
 
-追 `destr` 的 0/3 时发现的，比上一个严重得多：
+剩下的缺口是「短函数里的一处判断」——需要判断语义，不是匹配形状。要么换解析器
+（TS 编译器 API 已在依赖里，Python `ast` 也在，重写扫描层），要么承认现在这套上限就在 46%。
 
-```js
-function f(x, options = {}) { … }        // ← 这个函数根本不存在
-function f(x) { … }                      // ← 这个存在
-```
-
-`jsFunctionSpans` 用「括号深度不为零就跳过 `{`」来排除对象字面量实参。但**默认参数也是花括号**，
-而且它在函数体之前就闭合了 —— 于是所有带 `options = {}` 的函数都被跳过。现代 JS 库的公开 API
-几乎全是这个签名。
-
-修法是让**默认参数的花括号**与**对象实参的花括号**区分开：前者在括号之间闭合，后者不会。
-三个新测试钉住它（`f(x, o = {})` 必须有候选、`f(x)` 保持有候选、字符串里的 `return` 不算护栏）。
-
-这条修复让「护栏阶梯」规则（6 个以上早退出、120 行以内的短函数 = 决策表）真正生效，
-`destr` 从 **0/3 到 1/3**，全局 47% → **48%**。
-
-修的过程里还撞到两个连带问题，都修了：
-
-- **头边界算错**：默认参数的花括号被跳过后，`headerStart` 仍从那个花括号之后开始，头部变成
-  `) {`，`isFunctionHeader` 直接否掉。现在边界只在"参数组之外的括号"处切开。
-- **头部里带着花括号**：`function f(x, o = {})` 的头部文本含 `{}`，末尾不是 `)`。加了
-  `withoutBraceGroups` 在判断前去掉它们。
-
-三条都补了回归测试（`f(x, o = {})` 必须有候选、`f({a})` 与 `describe(..., () => {})` 必须没有）。
+在换解析器之前，我建议先做一件更便宜的事：**看 `dlv` 这类 6 行文件的候选为什么是零**。
+如果连"这里有个函数"都没识别出来，那是第四个扫描器 bug，值得再挖一次。

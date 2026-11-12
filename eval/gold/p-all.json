@@ -1,0 +1,27 @@
+{
+  "repo": "https://github.com/sindresorhus/p-all",
+  "ref": "633bce632b8b12a79966038b23a0ed9cae91e705",
+  "sha": "633bce632b8b12a79966038b23a0ed9cae91e705",
+  "provisional": false,
+  "note": "sha 是标注当日该仓库默认分支的真实提交；区间对着这个提交的源码逐行量过。",
+  "points": [
+    {
+      "path": "index.js",
+      "startLine": 1,
+      "endLine": 5,
+      "why": "把「一组 promise 工厂」表达成 p-map 的一个恒等映射，不重复实现并发控制；包装库的价值在于选对底层而不是自己写一遍"
+    },
+    {
+      "path": "index.js",
+      "startLine": 3,
+      "endLine": 5,
+      "why": "element => element() 这个极小的 lambda 就是全部的语义：延迟执行的 promise 转成立即执行的任务"
+    },
+    {
+      "path": "index.js",
+      "startLine": 1,
+      "endLine": 5,
+      "why": "库本身没有并发逻辑：它只定义「promise 工厂的集合」到「普通 iterable」的转换，其余全部委托给 p-map"
+    }
+  ]
+}

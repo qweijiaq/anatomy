@@ -1,0 +1,27 @@
+{
+  "repo": "https://github.com/lukeed/totalist",
+  "ref": "4b071d3e54d466a4059de89006c752da782c8b02",
+  "sha": "4b071d3e54d466a4059de89006c752da782c8b02",
+  "provisional": false,
+  "note": "sha 是标注当日该仓库默认分支的真实提交；区间对着这个提交的源码逐行量过。",
+  "points": [
+    {
+      "path": "src/async.js",
+      "startLine": 1,
+      "endLine": 22,
+      "why": "目录遍历不递归 async 函数而是返回 Promise.all 的树，让每一层的子目录并行读取"
+    },
+    {
+      "path": "src/async.js",
+      "startLine": 1,
+      "endLine": 22,
+      "why": "把 pre（相对路径前缀）作为参数一路传下来，避免在每个文件上再做一次 relative 计算"
+    },
+    {
+      "path": "src/sync.js",
+      "startLine": 1,
+      "endLine": 15,
+      "why": "同步版本与异步版本共享同一个遍历形状与回调签名，调用方可以按需切换而不改用法"
+    }
+  ]
+}

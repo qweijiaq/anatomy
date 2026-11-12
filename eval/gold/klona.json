@@ -1,0 +1,27 @@
+{
+  "repo": "https://github.com/lukeed/klona",
+  "ref": "e563341d88f433e74a9b4c3c0372d4ba55d2f79e",
+  "sha": "e563341d88f433e74a9b4c3c0372d4ba55d2f79e",
+  "provisional": false,
+  "note": "sha 是标注当日该仓库默认分支的真实提交；区间对着这个提交的源码逐行量过。",
+  "points": [
+    {
+      "path": "src/index.js",
+      "startLine": 1,
+      "endLine": 81,
+      "why": "用 Object.prototype.toString 的一次调用做类型分派，而不是 instanceof 链——跨 realm 也成立"
+    },
+    {
+      "path": "src/index.js",
+      "startLine": 6,
+      "endLine": 22,
+      "why": "遇到非原生 Object 的自定义构造器时先 new 一个同类型实例再填充，保住原型链"
+    },
+    {
+      "path": "src/index.js",
+      "startLine": 13,
+      "endLine": 22,
+      "why": "对 __proto__ 键用 defineProperty 而不是赋值，避免赋值语义触发 setter 造成污染"
+    }
+  ]
+}
