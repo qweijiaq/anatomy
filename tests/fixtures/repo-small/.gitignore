@@ -1,0 +1,5 @@
+# Reports and scratch output we never ship.
+coverage/
+*.log
+!important.log
+src/ignored-by-git.ts

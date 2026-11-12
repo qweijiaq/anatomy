@@ -5,3 +5,9 @@ ANA/
 .ana/runs/*/tree/
 .superpowers/
 .npm-cache/
+
+# tests/fixtures/repo-small is a fixture repository: its generated/vendored trees are
+# test input, so the rules above must not swallow them. Files that the fixture's own
+# .gitignore matches are force-added once; tracked files are immune to ignore rules.
+!tests/fixtures/repo-small/dist/
+!tests/fixtures/repo-small/node_modules/
