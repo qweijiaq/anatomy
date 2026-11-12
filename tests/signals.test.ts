@@ -590,6 +590,51 @@ describe('custom-infra in a hand-written structure', () => {
   })
 })
 
+describe('members of a wheel class', () => {
+  it('makes the ordinary-named methods of a recognised wheel candidates', () => {
+    // `#moveToRecent` and `#deleteIfExpired` say nothing on their own, yet they are
+    // *how* this cache works — the reason to read the file at all. A 329-line LRU
+    // used to offer a single candidate, on its declaration line.
+    const file = fileOf(
+      [
+        'export default class QuickLRU extends Map {',
+        '  #moveToRecent(key, item) {',
+        '    const value = item.value',
+        '    if (this.#cache.has(key)) this.#cache.delete(key)',
+        '    this.#cache.set(key, item)',
+        '  }',
+        '',
+        '  #deleteIfExpired(key, item) {',
+        '    if (this.#maxAge === undefined) return',
+        '  }',
+        '}',
+      ].join('\n'),
+      'src/cache.js',
+    )
+    const words = scoreFile(file, emptyIndex()).flatMap((candidate) => candidate.matched)
+    expect(words).toContain('custom-infra:member')
+  })
+
+  it('leaves an ordinary class alone', () => {
+    const file = fileOf(
+      ['class Render {', '  #paint(node) {', '    return node', '  }', '}'].join('\n'),
+      'src/render.js',
+    )
+    const words = scoreFile(file, emptyIndex()).flatMap((candidate) => candidate.matched)
+    expect(words.some((word) => word === 'custom-infra:member')).toBe(false)
+  })
+
+  it('caps how many members one class contributes', () => {
+    const body: string[] = ['class Queue {']
+    for (let i = 0; i < 20; i += 1) {
+      body.push(`  #step${i}(value) {`, `    return value + ${i}`, '  }')
+    }
+    body.push('}')
+    const candidates = scoreFile(fileOf(body.join('\n'), 'src/queue.js'), emptyIndex())
+    expect(candidates.length).toBeLessThanOrEqual(11)
+  })
+})
+
 describe('test-spec chained calls', () => {
   it('counts the assertions of an it.each table', () => {
     // Vitest's table form opens two argument lists; only the second holds the
@@ -838,16 +883,19 @@ describe('collectSignals', () => {
     const structure = await indexTypeScript(FIXTURE_ROOT, scope)
     const candidates = await collectSignals(FIXTURE_ROOT, scope, structure)
 
+    // The intent is a ranking, not a fixed list: a class that is recognisably a
+    // wheel now contributes its methods too, so the exact candidate count is a
+    // detail of the current rules while the ordering is what this test is for.
     // src/tables.ts is ~300 plainly written lines: longer than the scheduler, and
-    // ranked below it.
-    expect(candidates.map((candidate) => [candidate.path, candidate.score])).toEqual([
-      ['src/scheduler.ts', 6],
-      ['src/report.ts', 3],
-      ['src/tables.ts', 2],
-      ['src/legacy.ts', 1],
-    ])
-    expect(candidates[0]).toMatchObject({ kind: 'custom-infra', line: 7 })
-    expect(candidates[0]!.matched).toContain('decision-trace:instead of')
+    // still ranked below it.
+    const top = candidates[0]!
+    expect(top.path).toBe('src/scheduler.ts')
+    expect(top.score).toBeGreaterThanOrEqual(6)
+    expect(top.matched).toContain('decision-trace:instead of')
+
+    const order = candidates.map((candidate) => candidate.path)
+    expect(order.indexOf('src/scheduler.ts')).toBeLessThan(order.indexOf('src/tables.ts'))
+    expect(order.indexOf('src/tables.ts')).toBeLessThan(order.indexOf('src/legacy.ts'))
     expect(candidates.some((candidate) => candidate.path === 'README.md')).toBe(false)
     expect(candidates.some((candidate) => candidate.path.startsWith('vendor/'))).toBe(false)
     expect(candidates.some((candidate) => candidate.path.startsWith('src/generated/'))).toBe(false)

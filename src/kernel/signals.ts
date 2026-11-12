@@ -82,6 +82,14 @@ const GROUP_MAX_LINES = 120
 /** ...and each finding is at most this many lines. */
 const BUCKET_LINES = 50
 
+/**
+ * How many member candidates one wheel class may contribute.
+ *
+ * Enough that an LRU's eviction, recency and expiry paths all show up; few enough
+ * that one large class cannot spend the whole run's candidate budget.
+ */
+const MEMBER_CANDIDATES = 10
+
 // --- language families ----------------------------------------------------
 
 type Family = 'js' | 'py'
@@ -792,6 +800,30 @@ const JS_DECLARATION = /(?:^|[^\w$.])(class|function|const|let|var)[ \t]+([A-Za-
  * decisions a reader actually learns from — were invisible.
  */
 const JS_METHOD = /^[ \t]+(?:static[ \t]+)?(?:async[ \t]+)?#?([A-Za-z_$][\w$]*)[ \t]*\([^)]*\)[ \t]*\{/gm
+const CLASS_DECLARATION = /(?:^|[^\w$.])class[ \t]+([A-Za-z_$][\w$]*)/g
+
+/**
+ * The body spans of classes whose own name names a wheel.
+ *
+ * Once a class is recognisably *a wheel* — a cache, a queue, a scheduler — the
+ * decisions worth reading are how its members implement it. Those member names are
+ * ordinary verbs (`#moveToRecent`, `#deleteIfExpired`) and never match the
+ * vocabulary, which is why a 329-line LRU used to offer one candidate on its
+ * declaration line.
+ */
+function wheelClassSpans(code: string): Array<{ start: number; end: number }> {
+  const spans: Array<{ start: number; end: number }> = []
+  for (const match of matches(code, CLASS_DECLARATION)) {
+    const name = match[1]
+    if (name === undefined || infraWord(name) === null) continue
+    const brace = code.indexOf('{', match.index + match[0].length)
+    if (brace === -1) continue
+    const end = matchBrace(code, brace)
+    spans.push({ start: brace, end: end === -1 ? code.length : end })
+  }
+  return spans
+}
+
 const PY_DECLARATION = /(?:^|[^\w.])(class|def)[ \t]+([A-Za-z_]\w*)/g
 const VALUE_BINDINGS: ReadonlySet<string> = new Set(['const', 'let', 'var'])
 
@@ -1029,14 +1061,37 @@ function customInfraHits(context: FileContext): Hit[] {
   // exercising the API, not writing the wheel, and `on*` is the observer
   // convention rather than an implementation.
   if (context.family === 'js' && !context.isTestFile) {
+    const wheelClasses = wheelClassSpans(code)
+    // Members of a wheel class are candidates by size: a 20-method class would
+    // otherwise fill the whole candidate budget of one run, and the decisions live
+    // in the methods that actually carry code.
+    const members: Array<{ line: number; word: string; size: number }> = []
     for (const match of matches(code, JS_METHOD)) {
       const name = match[1]
       if (name === undefined) continue
       if (/^on[A-Z_]/.test(name)) continue
-      const word = infraWord(name)
-      if (word === null) continue
       if (context.borrowed.has(normalizeName(name))) continue
-      hits.push(hit('custom-infra', lineAt(context.newlines, match.index + match[0].indexOf(name)), word))
+      const named = infraWord(name)
+      // A method is a candidate either because its own name names a wheel, or
+      // because it lives in a class that does: `#moveToRecent` and
+      // `#deleteIfExpired` are how a hand-written LRU is implemented, and their
+      // names say nothing on their own.
+      const owner = wheelClasses.find((span) => match.index > span.start && match.index < span.end)
+      const word = named ?? (owner === undefined ? null : 'member')
+      if (word === null) continue
+      const line = lineAt(context.newlines, match.index + match[0].indexOf(name))
+      if (word === 'member' && owner !== undefined) {
+        const brace = code.indexOf('{', match.index + match[0].length - 1)
+        const end = brace === -1 ? line : matchBrace(code, brace)
+        members.push({ line, word, size: (end === -1 ? code.length : end) - match.index })
+        continue
+      }
+      hits.push(hit('custom-infra', line, word))
+    }
+    // By size, because the decisions live in the methods that carry code, and
+    // capped so one large class cannot spend the whole run's candidate budget.
+    for (const member of members.sort((a, b) => b.size - a.size).slice(0, MEMBER_CANDIDATES)) {
+      hits.push(hit('custom-infra', member.line, member.word))
     }
   }
   return hits

@@ -1,7 +1,7 @@
 == tests ==
-      Tests  539 passed (539)
-   Start at  06:05:58
-   Duration  3.80s (transform 1.30s, setup 0ms, collect 5.88s, tests 9.72s, environment 2ms, prepare 1.63s)
+      Tests  542 passed (542)
+   Start at  06:15:34
+   Duration  4.31s (transform 1.37s, setup 0ms, collect 8.17s, tests 12.62s, environment 9ms, prepare 2.30s)
 
 == typecheck ==
 == build ==
@@ -27,6 +27,6 @@ index.js:30  3  custom-infra
 ## 这次分析的可信度
 
 
-SUMMARY: Tests  539 passed | typecheck clean | build ok
+SUMMARY: Tests  542 passed | typecheck clean | build ok
 SUMMARY: scan+analyze+report+inspect ok on https://github.com/sindresorhus/quick-lru
 VERIFY: PASS (github, run 62c3ec65279b)
