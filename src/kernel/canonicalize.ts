@@ -138,21 +138,23 @@ export function offsetOfLine(text: string, line: number): number {
 }
 
 /**
- * Reads lines `startLine..endLine` (1-based, inclusive in both ends) of the
- * canonical form of `absPath`.
+ * Lines `startLine..endLine` (1-based, inclusive in both ends) of a canonical file.
+ *
+ * Callers that build several slices of one file (the prompt builder does) read
+ * the file once with `canonicalizeFile` and cut every window here, so a file is
+ * decoded once per run rather than once per window.
  *
  * Bounds outside the file are clamped, not thrown. When the clamped span exceeds
  * `maxLines`, the head and tail halves are kept and joined with a `...` elision
  * line; `truncated` is then true and `omitted` reports the first and last real
  * line numbers that the elision replaced.
  */
-export async function readSlice(
-  absPath: string,
+export function sliceOf(
+  file: CanonicalFile,
   startLine: number,
   endLine: number,
   opts?: { maxLines?: number },
-): Promise<Slice> {
-  const file = await canonicalizeFile(absPath)
+): Slice {
   const lines = toLines(file.text)
   const requestedMax = opts?.maxLines ?? DEFAULT_SLICE_MAX_LINES
   const maxLines =
@@ -201,4 +203,18 @@ export async function readSlice(
     truncated: true,
     omitted: { startLine: first + head, endLine: last - tail },
   }
+}
+
+/**
+ * Reads `absPath`, canonicalizes it, and cuts lines `startLine..endLine` out of
+ * it. One decode, one slice; a caller wanting several slices of one file should
+ * canonicalize once and use `sliceOf`.
+ */
+export async function readSlice(
+  absPath: string,
+  startLine: number,
+  endLine: number,
+  opts?: { maxLines?: number },
+): Promise<Slice> {
+  return sliceOf(await canonicalizeFile(absPath), startLine, endLine, opts)
 }

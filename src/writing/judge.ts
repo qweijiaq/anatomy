@@ -11,23 +11,29 @@
  *   one repair attempt and is then skipped with a reason, never retried forever;
  * - an exhausted transport failure is not a bad reply and is not retried here;
  * - a missing key aborts the run instead of quietly skipping every candidate;
+ * - a point may only be backed by the lines the prompt actually showed. The
+ *   model cannot see the rest of the file, so a citation outside that window is
+ *   dropped before validation even though the snippet really is on disk;
+ * - containment is decided on the `realpath` of every file that is read, and a
+ *   file is decoded once per run however many windows are cut out of it;
  * - the surviving points still go through `validatePoints`, always, with the
  *   caller's scope. This module never returns a point that Task 10 has not
  *   looked at, so no caller can forget.
  */
 
-import { stat } from 'node:fs/promises'
+import { realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
 
 import type {
   Candidate,
+  CanonicalFile,
   Judgement,
   LearningPoint,
   Scope,
   Slice,
   ValidationResult,
 } from '../contracts/types.js'
-import { readSlice } from '../kernel/canonicalize.js'
+import { canonicalizeFile, sliceOf } from '../kernel/canonicalize.js'
 import { validatePoints } from '../kernel/evidence.js'
 import type { ModelClient, ModelRequest, Usage } from './client.js'
 import { MissingCredentialsError, ModelReplyError, ModelRequestError } from './client.js'
@@ -82,8 +88,11 @@ export type JudgeDeps = {
   lang?: Lang
   /** Maximum number of candidates to judge. The rest are reported, not hidden. */
   limit?: number
-  /** Prefix for the evidence ids minted by `validatePoints`. */
-  runId?: string
+  /**
+   * Prefix for the evidence ids minted by `validatePoints`. Required: a default
+   * here would stamp every id in every report with a run that never happened.
+   */
+  runId: string
 }
 
 // --- prompt ---------------------------------------------------------------
@@ -300,6 +309,11 @@ function toPosix(filePath: string): string {
   return filePath.split(path.sep).join('/')
 }
 
+/** How a citation is matched to a slice: posix, relative, `.` segments folded. */
+function citationKey(filePath: string): string {
+  return path.posix.normalize(toPosix(filePath)).replace(/^\.\//, '')
+}
+
 /** Repo-relative posix path of a candidate, or `null` when it escapes the root. */
 function repoRelative(root: string, candidatePath: string): string | null {
   if (candidatePath === '' || path.isAbsolute(candidatePath)) return null
@@ -309,6 +323,85 @@ function repoRelative(root: string, candidatePath: string): string | null {
     return null
   }
   return toPosix(rel)
+}
+
+/** Whether `child` is `parent` or lies inside it. Both must already be resolved. */
+function isInside(parent: string, child: string): boolean {
+  const rel = path.relative(parent, child)
+  return rel !== '' && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel)
+}
+
+/**
+ * One judge run's view of the tree.
+ *
+ * `root` is resolved once, so every other path in this module — and every slice
+ * path in the prompt — is resolved against the same root. `realRoot` is what
+ * containment is decided on: the lexical form `path.resolve` returns never
+ * follows a symlink, and a symlink is how out-of-tree bytes would otherwise be
+ * read and uploaded. The two maps make both of those answers cost one syscall
+ * per file per run instead of one per candidate window.
+ */
+type JudgeContext = {
+  root: string
+  realRoot: string
+  /** One decode per file per run: several windows cut from the same file. */
+  files: Map<string, Promise<CanonicalFile>>
+  /** One `realpath` per spelled path per run. */
+  real: Map<string, Promise<string | null>>
+  /** `scope.files`, or `null` when the caller gave no scope. */
+  inScope: Set<string> | null
+}
+
+async function createContext(root: string, scope?: Scope): Promise<JudgeContext> {
+  const resolvedRoot = path.resolve(root)
+  return {
+    root: resolvedRoot,
+    realRoot: (await realpath(resolvedRoot).catch(() => null)) ?? resolvedRoot,
+    files: new Map(),
+    real: new Map(),
+    inScope: scope === undefined ? null : new Set(scope.files.map((file) => file.path)),
+  }
+}
+
+async function fileOf(ctx: JudgeContext, abs: string): Promise<CanonicalFile> {
+  const cached = ctx.files.get(abs)
+  if (cached !== undefined) return cached
+  const pending = canonicalizeFile(abs)
+  ctx.files.set(abs, pending)
+  return pending
+}
+
+/**
+ * The real path of `abs`, when it is a regular file inside the analysed tree.
+ *
+ * The checks above and in `resolveSpecifier` only prove the *spelling* stays
+ * inside the root. A symlink does not: `import './link.js'` where `link.js`
+ * points at `~/.aws/credentials` reads as an in-tree dependency and would upload
+ * the target to the model provider. So the real path is resolved, containment is
+ * decided on the resolved pair, and only a regular file is ever read — `stat` on
+ * the realpath also keeps a symlink to a FIFO from hanging the run.
+ */
+async function realFileInside(ctx: JudgeContext, abs: string): Promise<string | null> {
+  const cached = ctx.real.get(abs)
+  if (cached !== undefined) return cached
+
+  const pending = (async (): Promise<string | null> => {
+    let real: string
+    try {
+      real = await realpath(abs)
+    } catch {
+      return null
+    }
+    if (!isInside(ctx.realRoot, real)) return null
+    try {
+      return (await stat(real)).isFile() ? real : null
+    } catch {
+      return null
+    }
+  })()
+
+  ctx.real.set(abs, pending)
+  return pending
 }
 
 async function isFile(abs: string): Promise<boolean> {
@@ -371,7 +464,7 @@ async function resolveSpecifier(
 }
 
 async function dependencySlices(
-  root: string,
+  ctx: JudgeContext,
   fromPath: string,
   headText: string,
 ): Promise<Slice[]> {
@@ -380,11 +473,17 @@ async function dependencySlices(
 
   for (const specifier of importSpecifiers(headText)) {
     if (slices.length >= MAX_DEPENDENCIES) break
-    const resolved = await resolveSpecifier(root, fromPath, specifier)
+    const resolved = await resolveSpecifier(ctx.root, fromPath, specifier)
     if (resolved === null || seen.has(resolved)) continue
+    // A dependency the analysis excluded is not context: its bytes would be
+    // uploaded, and the evidence it invites would be dropped as out of scope.
+    if (ctx.inScope !== null && !ctx.inScope.has(resolved)) continue
     seen.add(resolved)
+
+    const real = await realFileInside(ctx, path.resolve(ctx.root, resolved))
+    if (real === null) continue
     try {
-      const slice = await readSlice(path.resolve(root, resolved), 1, DEPENDENCY_HEAD_LINES)
+      const slice = sliceOf(await fileOf(ctx, real), 1, DEPENDENCY_HEAD_LINES)
       if (slice.endLine === 0) continue
       slices.push({ ...slice, path: resolved })
     } catch {
@@ -399,21 +498,92 @@ async function dependencySlices(
  * The bounded context for one candidate: its own window (which includes the
  * imports when the candidate sits near the top) plus up to two dependencies.
  */
-async function contextSlices(root: string, candidatePath: string, line: number): Promise<Slice[]> {
-  const abs = path.resolve(root, candidatePath)
-  const head = await readSlice(abs, 1, IMPORT_HEAD_LINES)
+async function contextSlices(
+  ctx: JudgeContext,
+  candidatePath: string,
+  line: number,
+): Promise<Slice[]> {
+  const real = await realFileInside(ctx, path.resolve(ctx.root, candidatePath))
+  if (real === null) {
+    throw new Error(`candidate file resolves outside the analysed root: ${candidatePath}`)
+  }
+
+  const file = await fileOf(ctx, real)
+  const head = sliceOf(file, 1, IMPORT_HEAD_LINES)
   if (head.endLine === 0) return []
 
   const primaryStart = Math.max(1, line - CANDIDATE_BEFORE)
   const primaryEnd = line + CANDIDATE_AFTER
   const own =
     primaryStart <= head.endLine
-      ? [await readSlice(abs, 1, Math.max(head.endLine, primaryEnd))]
-      : [head, await readSlice(abs, primaryStart, primaryEnd)]
+      ? [sliceOf(file, 1, Math.max(head.endLine, primaryEnd))]
+      : [head, sliceOf(file, primaryStart, primaryEnd)]
 
   const ownWithPath = own.map((slice) => ({ ...slice, path: candidatePath }))
-  const dependencies = await dependencySlices(root, candidatePath, head.text)
+  const dependencies = await dependencySlices(ctx, candidatePath, head.text)
   return [...ownWithPath, ...dependencies]
+}
+
+// --- what the model was actually shown ------------------------------------
+
+/** The real line ranges a rendered slice exposes, with the elision removed. */
+function shownRanges(slice: Slice): Array<[number, number]> {
+  if (slice.startLine < 1 || slice.endLine < slice.startLine) return []
+  if (!slice.truncated || slice.omitted === null) return [[slice.startLine, slice.endLine]]
+
+  const ranges: Array<[number, number]> = []
+  const headEnd = slice.omitted.startLine - 1
+  if (headEnd >= slice.startLine) ranges.push([slice.startLine, headEnd])
+  const tailStart = slice.omitted.endLine + 1
+  if (slice.endLine >= tailStart) ranges.push([tailStart, slice.endLine])
+  return ranges
+}
+
+/**
+ * Every line range the prompt actually carried, per path.
+ *
+ * This is the difference between "the snippet exists" and "the model could have
+ * read it". `validatePoints` can only prove the first; a citation of line 300
+ * in a 2,000-line file whose prompt stopped at line 112 verifies there and is
+ * still a claim the model invented.
+ */
+function shownWindows(slices: Slice[]): Map<string, Array<[number, number]>> {
+  const windows = new Map<string, Array<[number, number]>>()
+  for (const slice of slices) {
+    const key = citationKey(slice.path)
+    const ranges = windows.get(key) ?? []
+    ranges.push(...shownRanges(slice))
+    windows.set(key, ranges)
+  }
+  return windows
+}
+
+function isShown(
+  windows: Map<string, Array<[number, number]>>,
+  filePath: string,
+  startLine: number,
+  endLine: number,
+): boolean {
+  const ranges = windows.get(citationKey(filePath))
+  if (ranges === undefined) return false
+  return ranges.some(([first, last]) => startLine >= first && endLine <= last)
+}
+
+/**
+ * Drops every citation the prompt did not show.
+ *
+ * A point that loses all of its evidence is returned as-is minus that evidence,
+ * so Task 10 downgrades it: silently keeping such a citation would present a
+ * claim the model could not have read as one it verified.
+ */
+function keepShownEvidence(
+  point: LearningPoint,
+  windows: Map<string, Array<[number, number]>>,
+): LearningPoint {
+  const cited = point.theirs.evidence
+  const shown = cited.filter((item) => isShown(windows, item.path, item.startLine, item.endLine))
+  if (shown.length === cited.length) return point
+  return { ...point, theirs: { ...point.theirs, evidence: shown } }
 }
 
 // --- judge ----------------------------------------------------------------
@@ -457,8 +627,10 @@ export async function judgeCandidates(deps: JudgeDeps): Promise<JudgeResult> {
     })
   }
 
+  const ctx = await createContext(deps.root, deps.scope)
+
   for (const candidate of queue) {
-    const relative = repoRelative(deps.root, candidate.path)
+    const relative = repoRelative(ctx.root, candidate.path)
     if (relative === null) {
       skipped.push({
         candidateId: candidate.id,
@@ -474,7 +646,7 @@ export async function judgeCandidates(deps: JudgeDeps): Promise<JudgeResult> {
 
     let slices: Slice[]
     try {
-      slices = await contextSlices(deps.root, relative, line)
+      slices = await contextSlices(ctx, relative, line)
     } catch (error) {
       skipped.push({
         candidateId: candidate.id,
@@ -496,6 +668,7 @@ export async function judgeCandidates(deps: JudgeDeps): Promise<JudgeResult> {
 
     const promptCandidate: Candidate = { ...candidate, path: relative, line }
     const prompt = buildJudgePrompt(promptCandidate, slices, lang)
+    const windows = shownWindows(slices)
 
     let accepted: LearningPoint | null = null
     let skipReason = ''
@@ -558,7 +731,9 @@ export async function judgeCandidates(deps: JudgeDeps): Promise<JudgeResult> {
     }
 
     if (accepted !== null) {
-      points.push(accepted)
+      // A citation the prompt did not show is not evidence, even when the
+      // snippet it names is really on disk: the model could not have read it.
+      points.push(keepShownEvidence(accepted, windows))
       continue
     }
 
@@ -571,7 +746,7 @@ export async function judgeCandidates(deps: JudgeDeps): Promise<JudgeResult> {
   }
 
   // Always, so no caller can return unvalidated model output by forgetting.
-  const validation = await validatePoints(points, deps.root, deps.runId ?? 'judge', deps.scope)
+  const validation = await validatePoints(points, ctx.root, deps.runId, deps.scope)
 
   return { points: validation.kept, usage, validation, skipped }
 }

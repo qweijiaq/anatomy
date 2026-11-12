@@ -6,11 +6,28 @@
  * retry, and Task 10's validator before it reaches `points`.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+/**
+ * Counts canonicalizations. The judge's rule is "one decode per file per run",
+ * so the spy delegates to the real implementation and only records.
+ */
+const canonicalCalls = vi.hoisted(() => ({ paths: [] as string[] }))
+
+vi.mock('../src/kernel/canonicalize.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/kernel/canonicalize.js')>()
+  return {
+    ...actual,
+    canonicalizeFile: (absPath: string) => {
+      canonicalCalls.paths.push(absPath)
+      return actual.canonicalizeFile(absPath)
+    },
+  }
+})
 
 import type { Candidate, Scope, Slice } from '../src/contracts/types.js'
 import type { ModelClient, ModelRequest } from '../src/writing/client.js'
@@ -27,6 +44,7 @@ import { buildJudgePrompt, judgeCandidates } from '../src/writing/judge.js'
 // --- fixture tree ---------------------------------------------------------
 
 const root = mkdtempSync(path.join(tmpdir(), 'anatomy-judge-'))
+const outside = mkdtempSync(path.join(tmpdir(), 'anatomy-judge-outside-'))
 mkdirSync(path.join(root, 'src'), { recursive: true })
 
 const A_TS = [
@@ -71,8 +89,19 @@ WIDE_LINES[13] = '}'
 WIDE_LINES[199] = "const NEVER_SHOWN = 'sentinel-200'"
 writeFileSync(path.join(root, 'src', 'wide.ts'), `${WIDE_LINES.join('\n')}\n`)
 
+// A file the analysed tree must never send to the provider, and two ways to
+// reach it: an import specifier that resolves to a symlink, and a candidate
+// whose own path is that symlink.
+writeFileSync(path.join(outside, 'credentials.ts'), "const AKIA_SENTINEL = 'AKIA-DO-NOT-SEND'\n")
+symlinkSync(path.join(outside, 'credentials.ts'), path.join(root, 'src', 'leak.ts'))
+writeFileSync(
+  path.join(root, 'src', 'importer.ts'),
+  "import { x } from './leak.js'\nexport const importerValue = 1\n",
+)
+
 afterAll(() => {
   rmSync(root, { recursive: true, force: true })
+  rmSync(outside, { recursive: true, force: true })
 })
 
 const c1: Candidate = {
@@ -189,6 +218,7 @@ const openAiReply = (content: unknown, usage = { prompt_tokens: 11, completion_t
 const req: ModelRequest = { system: 's', user: 'u', schema: { type: 'object' } }
 
 beforeEach(() => {
+  canonicalCalls.paths.length = 0
   // A developer machine with a real key must not make these tests hit a network.
   vi.stubEnv('ANA_API_KEY', '')
   vi.stubEnv('ANA_MODEL', '')
@@ -411,6 +441,7 @@ describe('judgeCandidates', () => {
     const judged = await judgeCandidates({
       client,
       root,
+      runId: 'run-1',
       candidates: [c1],
       scope: SCOPED,
     })
@@ -427,7 +458,7 @@ describe('judgeCandidates', () => {
   it('sends only the candidate, its imports and its direct dependencies', async () => {
     const client = scriptedClient([{ json: goodPoint() }])
 
-    await judgeCandidates({ client, root, candidates: [c1], scope: SCOPED })
+    await judgeCandidates({ client, root, runId: 'run-1', candidates: [c1], scope: SCOPED })
 
     const prompt = client.calls[0] as ModelRequest
     expect(prompt.user).toContain('src/a.ts:12')
@@ -445,7 +476,7 @@ describe('judgeCandidates', () => {
       { json: 'not json', usage: { in: 1, out: 0 } },
     ])
 
-    const judged = await judgeCandidates({ client, root, candidates: [c1], scope: SCOPED })
+    const judged = await judgeCandidates({ client, root, runId: 'run-1', candidates: [c1], scope: SCOPED })
 
     expect(client.calls).toHaveLength(2)
     expect(judged.points).toEqual([])
@@ -458,7 +489,7 @@ describe('judgeCandidates', () => {
   it('retries a wrong-shaped object once and then skips it', async () => {
     const client = scriptedClient([{ json: { title: 'only a title' } }])
 
-    const judged = await judgeCandidates({ client, root, candidates: [c1], scope: SCOPED })
+    const judged = await judgeCandidates({ client, root, runId: 'run-1', candidates: [c1], scope: SCOPED })
 
     expect(client.calls).toHaveLength(2)
     expect(judged.points).toEqual([])
@@ -468,7 +499,7 @@ describe('judgeCandidates', () => {
   it('accepts a JSON string reply as well as an object', async () => {
     const client = scriptedClient([{ json: JSON.stringify(goodPoint()) }])
 
-    const judged = await judgeCandidates({ client, root, candidates: [c1], scope: SCOPED })
+    const judged = await judgeCandidates({ client, root, runId: 'run-1', candidates: [c1], scope: SCOPED })
 
     expect(judged.points).toHaveLength(1)
   })
@@ -481,7 +512,7 @@ describe('judgeCandidates', () => {
       { json: goodPoint(), usage: { in: 2, out: 4 } },
     ])
 
-    const judged = await judgeCandidates({ client, root, candidates: [c1], scope: SCOPED })
+    const judged = await judgeCandidates({ client, root, runId: 'run-1', candidates: [c1], scope: SCOPED })
 
     expect(client.calls).toHaveLength(2)
     expect(judged.points).toHaveLength(1)
@@ -491,7 +522,7 @@ describe('judgeCandidates', () => {
   it('treats an explicit skip as a clean outcome, not a malformed reply', async () => {
     const client = scriptedClient([{ json: { skip: true } }])
 
-    const judged = await judgeCandidates({ client, root, candidates: [c1], scope: SCOPED })
+    const judged = await judgeCandidates({ client, root, runId: 'run-1', candidates: [c1], scope: SCOPED })
 
     expect(client.calls).toHaveLength(1)
     expect(judged.points).toEqual([])
@@ -504,7 +535,7 @@ describe('judgeCandidates', () => {
       { json: goodPoint(), usage: { in: 2, out: 3 } },
     ])
 
-    const judged = await judgeCandidates({ client, root, candidates: [c1], scope: SCOPED })
+    const judged = await judgeCandidates({ client, root, runId: 'run-1', candidates: [c1], scope: SCOPED })
 
     expect(client.calls).toHaveLength(2)
     expect(judged.points).toHaveLength(1)
@@ -517,7 +548,7 @@ describe('judgeCandidates', () => {
     delete point['confidence']
     const client = scriptedClient([{ json: point }])
 
-    const judged = await judgeCandidates({ client, root, candidates: [c1], scope: SCOPED })
+    const judged = await judgeCandidates({ client, root, runId: 'run-1', candidates: [c1], scope: SCOPED })
 
     expect(judged.points[0]?.confidence).toBe('medium')
   })
@@ -527,7 +558,7 @@ describe('judgeCandidates', () => {
     point['theirs'] = { summary: 'nothing to show', evidence: [] }
     const client = scriptedClient([{ json: point }])
 
-    const judged = await judgeCandidates({ client, root, candidates: [c1], scope: SCOPED })
+    const judged = await judgeCandidates({ client, root, runId: 'run-1', candidates: [c1], scope: SCOPED })
 
     expect(judged.points[0]?.confidence).toBe('low')
     expect(judged.validation.downgraded).toHaveLength(1)
@@ -548,7 +579,7 @@ describe('judgeCandidates', () => {
     }
     const client = scriptedClient([{ json: point }])
 
-    const judged = await judgeCandidates({ client, root, candidates: [c1], scope: SCOPED })
+    const judged = await judgeCandidates({ client, root, runId: 'run-1', candidates: [c1], scope: SCOPED })
 
     expect(judged.points).toEqual([])
     expect(judged.validation.dropped).toHaveLength(1)
@@ -565,7 +596,7 @@ describe('judgeCandidates', () => {
       },
     ])
 
-    const judged = await judgeCandidates({ client, root, candidates: [c1], scope: SCOPED })
+    const judged = await judgeCandidates({ client, root, runId: 'run-1', candidates: [c1], scope: SCOPED })
 
     expect(client.calls).toHaveLength(1)
     expect(judged.points).toEqual([])
@@ -577,7 +608,7 @@ describe('judgeCandidates', () => {
     const client = scriptedClient([{ error: new MissingCredentialsError() }])
 
     await expect(
-      judgeCandidates({ client, root, candidates: [c1], scope: SCOPED }),
+      judgeCandidates({ client, root, runId: 'run-1', candidates: [c1], scope: SCOPED }),
     ).rejects.toBeInstanceOf(MissingCredentialsError)
   })
 
@@ -588,6 +619,7 @@ describe('judgeCandidates', () => {
     const judged = await judgeCandidates({
       client,
       root,
+      runId: 'run-1',
       candidates: [c1, c2],
       scope: SCOPED,
       limit: 1,
@@ -603,10 +635,262 @@ describe('judgeCandidates', () => {
     const client = scriptedClient([{ json: goodPoint() }])
     const missing: Candidate = { ...c1, id: 'sig-3', path: 'src/missing.ts' }
 
-    const judged = await judgeCandidates({ client, root, candidates: [missing], scope: SCOPED })
+    const judged = await judgeCandidates({ client, root, runId: 'run-1', candidates: [missing], scope: SCOPED })
 
     expect(client.calls).toEqual([])
     expect(judged.skipped).toHaveLength(1)
     expect(judged.skipped[0]?.reason).toMatch(/read/)
+  })
+})
+
+// --- evidence must be within what the prompt showed -------------------------
+
+/** A well-formed point whose evidence is supplied by the test. */
+function pointCiting(evidence: Array<Record<string, unknown>>): Record<string, unknown> {
+  const point = goodPoint()
+  point['theirs'] = { summary: 'cited', evidence }
+  return point
+}
+
+const SHOWN_WIDE = {
+  path: 'src/wide.ts',
+  startLine: 12,
+  endLine: 14,
+  snippet: 'export function wide(n: number): number {\n  return n * 3\n}',
+}
+const UNSEEN_WIDE = {
+  path: 'src/wide.ts',
+  startLine: 200,
+  endLine: 200,
+  snippet: "const NEVER_SHOWN = 'sentinel-200'",
+}
+
+describe('judgeCandidates — a citation outside the shown window cannot back a point', () => {
+  it('drops the unseen line and keeps the citation the model actually read', async () => {
+    const client = scriptedClient([{ json: pointCiting([UNSEEN_WIDE, SHOWN_WIDE]) }])
+
+    const judged = await judgeCandidates({
+      client,
+      root,
+      runId: 'run-1',
+      candidates: [c2],
+      scope: SCOPED,
+    })
+
+    // The prompt never carried line 200, so no claim may rest on it.
+    expect(client.calls[0]?.user).not.toContain('NEVER_SHOWN')
+    expect(judged.points).toHaveLength(1)
+    expect(judged.points[0]?.theirs.evidence.map((item) => item.startLine)).toEqual([12])
+    expect(judged.points[0]?.theirs.evidence[0]?.snippet).toBe(SHOWN_WIDE.snippet)
+  })
+
+  it('downgrades a point whose only evidence is a real snippet on an unread line', async () => {
+    const client = scriptedClient([{ json: pointCiting([UNSEEN_WIDE]) }])
+
+    const judged = await judgeCandidates({
+      client,
+      root,
+      runId: 'run-1',
+      candidates: [c2],
+      scope: SCOPED,
+    })
+
+    // The snippet exists on disk and would verify; it is still not evidence the
+    // model could have read, so Task 10 sees a point with nothing to back it.
+    expect(judged.points).toHaveLength(1)
+    expect(judged.points[0]?.theirs.evidence).toEqual([])
+    expect(judged.points[0]?.confidence).toBe('low')
+    expect(judged.validation.dropped).toEqual([])
+    expect(judged.validation.downgraded).toHaveLength(1)
+  })
+})
+
+// --- one decode per file per run -------------------------------------------
+
+describe('judgeCandidates — slices come from one decode per file', () => {
+  it('canonicalizes each file once even when several candidates share it', async () => {
+    const client = scriptedClient([{ json: { skip: true } }])
+    const second: Candidate = { ...c1, id: 'sig-1b', line: 16 }
+
+    const judged = await judgeCandidates({
+      client,
+      root,
+      runId: 'run-1',
+      candidates: [c1, second],
+      scope: SCOPED,
+    })
+
+    expect(judged.skipped).toHaveLength(2)
+    expect(client.calls).toHaveLength(2)
+    expect(canonicalCalls.paths.map((filePath) => path.basename(filePath))).toEqual([
+      'a.ts',
+      'b.ts',
+    ])
+  })
+})
+
+// --- containment is decided on the real path -------------------------------
+
+describe('judgeCandidates — out-of-tree bytes never reach the provider', () => {
+  const importer: Candidate = {
+    id: 'sig-sym',
+    path: 'src/importer.ts',
+    line: 2,
+    kind: 'abstraction',
+    score: 0.5,
+    matched: [],
+  }
+
+  it('does not read a dependency that resolves through a symlink out of the root', async () => {
+    const client = scriptedClient([{ json: { skip: true } }])
+
+    const judged = await judgeCandidates({
+      client,
+      root,
+      runId: 'run-1',
+      candidates: [importer],
+      scope: scopeOf(['src/importer.ts']),
+    })
+
+    expect(client.calls).toHaveLength(1)
+    expect(client.calls[0]?.user).not.toContain('AKIA-DO-NOT-SEND')
+    expect(canonicalCalls.paths.some((filePath) => filePath.includes(outside))).toBe(false)
+    expect(judged.skipped).toHaveLength(1)
+  })
+
+  it('skips a candidate whose own path is a symlink out of the root', async () => {
+    const client = scriptedClient([{ json: { skip: true } }])
+    const leak: Candidate = { ...c1, id: 'sig-leak', path: 'src/leak.ts' }
+
+    const judged = await judgeCandidates({
+      client,
+      root,
+      runId: 'run-1',
+      candidates: [leak],
+      scope: scopeOf(['src/leak.ts']),
+    })
+
+    expect(client.calls).toEqual([])
+    expect(canonicalCalls.paths.some((filePath) => filePath.includes(outside))).toBe(false)
+    expect(judged.skipped).toHaveLength(1)
+    expect(judged.skipped[0]?.reason).toMatch(/outside/)
+  })
+})
+
+// --- root and scope are resolved once -------------------------------------
+
+describe('judgeCandidates — the analysed root and scope bound the slices', () => {
+  it('keeps dependency slices when the root is spelled "."', async () => {
+    const client = scriptedClient([{ json: { skip: true } }])
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(root)
+    try {
+      await judgeCandidates({ client, root: '.', runId: 'run-1', candidates: [c1] })
+    } finally {
+      cwd.mockRestore()
+    }
+
+    expect(client.calls[0]?.user).toContain('src/b.ts:1')
+  })
+
+  it('never shows a dependency the scope excluded', async () => {
+    const client = scriptedClient([{ json: { skip: true } }])
+
+    await judgeCandidates({
+      client,
+      root,
+      runId: 'run-1',
+      candidates: [c1],
+      scope: scopeOf(['src/a.ts']),
+    })
+
+    expect(client.calls[0]?.user).toContain('src/a.ts:12')
+    expect(client.calls[0]?.user).not.toContain('export function helper')
+  })
+})
+
+// --- evidence ids name the run --------------------------------------------
+
+describe('judgeCandidates — ids name the caller run', () => {
+  it('mints evidence ids from the required run id', async () => {
+    const client = scriptedClient([{ json: goodPoint() }])
+
+    const judged = await judgeCandidates({
+      client,
+      root,
+      runId: 'run-7',
+      candidates: [c1],
+      scope: SCOPED,
+    })
+
+    expect(judged.points[0]?.theirs.evidence[0]?.id).toMatch(/^run-7-[0-9a-f]{6}$/)
+  })
+})
+
+// --- request deadlines and provider bodies --------------------------------
+
+describe('createModelClient — deadlines and error bodies', () => {
+  it('sends an abort signal with every request', async () => {
+    const fetchImpl = scriptedFetch({ body: openAiReply({ ok: true }) })
+    const client = createModelClient({
+      apiKey: 'k',
+      fetchImpl: fetchImpl.impl,
+      retryDelayMs: 0,
+      timeoutMs: 5_000,
+    })
+
+    await client.complete(req)
+
+    expect(fetchImpl.calls[0]?.init?.signal).toBeInstanceOf(AbortSignal)
+  })
+
+  it('treats a stalled request as a retryable timeout instead of hanging forever', async () => {
+    const hanging = (async (_input: string | URL | Request, init?: RequestInit) => {
+      return await new Promise((_resolve, reject) => {
+        const signal = init?.signal
+        if (signal === undefined || signal === null) return
+        const fail = () => reject(signal.reason ?? new Error('aborted'))
+        if (signal.aborted) {
+          fail()
+          return
+        }
+        signal.addEventListener('abort', fail)
+      })
+    }) as unknown as typeof fetch
+    const client = createModelClient({
+      apiKey: 'k',
+      fetchImpl: hanging,
+      maxRetries: 0,
+      retryDelayMs: 0,
+      timeoutMs: 10,
+    })
+
+    const failure = client.complete(req)
+    await expect(failure).rejects.toBeInstanceOf(ModelRequestError)
+    await expect(failure).rejects.toMatchObject({ retryable: true, status: null })
+    await expect(failure).rejects.toThrow(/timed out/)
+  })
+
+  it('retries an AbortError from the provider instead of failing the run', async () => {
+    const aborted = Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })
+    const fetchImpl = scriptedFetch({ error: aborted }, { body: openAiReply({ ok: true }) })
+    const client = createModelClient({ apiKey: 'k', fetchImpl: fetchImpl.impl, retryDelayMs: 0 })
+
+    await expect(client.complete(req)).resolves.toMatchObject({ json: { ok: true } })
+    expect(fetchImpl.count).toBe(2)
+  })
+
+  it('keeps the provider status but never copies its error body into the failure', async () => {
+    const fetchImpl = scriptedFetch({ status: 500, text: 'sk-live-provider-token leaked' })
+    const client = createModelClient({
+      apiKey: 'k',
+      fetchImpl: fetchImpl.impl,
+      maxRetries: 0,
+      retryDelayMs: 0,
+    })
+
+    const failure = client.complete(req)
+    await expect(failure).rejects.toMatchObject({ status: 500 })
+    await expect(failure).rejects.toThrow(/HTTP 500/)
+    await expect(failure).rejects.not.toThrow(/sk-live-provider-token/)
   })
 })

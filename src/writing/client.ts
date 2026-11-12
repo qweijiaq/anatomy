@@ -10,10 +10,15 @@
  * - Credentials are resolved when `complete` is called, not when the client is
  *   built. A `createModelClient()` at module load must not throw for a user who
  *   only runs `ana scan`; a missing key is an error only when a model is needed.
- * - A 429, a 5xx or a network failure is retried here with a bounded budget and
- *   then surfaced as `ModelRequestError`. A syntactically broken reply is a
+ * - A 429, a 5xx, a network failure or a stalled connection is retried here with
+ *   a bounded budget and then surfaced as `ModelRequestError`. A stalled
+ *   connection only counts as a failure because every attempt carries a
+ *   deadline; without one a hung socket would hold the CLI forever and the
+ *   retry budget would never engage. A syntactically broken reply is a
  *   different failure (`ModelReplyError`, no retry here): the judge owns the
  *   single repair attempt, so a flaky provider never looks like a bad prompt.
+ * - A provider's error body is untrusted text that would otherwise be copied
+ *   into the run report. Only the status code is published.
  */
 
 export type Usage = { in: number; out: number }
@@ -35,12 +40,15 @@ export type ModelClientConfig = {
   maxRetries?: number
   /** Base backoff between attempts. Defaults to 250ms; tests pass 0. */
   retryDelayMs?: number
+  /** Per-attempt request deadline. Defaults to 60s; tests pass a few ms. */
+  timeoutMs?: number
 }
 
 export const DEFAULT_MODEL = 'gpt-4o-mini'
 export const DEFAULT_BASE_URL = 'https://api.openai.com/v1'
 export const DEFAULT_MAX_RETRIES = 2
 export const DEFAULT_RETRY_DELAY_MS = 250
+export const DEFAULT_TIMEOUT_MS = 60_000
 
 /** Thrown by `complete`, never by `createModelClient`. */
 export class MissingCredentialsError extends Error {
@@ -94,6 +102,8 @@ export type BuiltRequest = {
     method: 'POST'
     headers: Record<string, string>
     body: string
+    /** Set per attempt by `complete`; building a request never arms a deadline. */
+    signal?: AbortSignal
   }
 }
 
@@ -154,6 +164,17 @@ function messageOf(error: unknown): string {
 function shorten(text: string, max: number): string {
   const collapsed = text.replace(/\s+/g, ' ').trim()
   return collapsed.length <= max ? collapsed : `${collapsed.slice(0, max)}…`
+}
+
+/**
+ * `AbortSignal.timeout` rejects with a `TimeoutError`; a provider or a proxy can
+ * also abort with a bare `AbortError`. Both mean "no reply arrived", which is a
+ * retryable transport failure, not a bad reply.
+ */
+function isAbortError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const name = (error as { name?: unknown }).name
+  return name === 'AbortError' || name === 'TimeoutError'
 }
 
 function count(value: unknown): number {
@@ -252,6 +273,10 @@ export function createModelClient(cfg: ModelClientConfig = {}): ModelClient {
         typeof cfg.retryDelayMs === 'number' && Number.isFinite(cfg.retryDelayMs)
           ? Math.max(0, cfg.retryDelayMs)
           : DEFAULT_RETRY_DELAY_MS
+      const timeoutMs =
+        typeof cfg.timeoutMs === 'number' && Number.isFinite(cfg.timeoutMs) && cfg.timeoutMs > 0
+          ? Math.floor(cfg.timeoutMs)
+          : DEFAULT_TIMEOUT_MS
 
       const { url, init } = buildRequest(req, { model, baseUrl, apiKey })
       let lastError: ModelRequestError | null = null
@@ -261,22 +286,28 @@ export function createModelClient(cfg: ModelClientConfig = {}): ModelClient {
 
         let response: Response
         try {
-          response = await fetchImpl(url, init)
+          // A fresh deadline per attempt: a signal armed once outside the loop
+          // would already be aborted by the time a retry is sent.
+          response = await fetchImpl(url, { ...init, signal: AbortSignal.timeout(timeoutMs) })
         } catch (error) {
-          lastError = new ModelRequestError(`model request failed: ${messageOf(error)}`, {
-            retryable: true,
-            cause: error,
-          })
+          lastError = new ModelRequestError(
+            isAbortError(error)
+              ? `model request timed out after ${timeoutMs}ms`
+              : `model request failed: ${messageOf(error)}`,
+            { retryable: true, cause: error },
+          )
           continue
         }
 
         if (!response.ok) {
-          const detail = await response.text().catch(() => '')
           const retryable = response.status === 429 || response.status >= 500
-          const error = new ModelRequestError(
-            `model request failed: HTTP ${response.status}${detail === '' ? '' : `: ${shorten(detail, 160)}`}`,
-            { retryable, status: response.status },
-          )
+          // The status is the part of the failure that is ours to publish. The
+          // body is provider text, sometimes echoed request content, and it is
+          // copied verbatim into the run report by later stages, so it stays out.
+          const error = new ModelRequestError(`model request failed: HTTP ${response.status}`, {
+            retryable,
+            status: response.status,
+          })
           // A 401 or a 400 will fail again identically: spend no more tokens.
           if (!retryable) throw error
           lastError = error
