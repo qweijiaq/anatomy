@@ -77,20 +77,29 @@ const UNSUPPORTED_LANGUAGES: ReadonlyMap<string, string> = new Map([
  * is mostly Markdown, JSON or CSS has no unreadable language to warn about, and
  * saying so would bury the caveat that matters — a tree that is mostly Rust
  * cannot be read at all. Dotfile extensions appear here without their dot, so
- * `.gitignore` reads as `gitignore`.
+ * `.gitignore` reads as `gitignore`, and the same goes for repo furniture that is
+ * not source at all: a checksum file (`go.sum`), an environment file (`.env`), an
+ * INI config (`setup.cfg`) or a type stub (`*.pyi`) is not a language anatomy
+ * failed to read.
  */
 const NON_CODE_EXTENSIONS: ReadonlySet<string> = new Set([
   'md',
+  'rst',
   'json',
   'toml',
   'yaml',
   'yml',
+  'ini',
+  'cfg',
+  'env',
+  'sum',
   'css',
   'scss',
   'html',
   'txt',
   'svg',
   'lock',
+  'pyi',
   'gitignore',
   'editorconfig',
 ])
@@ -412,6 +421,10 @@ async function pyprojectScripts(
  * format (`NON_CODE_EXTENSIONS`) or a manifest (`.toml`, `go.mod`) says nothing
  * about analysable code.
  *
+ * `other` is a bucket, not a language, so it is reported with the extension that
+ * dominates it: "unanalysed language: other (vue) (50%)" tells the reader which
+ * files to look at, where "other" alone tells them only that something was missed.
+ *
  * The share is computed over every kept file, so it answers "how much of what we
  * are reading can we not read". Decimal percentages are rounded for the header;
  * the 5% floor is applied to the exact share.
@@ -421,6 +434,7 @@ function unanalysedLanguageNotes(scope: Scope): string[] {
   if (total === 0) return []
 
   const counts = new Map<string, number>()
+  const otherExtensions = new Map<string, number>()
   for (const file of scope.files) {
     // `ScopeFile.language` is derived from the same extension, but asking
     // `detectLanguage` keeps this module honest if a Scope arrives from elsewhere.
@@ -431,8 +445,24 @@ function unanalysedLanguageNotes(scope: Scope): string[] {
     const extension = extensionKey(file.path)
     // No extension, no claim about a language to check.
     if (extension === '' || NON_CODE_EXTENSIONS.has(extension)) continue
-    const name = UNSUPPORTED_LANGUAGES.get(extension) ?? 'other'
+    const name = UNSUPPORTED_LANGUAGES.get(extension)
+    if (name === undefined) {
+      otherExtensions.set(extension, (otherExtensions.get(extension) ?? 0) + 1)
+      counts.set('other', (counts.get('other') ?? 0) + 1)
+      continue
+    }
     counts.set(name, (counts.get(name) ?? 0) + 1)
+  }
+
+  const other = counts.get('other')
+  if (other !== undefined) {
+    // Most frequent wins; ties break alphabetically so one tree always reports the
+    // same extension.
+    const [sample] = [...otherExtensions.entries()].sort((a, b) =>
+      a[1] === b[1] ? (a[0] < b[0] ? -1 : 1) : b[1] - a[1],
+    )
+    counts.delete('other')
+    if (sample !== undefined) counts.set(`other (${sample[0]})`, other)
   }
 
   return [...counts.entries()]

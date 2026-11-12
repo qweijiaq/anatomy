@@ -263,10 +263,41 @@ describe('profileRepo', () => {
     }
 
     // An allowlist of known languages said nothing about the ten .vue files; the
-    // catch-all bucket is what keeps half the scope from disappearing.
+    // catch-all bucket is what keeps half the scope from disappearing, and it names
+    // the extension so the caveat is actionable rather than just "something else".
     expect((await profileOf(await repoOf(files))).notes).toEqual([
-      'unanalysed language: other (50%)',
+      'unanalysed language: other (vue) (50%)',
     ])
+  })
+
+  it('names the most frequent extension in the unknown-language bucket', async () => {
+    const files: Record<string, string> = {}
+    for (let index = 0; index < 6; index += 1) files[`src/sfc${index}.vue`] = '<div />\n'
+    for (let index = 0; index < 2; index += 1) files[`src/stylesheet${index}.sass`] = 'a\n'
+    for (let index = 0; index < 12; index += 1) files[`src/f${index}.ts`] = 'export const x = 1\n'
+
+    // Ties and order are not the point: the dominant extension is the one named,
+    // so a reader knows which files to look at.
+    expect((await profileOf(await repoOf(files))).notes).toEqual([
+      'unanalysed language: other (vue) (40%)',
+    ])
+  })
+
+  it('does not report repo furniture as an unreadable language', async () => {
+    const files: Record<string, string> = {
+      'go.sum': 'golang.org/x/text v0.3.0 h1:abc=\n',
+      '.env': 'TOKEN=x\n',
+      'docs/index.rst': 'Widget\n======\n',
+      'setup.cfg': '[metadata]\nname = widget\n',
+      'widget/types.pyi': 'x: int\n',
+      'README.md': '# widget\n',
+    }
+    for (let index = 0; index < 4; index += 1) files[`src/f${index}.ts`] = 'export const x = 1\n'
+
+    // A checksum file, a dotfile, reStructuredText, an INI config and a type stub
+    // are file formats rather than languages anatomy failed to read; saying
+    // otherwise on every Go or Python repository is a false caveat.
+    expect((await profileOf(await repoOf(files))).notes).toEqual([])
   })
 
   it('stays quiet about an unsupported language below five percent', async () => {
