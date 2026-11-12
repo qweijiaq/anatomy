@@ -16,7 +16,7 @@
 
 ## 要求 2 — `npm test` 全绿
 
-`docs/superpowers/verify-output.txt` 第 1 行区段：`Tests  532 passed`。
+`docs/superpowers/verify-output.txt` 第 1 行区段：`Tests  535 passed`。
 
 ## 要求 3 — `npm run typecheck` 全绿
 

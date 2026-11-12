@@ -13,7 +13,7 @@ completion.
 | Requirement | Where it is shown |
 |---|---|
 | every task ran implement → review → fix → scoped re-review | `docs/superpowers/sdd/ledger.md`, one line per task with what review caught |
-| `npm test` green | `docs/superpowers/verify-output.txt` — `Tests  532 passed` |
+| `npm test` green | `docs/superpowers/verify-output.txt` — `Tests  535 passed` |
 | `npm run typecheck` green | same file — printed as `typecheck clean` (both tsconfigs) |
 | `ana analyze` produces a Chinese report with line-addressed evidence on a real repository | same file — the run against `https://github.com/sindresorhus/quick-lru`, and the report sample in `README.md` |
 

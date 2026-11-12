@@ -11,7 +11,7 @@ npm run verify
 ```
 
 Last line must read `VERIFY: PASS (github, run <id>)`. It asserts, in order:
-`npm test` 533 passed / 23 files · `npm run typecheck` clean on both tsconfigs · `npm run build` ok ·
+`npm test` 535 passed / 23 files · `npm run typecheck` clean on both tsconfigs · `npm run build` ok ·
 `ana scan https://github.com/sindresorhus/quick-lru` returns `path:line` candidates ·
 `ana analyze` writes a Chinese report containing a title, `已取证点占比`, `没看的部分` and a
 `` `path:start-end` `` citation line · `ana report` re-renders after the extracted tree is deleted ·
@@ -34,7 +34,11 @@ Which test proves which acceptance clause, by name: `docs/superpowers/EVIDENCE.m
 - T14 CLI wiring — 3 + 1 Critical out of a focused review (cleanup masked the real error; failed acquire leaked the tree; provider text persisted unredacted) fixed.
 - T15 eval skeleton — `matchGold`/`readGold`, 3 gold sets, `eval/run.ts`, empty-repo e2e.
 
-Two report-honesty fixes landed after the plan closed: `.git` is now reported as its own `vcs` exclusion
+Three more fixes landed after the plan closed, all from recorded review findings: `hashTree` now digests
+the analysed scope (a gitignored local cache no longer mints a new run id), chained `it.each` tables keep
+their assertion density (a real candidate-loss bug), and a nested `anatomy:` prefix is collapsed.
+
+Two report-honesty fixes: `.git` is now reported as its own `vcs` exclusion
 reason instead of `vendored` (the header prints these counts verbatim), and a nested `anatomy:` prefix
 is collapsed so the CLI never prints `ana: anatomy: ...`.
 
