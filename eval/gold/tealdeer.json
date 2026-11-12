@@ -1,0 +1,27 @@
+{
+  "repo": "https://github.com/dbrgn/tealdeer",
+  "ref": "993a8e0232ef42c4d9935ff5598796b6e98bf213",
+  "sha": "993a8e0232ef42c4d9935ff5598796b6e98bf213",
+  "provisional": false,
+  "note": "sha 是标注当日该仓库默认分支的真实提交；区间对着这个提交的源码逐个函数量过。",
+  "points": [
+    {
+      "path": "src/line_iterator.rs",
+      "startLine": 22,
+      "endLine": 122,
+      "why": "把整个页面读进一个受 BufRead 约束的迭代器，用 first_line 标志与 format 字段在流式读取中判定页面格式，而不是先读全文再解析"
+    },
+    {
+      "path": "src/formatter.rs",
+      "startLine": 201,
+      "endLine": 252,
+      "why": "用 find_marker 与 highlight_code_segment 在模板里定位占位符并只对占位符做高亮，避免对整页做过一次词法扫描"
+    },
+    {
+      "path": "src/cache.rs",
+      "startLine": 25,
+      "endLine": 85,
+      "why": "CacheConfig 把打开缓存的全部条件收成一个结构体，open 与 open_or_create 两个入口共用同一套配置校验"
+    }
+  ]
+}

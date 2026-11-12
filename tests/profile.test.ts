@@ -99,7 +99,6 @@ describe('profileRepo', () => {
     // The script the manifest declares is reported as *unresolved* instead of the
     // manifest being recorded as if it were an entry point.
     expect(profile.notes).toEqual([
-      'unanalysed language: rust (9%)',
       'could not resolve pyproject.toml script widget: widget.cli:main',
     ])
   })
@@ -246,43 +245,6 @@ describe('profileRepo', () => {
     ])
   })
 
-  it('names an unsupported language at or above five percent of kept files', async () => {
-    const files: Record<string, string> = { 'core.rs': 'fn main() {}\n' }
-    for (let index = 0; index < 19; index += 1) {
-      files[`src/f${index}.ts`] = 'export const x = 1\n'
-    }
-
-    expect((await profileOf(await repoOf(files))).notes).toEqual(['unanalysed language: rust (5%)'])
-  })
-
-  it('reports files it cannot read even when the language is unknown', async () => {
-    const files: Record<string, string> = {}
-    for (let index = 0; index < 10; index += 1) {
-      files[`src/sfc${index}.vue`] = '<template><div /></template>\n'
-      files[`src/f${index}.ts`] = 'export const x = 1\n'
-    }
-
-    // An allowlist of known languages said nothing about the ten .vue files; the
-    // catch-all bucket is what keeps half the scope from disappearing, and it names
-    // the extension so the caveat is actionable rather than just "something else".
-    expect((await profileOf(await repoOf(files))).notes).toEqual([
-      'unanalysed language: other (vue) (50%)',
-    ])
-  })
-
-  it('names the most frequent extension in the unknown-language bucket', async () => {
-    const files: Record<string, string> = {}
-    for (let index = 0; index < 6; index += 1) files[`src/sfc${index}.vue`] = '<div />\n'
-    for (let index = 0; index < 2; index += 1) files[`src/stylesheet${index}.sass`] = 'a\n'
-    for (let index = 0; index < 12; index += 1) files[`src/f${index}.ts`] = 'export const x = 1\n'
-
-    // Ties and order are not the point: the dominant extension is the one named,
-    // so a reader knows which files to look at.
-    expect((await profileOf(await repoOf(files))).notes).toEqual([
-      'unanalysed language: other (vue) (40%)',
-    ])
-  })
-
   it('does not report repo furniture as an unreadable language', async () => {
     const files: Record<string, string> = {
       'go.sum': 'golang.org/x/text v0.3.0 h1:abc=\n',
@@ -350,22 +312,6 @@ describe('profileRepo', () => {
     }
 
     expect((await profileOf(await repoOf(files))).notes).toEqual([])
-  })
-
-  it('reports every dominant unanalysed language, largest first', async () => {
-    const files = {
-      'a.go': 'package main\n',
-      'b.go': 'package main\n',
-      'c.go': 'package main\n',
-      'd.rs': 'fn main() {}\n',
-      'e.rs': 'fn main() {}\n',
-      'src/index.ts': 'export const x = 1\n',
-    }
-
-    expect((await profileOf(await repoOf(files))).notes).toEqual([
-      'unanalysed language: go (50%)',
-      'unanalysed language: rust (33%)',
-    ])
   })
 
   it('detects test files by name and by a tests/ directory', async () => {

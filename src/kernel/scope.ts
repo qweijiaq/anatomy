@@ -57,7 +57,23 @@ const REASON_ORDER: readonly ScopeExclusionReason[] = [
   'lockfile',
   'binary',
   'large-fixture',
+  'unsupported-language',
 ]
+
+/**
+ * Extensions that are source code in a language this version does not analyse.
+ *
+ * Listing them as their own exclusion reason is the difference between a report
+ * that says "we read 12% of this repository" and one that quietly pretends the
+ * repository was JavaScript. A Rust project whose only readable files are a
+ * `.gitignore` and a README is not an analysed repository.
+ */
+const UNSUPPORTED_SOURCE = new Set([
+  'rs', 'go', 'java', 'kt', 'kts', 'scala', 'rb', 'php', 'cs', 'fs', 'fsx',
+  'c', 'h', 'cc', 'cpp', 'cxx', 'hpp', 'hh', 'm', 'mm', 'swift', 'dart',
+  'lua', 'pl', 'pm', 'r', 'jl', 'ex', 'exs', 'erl', 'hrl', 'clj', 'cljs',
+  'elm', 'hs', 'ml', 'mli', 'zig', 'nim', 'v', 'sol', 'asm', 's', 'vue', 'svelte',
+])
 
 /**
  * Hardcoded directory reasons, by name at any depth. `.git` is bookkeeping rather
@@ -114,6 +130,14 @@ const EXTENSION_LANGUAGES: ReadonlyMap<string, string> = new Map([
 ])
 
 /** Extension mapping for the languages this product actually reasons about. */
+/** Whether a path is source code in a language this version cannot analyse. */
+export function isUnsupportedSource(filePath: string): boolean {
+  const name = filePath.split('\\').join('/').split('/').pop() ?? ''
+  const dot = name.lastIndexOf('.')
+  if (dot <= 0 || dot === name.length - 1) return false
+  return UNSUPPORTED_SOURCE.has(name.slice(dot + 1).toLowerCase())
+}
+
 export function detectLanguage(filePath: string): string | null {
   const base = filePath.slice(Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\')) + 1)
   const dot = base.lastIndexOf('.')
@@ -498,6 +522,12 @@ export async function selectScope(root: string, opts: ScopeOptions = {}): Promis
       }
       if (size > LARGE_FIXTURE_BYTES && FIXTURE_SEGMENT.test(entryRel)) {
         collectors.exclude('large-fixture')
+        continue
+      }
+      // A source file nobody here can read. Counted, so the report can say how
+      // much of the repository the analysis actually covers.
+      if (detectLanguage(entryRel) === null && isUnsupportedSource(entryRel)) {
+        collectors.exclude('unsupported-language')
         continue
       }
 

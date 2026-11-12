@@ -10,6 +10,10 @@ export type ScopeExclusionReason =
   /** Version-control bookkeeping (`.git`): never analysed, and never the
    * project's own code either, so it must not be reported as vendored. */
   | 'vcs'
+  /** A source file in a language this version cannot read (Rust, Go, Java …).
+   * Named separately from the size reasons because it is a capability gap the
+   * report has to state, not a judgement about the file. */
+  | 'unsupported-language'
   | 'vendored'
   | 'generated'
   | 'minified'

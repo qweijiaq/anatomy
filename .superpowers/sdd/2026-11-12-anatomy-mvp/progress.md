@@ -11,7 +11,7 @@ npm run verify
 ```
 
 Last line must read `VERIFY: PASS (github, run <id>)`. It asserts, in order:
-`npm test` 583 passed（18 个仓库 / 56 个金标点） / 23 files · `npm run typecheck` clean on both tsconfigs · `npm run build` ok ·
+`npm test` 585 passed（20 个仓库 / 60 个金标点） / 23 files · `npm run typecheck` clean on both tsconfigs · `npm run build` ok ·
 `ana scan https://github.com/sindresorhus/quick-lru` returns `path:line` candidates ·
 `ana analyze` writes a Chinese report containing a title, `已取证点占比`, `没看的部分` and a
 `` `path:start-end` `` citation line · `ana report` re-renders after the extracted tree is deleted ·

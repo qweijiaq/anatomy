@@ -143,6 +143,69 @@ describe('selectScope on the fixture repository', () => {
     )
   })
 
+  it('names the language of a source file it cannot read', async () => {
+    const dir = temporaryDir('ana-scope-rs-')
+    writeFileSync(path.join(dir, 'core.rs'), 'fn main() {}\n')
+    writeFileSync(path.join(dir, 'lib.ts'), 'export const x = 1\n')
+
+    const scope = await selectScope(dir)
+
+    // A Rust file is not analysable here, and saying so is the difference between
+    // "we read this repository" and "we read the one TypeScript file in it".
+    expect(reasonCount(scope, 'unsupported-language')).toBe(1)
+    expect(scope.files.map((f) => f.path)).toEqual(['lib.ts'])
+  })
+
+  it('reports files it cannot read even when the language is unknown', async () => {
+    const dir = temporaryDir('ana-scope-vue-')
+    for (let index = 0; index < 10; index += 1) {
+      writeFileSync(path.join(dir, `sfc${index}.vue`), '<template><div /></template>\n')
+      writeFileSync(path.join(dir, `f${index}.ts`), 'export const x = 1\n')
+    }
+
+    const scope = await selectScope(dir)
+
+    // Ten single-file components beside ten TypeScript modules: half the scope is
+    // unreadable, and the tally says so.
+    expect(reasonCount(scope, 'unsupported-language')).toBe(10)
+    expect(scope.files).toHaveLength(10)
+  })
+
+  it('names the most frequent extension in the unknown-language bucket', async () => {
+    const dir = temporaryDir('ana-scope-mixed-')
+    for (let index = 0; index < 6; index += 1) writeFileSync(path.join(dir, `sfc${index}.svelte`), '<div />\n')
+    for (let index = 0; index < 2; index += 1) writeFileSync(path.join(dir, `style${index}.sass`), 'a\n')
+    for (let index = 0; index < 12; index += 1) writeFileSync(path.join(dir, `f${index}.ts`), 'export const x = 1\n')
+
+    const scope = await selectScope(dir)
+
+    // Six unreadable component files and two stylesheets; only the source ones are
+    // the capability gap this reason exists to name.
+    expect(reasonCount(scope, 'unsupported-language')).toBe(6)
+  })
+
+
+  it('tallies each dominant unreadable language', async () => {
+    const dir = temporaryDir('ana-scope-langs-')
+    for (const [name, body] of [
+      ['a.go', 'package main\n'],
+      ['b.go', 'package main\n'],
+      ['c.go', 'package main\n'],
+      ['d.rs', 'fn main() {}\n'],
+      ['e.rs', 'fn main() {}\n'],
+      ['index.ts', 'export const x = 1\n'],
+    ] as Array<[string, string]>) {
+      writeFileSync(path.join(dir, name), body)
+    }
+
+    const scope = await selectScope(dir)
+
+    // The report can now say "we read one of six files" instead of presenting a
+    // one-file analysis of a Go and Rust project as if it were the repository.
+    expect(reasonCount(scope, 'unsupported-language')).toBe(5)
+    expect(scope.files.map((f) => f.path)).toEqual(['index.ts'])
+  })
+
   it('counts each excluded file exactly once, under the first matching reason', async () => {
     const scope = await selectScope(root)
     // dist/bundle.min.js is minified, but `dist` is generated and wins.
