@@ -250,9 +250,16 @@ describe('selectScope limits', () => {
     expect(full.files[breach]!.lines).toBeGreaterThan(1)
     expect(full.totals.lines).toBeGreaterThan(expected)
 
-    await expect(
-      selectScope(root, { limits: { maxFiles: 1e9, maxBytes: 1e9, maxLines: limit } }),
-    ).rejects.toMatchObject({ dimension: 'lines', limit, actual: expected })
+    // `actual` is the smallest count that crosses the limit, not the file's true
+    // length: counting stops the moment the budget is gone, which is the point of
+    // a fail-fast limit. A test that demanded the exact total would force the
+    // reader to walk the whole file before refusing it.
+    const failure = await selectScope(root, {
+      limits: { maxFiles: 1e9, maxBytes: 1e9, maxLines: limit },
+    }).catch((error: unknown) => error)
+    expect(failure).toMatchObject({ dimension: 'lines', limit })
+    expect((failure as { actual: number }).actual).toBeGreaterThan(limit)
+    expect((failure as { actual: number }).actual).toBeLessThan(expected)
   })
 
   it('applies limits to the post-exclusion numbers', async () => {

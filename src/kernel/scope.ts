@@ -300,7 +300,7 @@ async function readHead(absPath: string, limit: number): Promise<Buffer> {
  * matches `canonicalizeFile().lineCount`: a trailing terminator adds no line and
  * an empty file has 0 lines.
  */
-async function countLines(absPath: string): Promise<number> {
+async function countLines(absPath: string, ceiling = Number.MAX_SAFE_INTEGER): Promise<number> {
   let terminators = 0
   let lastWasTerminator = false
   let sawAny = false
@@ -324,6 +324,10 @@ async function countLines(absPath: string): Promise<number> {
         terminators += 1
         lastWasTerminator = true
       }
+      // Stop as soon as this file cannot fit in what the budget has left: the
+      // limits exist to protect the process, and reading a 200 MB file to the end
+      // to discover it is too long defeats them.
+      if (terminators > ceiling) return terminators
     }
   }
 
@@ -504,7 +508,10 @@ export async function selectScope(root: string, opts: ScopeOptions = {}): Promis
         throw new ScopeLimitError('bytes', collectors.totals.bytes + size, limits.maxBytes)
       }
 
-      const lines = await countLines(entryAbs)
+      const lines = await countLines(
+        entryAbs,
+        Math.max(0, limits.maxLines - collectors.totals.lines),
+      )
       if (collectors.totals.lines + lines > limits.maxLines) {
         throw new ScopeLimitError('lines', collectors.totals.lines + lines, limits.maxLines)
       }

@@ -34,7 +34,10 @@ Which test proves which acceptance clause, by name: `docs/superpowers/EVIDENCE.m
 - T14 CLI wiring — 3 + 1 Critical out of a focused review (cleanup masked the real error; failed acquire leaked the tree; provider text persisted unredacted) fixed.
 - T15 eval skeleton — `matchGold`/`readGold`, 3 gold sets, `eval/run.ts`, empty-repo e2e.
 
-Three more fixes landed after the plan closed, all from recorded review findings: `hashTree` now digests
+Four more fixes landed after the plan closed, all from recorded review findings: a file that cannot fit in
+the remaining line budget is refused mid-stream instead of being read to the end (the limits exist to
+protect the process, and reading 200 MB to learn it is too long defeats them), `hashTree`,
+ `hashTree` now digests
 the analysed scope (a gitignored local cache no longer mints a new run id), chained `it.each` tables keep
 their assertion density (a real candidate-loss bug), and a nested `anatomy:` prefix is collapsed.
 
