@@ -1,5 +1,6 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-11-12-anatomy-mvp.md
 
+REPO: /Users/weijia/Desktop/anatomy (symlinked at ~/.x-code/workspace/anatomy)
 STATUS: complete. Plan tasks 15/15 (Task 1-5 done earlier in the same branch, Task 6-15 in this run).
 Branch `mvp`, NOT merged to main. Every task went implement → code-reviewer → fix → scoped re-review.
 
