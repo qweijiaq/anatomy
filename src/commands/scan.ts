@@ -1,0 +1,150 @@
+/**
+ * `ana scan`: the kernel, with no model calls and no writing layer.
+ *
+ * The command exists to answer one question cheaply — *where is the interesting
+ * part of this repository?* — so it is a thin shell over `scanRepo`: acquire,
+ * scope, profile, structure, signals, persist, print. The printing lives in a pure
+ * formatter (`formatScanReport`) rather than in `runScan`, so the table can be
+ * asserted without capturing stdout, and so a later `ana report` can reuse the
+ * same shape.
+ *
+ * Argument parsing is here rather than in `cli.ts` because the flags belong to
+ * this command: the dispatcher knows the command name, the command knows its
+ * grammar. Anything outside that grammar is a usage error, not something to
+ * ignore — a silently dropped `--ref` analyses the wrong commit.
+ */
+
+import type { Candidate, Profile, Scope } from '../contracts/types.js'
+import { scanRepo, type PipelineOptions } from '../kernel/pipeline.js'
+
+/** Rows the table shows; the run may hold `DEFAULT_TOP_K` (30) or as many as `--top` asked for. */
+export const TABLE_ROWS = 10
+
+export const SCAN_USAGE =
+  'Usage: ana scan <repo> [--top <n>] [--subpath <dir>] [--ref <ref>]'
+
+export type ScanOptions = {
+  /** Run directory parent. Defaults to `<cwd>/.ana/runs`. */
+  out?: string
+  subpath?: string
+  ref?: string
+  topK?: number
+  /** Injected acquisition dependencies, so tests never touch the network. */
+  deps?: PipelineOptions['deps']
+}
+
+export type ScanSummary = {
+  runId: string
+  candidates: Candidate[]
+  profile: Profile
+}
+
+export type ScanIo = { out: { write(chunk: string): unknown } }
+
+/** A misuse of the command line: reported with the usage line, never with a stack. */
+export class ScanUsageError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ScanUsageError'
+  }
+}
+
+export type ScanArgs = { repo: string; options: ScanOptions }
+
+/**
+ * Parses `scan` arguments: exactly one repository, then `--top`, `--subpath` and
+ * `--ref`. Both a flag's value and the repository are positional in the sense that
+ * order does not matter, but a value never starts with `--`: that is the shape of a
+ * forgotten argument, and guessing would analyse the wrong thing.
+ */
+export function parseScanArgs(argv: string[]): ScanArgs {
+  const positional: string[] = []
+  const options: ScanOptions = {}
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index] as string
+
+    if (arg === '--top' || arg === '--subpath' || arg === '--ref') {
+      const value = argv[index + 1]
+      if (value === undefined || value.startsWith('--')) {
+        throw new ScanUsageError(`${arg} needs a value`)
+      }
+      index += 1
+      if (arg === '--top') options.topK = positiveInteger(value)
+      else if (arg === '--subpath') options.subpath = value
+      else options.ref = value
+      continue
+    }
+
+    if (arg !== '-' && arg.startsWith('-')) {
+      throw new ScanUsageError(`unknown option "${arg}"`)
+    }
+    positional.push(arg)
+  }
+
+  if (positional.length === 0) throw new ScanUsageError('scan needs a repository')
+  if (positional.length > 1) {
+    throw new ScanUsageError(`scan takes one repository, got ${positional.length}`)
+  }
+  return { repo: positional[0] as string, options }
+}
+
+function positiveInteger(value: string): number {
+  if (!/^[1-9][0-9]*$/.test(value)) {
+    throw new ScanUsageError(`--top needs a positive integer (got "${value}")`)
+  }
+  return Number.parseInt(value, 10)
+}
+
+/**
+ * The whole table as text: one header line naming the run, the file counts and the
+ * exclusion tally, then the highest-scoring candidates as `path:line  score  kind`.
+ *
+ * Pure — same report, same string — because the printed lines are the command's
+ * only user-visible product and the easiest thing to get subtly wrong.
+ */
+export function formatScanReport(report: {
+  runId: string
+  scope: Scope
+  candidates: Candidate[]
+}): string {
+  const { runId, scope, candidates } = report
+  const excluded =
+    scope.excluded.length === 0
+      ? 'nothing excluded'
+      : `excluded ${scope.excluded.map((entry) => `${entry.reason} ${entry.count}`).join(', ')}`
+  const header = `run ${runId}  ${scope.totals.files} files, ${scope.totals.lines} lines  ${excluded}`
+
+  const rows = candidates
+    .slice(0, TABLE_ROWS)
+    .map((candidate) => `${candidate.path}:${candidate.line}  ${candidate.score}  ${candidate.kind}`)
+  // An empty table is a result, not a failure: say what was looked at, so a quiet
+  // repository cannot be mistaken for a broken scan.
+  const body = rows.length === 0 ? [`no candidates in ${scope.totals.files} files`] : rows
+
+  return `${[header, ...body].join('\n')}\n`
+}
+
+/**
+ * Runs the kernel over `input`, prints the table and hands back what it found.
+ *
+ * Artifacts are already on disk when this returns (`scanRepo` wrote them); the
+ * returned values are for callers that want the data without re-reading the run.
+ */
+export async function runScan(
+  input: string,
+  opts: ScanOptions = {},
+  io: ScanIo = { out: process.stdout },
+): Promise<ScanSummary> {
+  const result = await scanRepo(input, {
+    subpath: opts.subpath,
+    ref: opts.ref,
+    topK: opts.topK,
+    baseDir: opts.out,
+    deps: opts.deps,
+  })
+
+  io.out.write(formatScanReport(result))
+
+  return { runId: result.runId, candidates: result.candidates, profile: result.profile }
+}

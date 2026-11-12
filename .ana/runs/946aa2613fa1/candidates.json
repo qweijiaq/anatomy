@@ -1,0 +1,15 @@
+[
+  {
+    "id": "src/scheduler.ts:7:custom-infra",
+    "path": "src/scheduler.ts",
+    "line": 7,
+    "kind": "custom-infra",
+    "score": 6,
+    "matched": [
+      "custom-infra:scheduler",
+      "decision-trace:instead of",
+      "decision-trace:we chose",
+      "decision-trace:because"
+    ]
+  }
+]

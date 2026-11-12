@@ -1,7 +1,17 @@
 #!/usr/bin/env node
 import { realpathSync } from 'node:fs'
-import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
+
+import {
+  parseScanArgs,
+  runScan,
+  SCAN_USAGE,
+  ScanUsageError,
+  type ScanIo,
+} from './commands/scan.js'
+import { readVersion } from './version.js'
+
+export { readVersion }
 
 export type CliIo = {
   out: { write(chunk: string): unknown }
@@ -20,17 +30,21 @@ Options:
   --version          Print the version
   --help             Print this message
 
+${SCAN_USAGE}
+
 <repo> may be a GitHub URL, a tarball URL, or a local directory.
 `
 
-const require = createRequire(import.meta.url)
-
-export function readVersion(): string {
-  const pkg = require('../package.json') as { version?: unknown }
-  if (typeof pkg.version !== 'string' || pkg.version === '') {
-    throw new Error('package.json has no "version" field')
-  }
-  return pkg.version
+/**
+ * One failure, one prefix.
+ *
+ * Kernel errors already carry the package name (`anatomy: ...`) because they are
+ * also seen by library callers with no CLI around them; the CLI speaks as `ana`,
+ * and `ana: anatomy: root "x" does not exist` says the same thing twice.
+ */
+function describeFailure(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.replace(/^anatomy: /, '')
 }
 
 export async function runCli(
@@ -55,7 +69,25 @@ export async function runCli(
   }
 
   switch (command) {
-    case 'scan':
+    case 'scan': {
+      let args
+      try {
+        args = parseScanArgs(argv.slice(1))
+      } catch (error) {
+        // Misuse is not a failed scan: the run never started, so it says what the
+        // command accepts instead of pretending something went wrong on disk.
+        if (!(error instanceof ScanUsageError)) throw error
+        io.err.write(`ana: ${error.message}\n\n${SCAN_USAGE}\n`)
+        return 2
+      }
+      try {
+        await runScan(args.repo, args.options, io satisfies ScanIo)
+        return 0
+      } catch (error) {
+        io.err.write(`ana: ${describeFailure(error)}\n`)
+        return 1
+      }
+    }
     case 'analyze':
     case 'report':
     case 'inspect':
@@ -84,9 +116,7 @@ if (isDirectRun()) {
       process.exitCode = code
     })
     .catch((err: unknown) => {
-      process.stderr.write(
-        `ana: ${err instanceof Error ? err.message : String(err)}\n`,
-      )
+      process.stderr.write(`ana: ${describeFailure(err)}\n`)
       process.exitCode = 1
     })
 }

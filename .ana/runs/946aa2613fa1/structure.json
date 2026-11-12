@@ -1,0 +1,49 @@
+{
+  "modules": [
+    {
+      "path": "src/index.ts",
+      "imports": [
+        {
+          "from": "src/index.ts",
+          "specifier": "./scheduler.js",
+          "resolved": "src/scheduler.ts"
+        }
+      ]
+    },
+    {
+      "path": "src/scheduler.ts",
+      "imports": []
+    },
+    {
+      "path": "tests/scheduler.test.ts",
+      "imports": [
+        {
+          "from": "tests/scheduler.test.ts",
+          "specifier": "vitest",
+          "resolved": null
+        },
+        {
+          "from": "tests/scheduler.test.ts",
+          "specifier": "../src/scheduler.js",
+          "resolved": "src/scheduler.ts"
+        }
+      ]
+    }
+  ],
+  "symbols": [
+    {
+      "name": "Job",
+      "kind": "type",
+      "path": "src/scheduler.ts",
+      "line": 5
+    },
+    {
+      "name": "Scheduler",
+      "kind": "class",
+      "path": "src/scheduler.ts",
+      "line": 7
+    }
+  ],
+  "unresolved": 0,
+  "notes": []
+}

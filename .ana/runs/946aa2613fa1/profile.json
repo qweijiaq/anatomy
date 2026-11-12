@@ -1,0 +1,15 @@
+{
+  "languages": {
+    "ts": 3
+  },
+  "manifests": [
+    "package.json"
+  ],
+  "entryPoints": [
+    "src/index.ts"
+  ],
+  "hasTests": true,
+  "hasCi": false,
+  "hasDocs": true,
+  "notes": []
+}
