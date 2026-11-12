@@ -1,0 +1,27 @@
+{
+  "repo": "https://github.com/lukeed/dequal",
+  "ref": "37c21f675c1f538f2d4b63ebf19a161411e7a5fd",
+  "sha": "37c21f675c1f538f2d4b63ebf19a161411e7a5fd",
+  "provisional": false,
+  "note": "sha 是标注当日该仓库默认分支的真实提交；区间对着这个提交的源码逐个函数量过。",
+  "points": [
+    {
+      "path": "src/index.js",
+      "startLine": 9,
+      "endLine": 84,
+      "why": "深比较按「类型先判、数组与对象分支」展开，对象比较只用 for-in 加 hasOwn，避免每层构造 key 数组"
+    },
+    {
+      "path": "src/index.js",
+      "startLine": 3,
+      "endLine": 7,
+      "why": "Map/Set 的比较借一个 find 辅助函数在迭代器上找匹配项，而不是先把集合转成数组"
+    },
+    {
+      "path": "src/lite.js",
+      "startLine": 3,
+      "endLine": 29,
+      "why": "另出一份 lite 版本，明确放弃 Map/Set 分支以换体积，语义差异写在包入口上而不是用开关参数"
+    }
+  ]
+}

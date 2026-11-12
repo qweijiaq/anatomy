@@ -1,50 +1,51 @@
 debounce-fn.json         candidates   2  gold 4  hit 2  recall 50%
+defu.json                candidates   4  gold 3  hit 2  recall 67%
+dequal.json              candidates  12  gold 3  hit 2  recall 67%
 mitt.json                candidates   4  gold 3  hit 2  recall 67%
-ms.json                  candidates  12  gold 3  hit 2  recall 67%
-quick-lru.json           candidates  19  gold 4  hit 4  recall 100%
+ms.json                  candidates  13  gold 3  hit 2  recall 67%
+p-limit.json             candidates   2  gold 3  hit 1  recall 33%
+p-retry.json             candidates  22  gold 3  hit 1  recall 33%
+quick-lru.json           candidates  21  gold 4  hit 4  recall 100%
+slugify.json              candidates   6  gold 3  hit 2  recall 67%
 yocto-queue.json         candidates   7  gold 3  hit 3  recall 100%
 
-overall candidate recall: 13/17 = 76%
+overall candidate recall: 21/32 = 66%
 
 这份数字是「候选召回」——内核有没有把候选放在金标认为重要的那几行上。它是召回的天花板：
 没有候选的地方，模型再强也产不出学习点。复现：`npm run eval:recall`（不需要任何模型凭据，
 全程离线读公开归档）。
 
-## 一条重要的自我修正
+## 三次扩样本，三个数字，每个都比上一个低
 
-在**3 个仓库 / 10 个金标点**上，召回一路调到了 90%。把金标扩到 **5 个仓库 / 17 个点**之后，
-同一个内核掉到 **76%**。90% 那个数字是被小样本和自我挑选喂出来的——我一开始挑的三个仓库
-恰好都是「手写数据结构」这一类，正好是现有规则的舒适区。
+| 金标规模 | 召回 |
+|---|---|
+| 3 个仓库 / 10 个点 | 90% |
+| 5 个仓库 / 17 个点 | 76% |
+| **10 个仓库 / 32 个点** | **66%** |
 
-这就是为什么必须先扩样本再谈规则：**用三个同类的仓库调规则，等于在训练集上调参。**
+90% 那个数字是假的：我最初挑的三个仓库（quick-lru、yocto-queue、ms）都是「手写数据结构」，
+正好是规则的舒适区。**用同类的仓库调规则，等于在训练集上调参。** 每次把样本翻一倍，
+数字就掉一截——这才是真实水平。
 
-## 逐步抬高的过程（当前样本，5 个仓库 / 17 个点）
+## 扩样本后的规则修正（都是结构性模式，不是单仓库的惯用法）
 
-| 步 | 改动 | 召回 |
-|---|---|---|
-| 0 | 起点（只有类/函数声明级候选） | 2/10 |
-| 1 | 修正金标：真实提交 + 实测行号（ms 早已迁到 `src/index.ts`） | 3/10 |
-| 2 | 方法级候选位点；长关键字允许尾部匹配；排除 `on*` 与测试文件里的 custom-infra | 6/10 |
-| 3 | 轮子类的普通命名方法也算位点（按方法体大小取，每类至多 10 个） | 8/10 |
-| 4 | 重载签名算 API 设计；相隔 20 行以上的同类命中不再并进第一个候选 | 9/10 |
-| 5 | 扩样本到 5 个仓库（加入 mitt、debounce-fn，区间同样实测） | 11/15 = 73% |
-| 6 | 测试文件里的注释不再算决策（曾占掉 mitt 五个候选位中的两个） | 11/15（噪音减少：mitt 候选 5→3） |
-| 7 | `handlers.slice().map(...)`：派发前先快照，回调可以在派发中注销自己 | **13/17 = 76%** |
+| 规则 | 依据 |
+|---|---|
+| 自递归函数算 complexity | 终止条件与路径记录都写在递归里（defu 的 namespace 数组、dequal 的嵌套比较）；长度和嵌套都看不见它，因为函数体短而平 |
+| 返回函数的函数算 abstraction | 用闭包配置行为：`makeRetriable` 烘焙一套重试策略，`createDefu(merger)` 用同一份递归派生出三种合并语义；函数体只有两行和一个 return |
 
-## 现在缺的是什么（都能指出具体行）
+两条都让 defu 从 0/3 到 2/3、p-retry 从 0/3 到 1/3，同时 dequal 保持 2/3。
 
-- `mitt src/index.ts:86-104` — `splice(handlers.indexOf(h) >>> 0, 1)`，用位运算把「找不到」的 -1 夹成巨大下标，
-  于是 splice 什么也不删。一个惯用法换掉一个分支，现有规则全看不见。
-- `debounce-fn index.js:43-53` — `shouldCallNow = before && !timeout` 用一个判据同时表达前缘触发与
-  「已有待执行任务」，没有状态机。
-- `debounce-fn index.js:55-70` — 执行前先把参数抓成局部变量再 cancel。
-- `ms src/index.ts:163-224` — `fmtShort`/`fmtLong` 两个兄弟函数共用一张单位表。
+## 现在最差的三个
 
-这四条都属于「一个短函数里的一处判断」，不是结构。要抓它们，就得为每种惯用法写一条规则——
-在 17 个点上没有资格这么做。先把金标扩到 10 个仓库、40 个点以上，再看这些规则会不会在别处制造噪音。
+- **p-retry 1/3**：`calculateDelay`（指数退避 + 溢出上限）、`delayForRetry`（可中断等待）都没有候选。
+  该文件目前产生的候选大多来自注释里的 `because`，而不是函数本身——说明「解释性注释」这条规则
+  比「结构」更容易触发，占了本该属于设计的位子。
+- **p-limit 1/3**：`enqueue` 里「把 promise 的 internalResolve 存进队列项」这种解耦，名字里没有
+  queue/limit 之外的信息。
+- **debounce-fn 2/4**：前缘/后缘用标志位表达，以及执行前先抓参数快照。
 
-## 另一个教训：金标本身会骗人
+## 下一步的门槛
 
-第一步之前的金标是错的：区间写在 `index.js` 上而代码早已迁走，sha 是 `0000…` 占位符。
-**用错的金标调规则，会把规则调到错误的方向。** 现在五个仓库都锁真实提交、区间逐个函数量过，
-测试里加了「ref/sha 必须是 40 位十六进制」的断言——占位 sha 会让 eval 直接失败，而不是给出假分数。
+再有新规则，必须先让金标到 **20 个仓库 / 60 个点以上**。现在每条规则都能找到「为什么该加」的例子，
+但找不到「它在别处不制造噪音」的证据——而后者才是一条扫描规则值不值得存在的判据。

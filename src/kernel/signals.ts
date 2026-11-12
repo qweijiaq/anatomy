@@ -815,6 +815,9 @@ const JS_METHOD = /^[ \t]+(?:static[ \t]+)?(?:async[ \t]+)?#?([A-Za-z_$][\w$]*)[
  */
 const SNAPSHOT_BEFORE_ITERATE = /\.slice\(\)\s*\.\s*(?:map|forEach|filter)\s*\(/g
 
+/** A function whose body hands back a function: configuration by closure. */
+const RETURNS_A_FUNCTION = /\breturn\s+(?:async\s+)?(?:function\b|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)/
+
 const OVERLOAD_SIGNATURE = /(?:^|[^\w$.])(?:export[ \t]+)?(?:declare[ \t]+)?function[ \t]+([A-Za-z_$][\w$]*)[ \t]*\([^)]*\)[ \t]*:[^{\n]*$/gm
 
 const CLASS_DECLARATION = /(?:^|[^\w$.])class[ \t]+([A-Za-z_$][\w$]*)/g
@@ -1135,6 +1138,30 @@ function complexityHits(context: FileContext): Hit[] {
       hits.push(hit('complexity', span.startLine, 'long-function'))
     }
     if (span.nesting > DEEP_NESTING) hits.push(hit('complexity', span.startLine, 'deep-nesting'))
+  }
+
+  // A function that returns a function: behaviour configured by closure. It is how
+  // `makeRetriable` bakes a retry policy, how `createDefu(merger)` derives three
+  // merge semantics from one recursion, and it leaves no trace in length, nesting
+  // or imports — the body is two lines and one `return`.
+  for (const span of context.functions) {
+    const body = context.lines.slice(span.startLine - 1, span.endLine).join('\n')
+    if (RETURNS_A_FUNCTION.test(body)) {
+      hits.push(hit('abstraction', span.startLine, 'returns-a-function'))
+    }
+  }
+
+  // A self-recursive function is where termination and path bookkeeping are
+  // decided: `_defu`'s namespace array, `dequal`'s nested compare. Length and
+  // nesting both miss it — the body is short and flat, and it repeats by calling
+  // itself rather than by nesting.
+  for (const span of context.functions) {
+    const first = context.lines[span.startLine - 1] ?? ''
+    const name = /(?:function[ \t]+|class[ \t]+|def[ \t]+|const[ \t]+|let[ \t]+|var[ \t]+|^[ \t]*)([A-Za-z_$][\w$]*)[ \t]*[(<=]/.exec(first)?.[1]
+    if (name === undefined) continue
+    const body = context.lines.slice(span.startLine - 1, span.endLine).join('\n')
+    const calls = [...body.matchAll(new RegExp(`\\b${name.replace(/\$/g, '\\$')}\\s*\\(`, 'g'))].length
+    if (calls >= 2) hits.push(hit('complexity', span.startLine, 'self-recursive'))
   }
 
   for (const pattern of DANGER_PATTERNS) {

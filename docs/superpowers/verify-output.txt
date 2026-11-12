@@ -1,15 +1,15 @@
 == tests ==
-      Tests  552 passed (552)
-   Start at  06:24:29
-   Duration  3.55s (transform 1.34s, setup 0ms, collect 6.18s, tests 9.02s, environment 4ms, prepare 1.57s)
+      Tests  562 passed (562)
+   Start at  06:28:29
+   Duration  3.96s (transform 1.16s, setup 0ms, collect 8.72s, tests 10.95s, environment 3ms, prepare 1.91s)
 
 == typecheck ==
 == build ==
 == stub model ==
 == scan (github) ==
 run 62c3ec65279b  13 files, 2606 lines  nothing excluded
-index.js:26  3  custom-infra
-index.js:30  3  custom-infra
+index.js:105  5  custom-infra
+index.js:137  5  custom-infra
 == analyze (github) ==
 == report (tree deleted) ==
 == inspect ==
@@ -27,6 +27,6 @@ index.js:30  3  custom-infra
 ## 这次分析的可信度
 
 
-SUMMARY: Tests  552 passed | typecheck clean | build ok
+SUMMARY: Tests  562 passed | typecheck clean | build ok
 SUMMARY: scan+analyze+report+inspect ok on https://github.com/sindresorhus/quick-lru
 VERIFY: PASS (github, run 62c3ec65279b)

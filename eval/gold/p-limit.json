@@ -1,0 +1,27 @@
+{
+  "repo": "https://github.com/sindresorhus/p-limit",
+  "ref": "a8a6fbec4e0e866d6d779b10889bb4f5567e70eb",
+  "sha": "a8a6fbec4e0e866d6d779b10889bb4f5567e70eb",
+  "provisional": false,
+  "note": "sha 是标注当日该仓库默认分支的真实提交；区间对着这个提交的源码逐个函数量过。",
+  "points": [
+    {
+      "path": "index.js",
+      "startLine": 19,
+      "endLine": 25,
+      "why": "resumeNext 只在 activeCount 小于上限且队列非空时启动下一个任务，把「什么时候允许并发」收在一个判断里"
+    },
+    {
+      "path": "index.js",
+      "startLine": 50,
+      "endLine": 63,
+      "why": "入队时把 promise 的 internalResolve 存进队列项，出队时调用它而不是直接调用任务，于是排队顺序与执行顺序解耦"
+    },
+    {
+      "path": "index.js",
+      "startLine": 66,
+      "endLine": 68,
+      "why": "对外返回的 generator 只做一件事：把 resolve/reject 连同参数交给 enqueue，调用方拿到的始终是一个 Promise"
+    }
+  ]
+}
