@@ -4,7 +4,6 @@ yocto-queue.json         candidates   7  gold 3  hit 3  recall 100%
 
 overall candidate recall: 9/10 = 90%
 
-overall candidate recall: 8/10 = 90%
 
 这份数字是「候选召回」——内核有没有把候选放在金标认为重要的那几行上。它是召回的天花板：
 没有候选的地方，模型再强也产不出学习点。
