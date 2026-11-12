@@ -1,0 +1,27 @@
+{
+  "repo": "https://github.com/alecthomas/chroma",
+  "ref": "08dd759d11a8f31603634ecbeb6b35bca6810ffb",
+  "sha": "08dd759d11a8f31603634ecbeb6b35bca6810ffb",
+  "provisional": false,
+  "note": "sha 是标注当日该仓库默认分支的真实提交；区间对着这个提交的源码逐行量过。",
+  "points": [
+    {
+      "path": "coalesce.go",
+      "startLine": 6,
+      "endLine": 44,
+      "why": "用装饰器包装 Lexer 而不改 Lexer 接口：Coalesce 返回一个嵌入了原 Lexer 的 struct，调用方只看到 Lexer"
+    },
+    {
+      "path": "coalesce.go",
+      "startLine": 19,
+      "endLine": 44,
+      "why": "以迭代器（iter.Seq）作为词法输出的边界，把「逐个产出 token」与「如何消费」解耦，返回的函数可以提前 yield(false) 中止"
+    },
+    {
+      "path": "delegate.go",
+      "startLine": 1,
+      "endLine": 30,
+      "why": "把接口类型断言写成一次尝试并保留 ok，失败时回退到不追踪的实现，避免调用方处理错误"
+    }
+  ]
+}

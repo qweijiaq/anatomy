@@ -1,4 +1,7 @@
+(Use `node --trace-warnings ...` to show where the warning was created)
 cachecontrol-adapter.json candidates  33  gold 3  hit 0  recall 0%
+cast.json                candidates  17  gold 3  hit 1  recall 33%
+chroma.json              candidates  62  gold 3  hit 1  recall 33%
 clack-multiline.json     candidates  47  gold 3  hit 1  recall 33%
 colorette.json           candidates   0  gold 4  hit 0  recall 0%
 debounce-fn.json         candidates   2  gold 4  hit 2  recall 50%
@@ -17,13 +20,12 @@ quick-lru.json           candidates  21  gold 4  hit 4  recall 100%
 slugify.json             candidates   6  gold 3  hit 2  recall 67%
 tealdeer.json            candidates  11  gold 3  hit 1  recall 33%
 yocto-queue.json         candidates   7  gold 3  hit 3  recall 100%
-overall candidate recall: 25/60 = 42%
 
 这份数字是「候选召回」——内核有没有把候选放在金标认为重要的那几行上。它是召回的天花板：
 没有候选的地方，模型再强也产不出学习点。复现：`npm run eval:recall`（不需要任何模型凭据，
 全程离线读公开归档）。
 
-## 20 个仓库 / 60 个点：42%
+## 22 个仓库 / 66 个点：41%
 
 | 金标规模 | 召回 |
 |---|---|
@@ -32,32 +34,31 @@ overall candidate recall: 25/60 = 42%
 | 10 仓库 / 32 点 | 66% |
 | 14 仓库 / 44 点 | 52% |
 | 18 仓库 / 56 点 | 43% |
-| 20 仓库 / 60 点（加语言支持前） | 40% |
-| **20 仓库 / 60 点（加语言支持后）** | **42%** |
+| 20 仓库 / 60 点（近似语言前） | 40% |
+| 20 仓库 / 60 点（近似语言后） | 42% |
+| **22 仓库 / 66 个点（加 Go）** | **41%** |
 
-## 这轮做的是"补语言"，不是"调规则"
+## 这轮验证的是"近似语言能不能跨语言"
 
-`dbrgn/tealdeer`（Rust）此前召回 **0/3**，并不是规则不好——它的源码根本不在分析口径里。
-补法分三处，都用近似而非解析来换诚实：
+Rust 一个样本不足以证明。加了两个 Go 仓库：
 
-1. **近似结构索引**（`src/kernel/structure/generic.ts`）：按行首关键字识别 `fn`/`struct`/`impl`/
-   `func`/`def`/`function`/`class` 等声明，覆盖 Rust、Go、C/C++/ObjC/C#、Java/Kotlin/Swift/Dart/Zig、
-   Ruby/PHP/Lua。**不声明任何 import 边**——近似的边就是编造，而报告已经写明这个语言是近似读取。
-2. **近似函数体**（`signals.ts` 的 `genericFunctionSpans`）：从声明行到匹配的大括号，`{` 若在声明后
-   两行以外就放弃。跨语言的括号语义一致，猜错的代价是漏一个候选，不是编造一个。
-3. **语言名单**：`detectLanguage` 现在认识这些扩展名，`unsupported-language` 只留给真正的未知语言
-   （`.vue`、`.svelte` 这类单文件组件仍按未知计），因此报告能同时说「读了什么语言」和「哪些文件读不了」。
+- **`spf13/cast`** 0/3 → 1/3。缺的两处是 `indirect`（反射解包 + 零拷贝短路）与 `cast.go` 的泛型约束
+  ——都是"短函数里的一处判断"，近似扫描器不该假装能看见。
+- **`alecthomas/chroma`** 0/3 → 1/3。它的 `coalesce.go` 用装饰器包装 Lexer、用 `iter.Seq` 做词法输出边界，
+  两处都是接口设计，不是函数体。
 
-效果：`tealdeer` 从 0 候选到 11 个候选、1/3 命中；全局 40% → 42%。数字只涨了两个点，但**那是一个
-整类仓库从"不可用"变成"可用"**。
+跨语言这条路成立：**Go 的近似索引确实找到了声明级别的候选**，而不再是"整仓库不可读"。
 
-## 仍然诚实的一件事
+## 又一处"真实归档被误杀"
 
-`src/lib.rs` 的 import 图依旧是空的，`src/kernel/structure/generic.ts` 在 notes 里明写
-`approximate structure: declarations only, no import graph`。报告不会假装知道 Rust 的模块依赖。
+`chroma` 的 `bin/binaryen-unittests` 是一个指向**归档里不存在**的生成物的符号链接，此前让整个仓库
+拒绝解包。改成：目标不在归档里的链接**跳过**而不是致命——链接永远不会被跟随，所以不会引入归档外
+的内容，只是不产出文件。这已经是第二个被"过度安全"挡住的真实项目（第一个是 `clack` 的
+`LICENSE -> packages/core/LICENSE`）。
+
+教训：安全规则要分清"拒绝内容"与"拒绝整个归档"。前者是必要的，后者是在惩罚用户。
 
 ## 下一步
 
-剩下的 4 条 `tealdeer` 金标缺口（`format`、`cache`）落在「短函数里的一处判断」，需要语言层面的
-真正解析器才抓得准，而不是再加一条正则。下一步更值得做的是把近似索引也用在 Go 与 Java 的两个
-真实仓库上验证——目前只有 Rust 一个样本证明这条路成立。
+`cast` 与 `chroma` 各剩两处，与 `tealdeer` 剩下的两处是同一类：**接口设计与短函数判断**。
+这类要真解析器，不是正则。在换解析器之前，先把金标扩到 25 个仓库，看这条结论是否稳定。

@@ -225,7 +225,12 @@ function resolveSymlinks(plan: PlannedEntry[], root: string): PlannedEntry[] {
       path.posix.join(path.posix.dirname(entry.name), entry.linkTo),
     )
     if (resolved.startsWith('..')) throw unsafe(entry.name, 'symbolic link outside the archive')
-    if (!regular.has(resolved)) throw unsafe(entry.name, 'symbolic link to a file the archive lacks')
+    // A link to something the archive does not carry is *skipped*, not fatal: real
+    // repositories ship links to generated binaries (`chroma` has
+    // `bin/binaryen-unittests`), and refusing the whole archive over one meant the
+    // project could not be analysed at all. The link is never followed, so nothing
+    // outside the archive can enter; it simply yields no file.
+    if (!regular.has(resolved)) continue
     const source = plan.find(
       (candidate): candidate is Extract<PlannedEntry, { kind: 'file' }> =>
         candidate.kind === 'file' && candidate.name === resolved,

@@ -856,6 +856,9 @@ const SNAPSHOT_BEFORE_ITERATE = /\.slice\(\)\s*\.\s*(?:map|forEach|filter)\s*\(/
 /** A function whose body hands back a function: configuration by closure. */
 const RETURNS_A_FUNCTION = /\breturn\s+(?:async\s+)?(?:function\b|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)/
 
+/** Go's `switch x := v.(type)` — a type algebra written as a table. */
+const TYPE_SWITCH = /\bswitch\s+\w+\s*:?=\s*[\w.]+\s*\.\s*\(type\)/g
+
 const OVERLOAD_SIGNATURE = /(?:^|[^\w$.])(?:export[ \t]+)?(?:declare[ \t]+)?function[ \t]+([A-Za-z_$][\w$]*)[ \t]*\([^)]*\)[ \t]*:[^{\n]*$/gm
 
 const CLASS_DECLARATION = /(?:^|[^\w$.])class[ \t]+([A-Za-z_$][\w$]*)/g
@@ -1176,6 +1179,15 @@ function complexityHits(context: FileContext): Hit[] {
       hits.push(hit('complexity', span.startLine, 'long-function'))
     }
     if (span.nesting > DEEP_NESTING) hits.push(hit('complexity', span.startLine, 'deep-nesting'))
+  }
+
+  // A type switch is where a language with no union types states its type algebra:
+  // `switch b := i.(type)` with a dozen cases is a decision table, and every other
+  // rule sees only a short function with flat code.
+  if (!context.isTestFile) {
+    for (const match of matches(code, TYPE_SWITCH)) {
+      hits.push(hit('abstraction', lineAt(context.newlines, match.index), 'type-switch'))
+    }
   }
 
   // A function that returns a function: behaviour configured by closure. It is how

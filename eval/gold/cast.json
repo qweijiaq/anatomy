@@ -1,0 +1,27 @@
+{
+  "repo": "https://github.com/spf13/cast",
+  "ref": "d8e892d16caba3fc13f781dcf4b3f4dd8976999c",
+  "sha": "d8e892d16caba3fc13f781dcf4b3f4dd8976999c",
+  "provisional": false,
+  "note": "sha 是标注当日该仓库默认分支的真实提交；区间对着这个提交的源码逐行量过。",
+  "points": [
+    {
+      "path": "basic.go",
+      "startLine": 17,
+      "endLine": 60,
+      "why": "先 indirect 解除指针与接口包裹，再用一次 type switch 覆盖全部基本类型，避免为每种类型写一个分支函数"
+    },
+    {
+      "path": "indirect.go",
+      "startLine": 16,
+      "endLine": 37,
+      "why": "非指针入参时直接返回、不构造 reflect.Value，把反射开销留给真正需要的调用；循环解包同时处理接口套指针"
+    },
+    {
+      "path": "cast.go",
+      "startLine": 22,
+      "endLine": 35,
+      "why": "用泛型约束 Basic 替代一个巨大的 switch，把「结果类型」交给编译器而不是运行时断言"
+    }
+  ]
+}

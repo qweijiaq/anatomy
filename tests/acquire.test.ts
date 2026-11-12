@@ -522,6 +522,24 @@ describe('extractTarSafe rejects archives that escape the destination', () => {
     expect((await lstat(path.join(dest, 'LICENSE'))).isSymbolicLink()).toBe(false)
   })
 
+  it('skips a symlink whose target the archive does not carry, instead of refusing everything', async () => {
+    // `chroma` ships `bin/binaryen-unittests` as a link to a generated binary. The
+    // link is never followed, so nothing outside the archive can enter; refusing the
+    // whole archive over it meant the project could not be analysed at all.
+    const dir = await tempDir()
+    const archive = path.join(dir, 'generated.tar')
+    await writeFile(
+      archive,
+      tar([file('safe/ok.txt', 'ok\n'), symlink('bin/missing', 'generated/wasm.js')]),
+    )
+    const dest = await tempDir()
+
+    await extractTarSafe(archive, dest)
+
+    expect(await readFile(path.join(dest, 'safe/ok.txt'), 'utf8')).toBe('ok\n')
+    expect(await readdir(path.join(dest, 'bin')).catch(() => [])).toEqual([])
+  })
+
   it('refuses a symlink to a path outside the archive', async () => {
     const dir = await tempDir()
     const archive = path.join(dir, 'escape.tar')
