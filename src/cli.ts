@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+import { realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 
@@ -24,8 +26,11 @@ Options:
 const require = createRequire(import.meta.url)
 
 export function readVersion(): string {
-  const pkg = require('../package.json') as { version?: string }
-  return pkg.version ?? '0.0.0'
+  const pkg = require('../package.json') as { version?: unknown }
+  if (typeof pkg.version !== 'string' || pkg.version === '') {
+    throw new Error('package.json has no "version" field')
+  }
+  return pkg.version
 }
 
 export async function runCli(
@@ -62,12 +67,26 @@ export async function runCli(
   }
 }
 
-const isDirectRun =
-  process.argv[1] !== undefined &&
-  pathToFileURL(process.argv[1]).href === import.meta.url
+function isDirectRun(): boolean {
+  const entry = process.argv[1]
+  if (entry === undefined) return false
+  try {
+    // Resolve symlinks so `node_modules/.bin/ana` matches the real module URL.
+    return pathToFileURL(realpathSync(entry)).href === import.meta.url
+  } catch {
+    return false
+  }
+}
 
-if (isDirectRun) {
-  void runCli(process.argv.slice(2)).then((code) => {
-    process.exitCode = code
-  })
+if (isDirectRun()) {
+  void runCli(process.argv.slice(2))
+    .then((code) => {
+      process.exitCode = code
+    })
+    .catch((err: unknown) => {
+      process.stderr.write(
+        `ana: ${err instanceof Error ? err.message : String(err)}\n`,
+      )
+      process.exitCode = 1
+    })
 }
