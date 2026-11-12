@@ -51,6 +51,7 @@ export class ScopeLimitError extends Error {
 const REASON_ORDER: readonly ScopeExclusionReason[] = [
   'gitignore',
   'vendored',
+  'vcs',
   'generated',
   'minified',
   'lockfile',
@@ -70,7 +71,9 @@ const DIRECTORY_REASONS: ReadonlyMap<string, ScopeExclusionReason> = new Map([
   ['third_party', 'vendored'],
   ['node_modules', 'vendored'],
   ['.venv', 'vendored'],
-  ['.git', 'vendored'],
+  // Reported as its own reason: calling `.git` vendored tells the reader the
+  // project contains third-party code it does not.
+  ['.git', 'vcs'],
   ['dist', 'generated'],
   ['build', 'generated'],
   ['target', 'generated'],

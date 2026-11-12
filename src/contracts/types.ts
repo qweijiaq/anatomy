@@ -7,6 +7,9 @@
 
 export type ScopeExclusionReason =
   | 'gitignore'
+  /** Version-control bookkeeping (`.git`): never analysed, and never the
+   * project's own code either, so it must not be reported as vendored. */
+  | 'vcs'
   | 'vendored'
   | 'generated'
   | 'minified'

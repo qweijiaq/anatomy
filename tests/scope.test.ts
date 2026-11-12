@@ -124,6 +124,25 @@ describe('selectScope on the fixture repository', () => {
     expect(reasonCount(scope, 'large-fixture')).toBe(1)
   })
 
+  it('reports version-control bookkeeping as its own reason, not as vendored code', async () => {
+    // A checkout always has `.git`, and the report header prints these counts
+    // verbatim: calling it vendored tells the reader the project contains
+    // third-party code it does not.
+    const withGit = temporaryDir('ana-scope-git-')
+    cpSync(fixtureRoot, withGit, { recursive: true })
+    mkdirSync(path.join(withGit, '.git'), { recursive: true })
+    writeFileSync(path.join(withGit, '.git', 'HEAD'), 'ref: refs/heads/main\n')
+    mkdirSync(path.join(withGit, 'tests', 'fixtures'), { recursive: true })
+    writeFileSync(path.join(withGit, 'tests', 'fixtures', 'big.bin'), Buffer.alloc(1_210_000, 'x'))
+
+    const scope = await selectScope(withGit)
+
+    expect(reasonCount(scope, 'vcs')).toBe(1)
+    expect(scope.excluded.find((entry) => entry.reason === 'vendored')?.count ?? 0).toBe(
+      reasonCount(await selectScope(root), 'vendored'),
+    )
+  })
+
   it('counts each excluded file exactly once, under the first matching reason', async () => {
     const scope = await selectScope(root)
     // dist/bundle.min.js is minified, but `dist` is generated and wins.

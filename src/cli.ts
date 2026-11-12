@@ -172,7 +172,9 @@ ${SCAN_USAGE}
  */
 function describeFailure(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
-  return message.replace(/^anatomy: /, '')
+  // Kernel errors already say `anatomy:`; the CLI speaks as `ana`, and a
+  // pipeline that wrapped a kernel failure can nest the prefix twice.
+  return message.replace(/^(?:anatomy: )+/, '')
 }
 
 export async function runCli(
