@@ -1,33 +1,33 @@
 {
   "repo": "https://github.com/sindresorhus/quick-lru",
-  "ref": "main",
-  "sha": "29bdd4c0000000000000000000000000000000000",
-  "provisional": true,
-  "note": "PROVISIONAL LINE NUMBERS: nothing was fetched. The ranges below were written from the shape of index.js and have NOT been pinned against the real checkout; before this gold file is trusted for a score, check out the sha above, open index.js, and move every startLine/endLine onto the code it names. Scores computed against unpinned ranges understate recall and blame the pipeline for it.",
+  "ref": "a2190ebdf8e455b95a7138803d274ff5ed57ebcd",
+  "sha": "a2190ebdf8e455b95a7138803d274ff5ed57ebcd",
+  "provisional": false,
+  "note": "sha 是标注当日该仓库 main 的真实提交。行号区间对着这个提交的 index.js 逐个函数量过，不是估的：改 ref 会让标注失效，重标时要重新量。",
   "points": [
     {
       "path": "index.js",
-      "startLine": 26,
-      "endLine": 36,
-      "why": "用 #cache 与 #oldCache 两个 Map 分层,写满时整层交换而不是逐条淘汰,把淘汰的均摊成本压到常数。"
+      "startLine": 80,
+      "endLine": 103,
+      "why": "用 #cache 与 #oldCache 两个 Map 分层，命中时把键移到新层，写满时整层交换而不是逐条淘汰，把淘汰的均摊成本压到常数。"
     },
     {
       "path": "index.js",
-      "startLine": 38,
-      "endLine": 52,
-      "why": "淘汰只在 #evict 里遍历旧层,并对每个被丢弃的键调用 onEviction,让调用方拿到键与值而不是自己轮询缓存。"
+      "startLine": 205,
+      "endLine": 283,
+      "why": "淘汰集中在 evict 一处，并对每个被丢弃的键调用 onEviction，让调用方拿到键与值而不是自己轮询缓存。"
     },
     {
       "path": "index.js",
-      "startLine": 54,
-      "endLine": 72,
-      "why": "get 命中后先 delete 再 set,借 Map 的插入顺序把常用的键压到最新一端,因此不必自己维护一条链表。"
+      "startLine": 40,
+      "endLine": 57,
+      "why": "给了 maxAge 时在读写路径上就地比对时间戳并删除过期项，不需要定时器，也没有后台清理线程。"
     },
     {
       "path": "index.js",
-      "startLine": 74,
-      "endLine": 90,
-      "why": "给了 maxAge 时在读写处就地比对时间戳并删掉过期项,不需要定时器也不需要后台清理线程。"
+      "startLine": 181,
+      "endLine": 203,
+      "why": "resize 就地重建两层结构并保留最近使用的条目，把容量变更与淘汰策略放在同一处，调用方不需要重建实例。"
     }
   ]
 }

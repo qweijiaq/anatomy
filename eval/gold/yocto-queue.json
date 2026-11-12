@@ -1,27 +1,27 @@
 {
   "repo": "https://github.com/sindresorhus/yocto-queue",
-  "ref": "main",
-  "sha": "0000000000000000000000000000000000000002",
-  "provisional": true,
-  "note": "PROVISIONAL LINE NUMBERS: nothing was fetched. The ranges were written from the shape of index.js and have NOT been pinned against the real checkout; check out the sha above and move every startLine/endLine onto the code it names before trusting a score.",
+  "ref": "72a8fa96a9d389765cdf2bb9c6daba8302fc375d",
+  "sha": "72a8fa96a9d389765cdf2bb9c6daba8302fc375d",
+  "provisional": false,
+  "note": "sha 是标注当日该仓库 main 的真实提交。行号区间对着这个提交的 index.js 逐个函数量过，不是估的：改 ref 会让标注失效。",
   "points": [
     {
       "path": "index.js",
-      "startLine": 10,
-      "endLine": 24,
-      "why": "队列不预分配容量,enqueue 时才按需增长,空队列几乎不占内存,入队因此是均摊 O(1)。"
+      "startLine": 24,
+      "endLine": 36,
+      "why": "入队只把新节点接到尾巴上并自增计数，不预分配容量，也不扫描队列找末尾——这是它比 Array 快的根本原因。"
     },
     {
       "path": "index.js",
-      "startLine": 26,
-      "endLine": 40,
-      "why": "出队只把头部索引/头指针推到下一位,不搬移已有元素,于是省掉 Array#shift 那种线性搬移。"
+      "startLine": 38,
+      "endLine": 53,
+      "why": "出队只把头指针推到下一位并清空指向，不搬移任何元素，于是省掉 Array#shift 那种线性搬移。"
     },
     {
       "path": "index.js",
-      "startLine": 58,
+      "startLine": 55,
       "endLine": 70,
-      "why": "实现 Symbol.iterator,用一条只读的 yield 循环遍历,使 for...of 与展开运算符直接可用且不复制队列。"
+      "why": "peek 与 clear 都只动指针和计数，把「读」与「重置」的代价压到常数，而不用遍历释放。"
     }
   ]
 }

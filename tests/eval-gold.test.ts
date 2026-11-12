@@ -42,8 +42,11 @@ describe('eval/gold', () => {
     if (gold === null) return
 
     expect(gold.repo.trim()).not.toBe('')
-    expect(gold.ref.trim()).not.toBe('')
-    expect(gold.sha.trim()).not.toBe('')
+    // Pinning is the whole contract: a floating ref rescores the same claims
+    // against different code, and a placeholder sha (`0000...`) does not even
+    // resolve, so the eval fails instead of measuring.
+    expect(gold.ref.trim()).toMatch(/^[0-9a-f]{40}$/)
+    expect(gold.sha.trim()).toMatch(/^[0-9a-f]{40}$/)
     expect(gold.points.length).toBeGreaterThanOrEqual(3)
 
     for (const point of gold.points) {
@@ -53,12 +56,16 @@ describe('eval/gold', () => {
     }
   })
 
-  // A range nobody pinned is a guess, and a guess that scores a pipeline is worse
-  // than no score. The file has to say so, in a place a reader sees first.
-  it.each(goldFiles)('%s says its line numbers are provisional', (file) => {
+  // A range nobody measured is a guess, and a guess that scores a pipeline is
+  // worse than no score. Every file therefore states which it is: `provisional`
+  // is a required boolean, and a provisional file must say so where a reader
+  // sees it first.
+  it.each(goldFiles)('%s states whether its line numbers were measured', (file) => {
     const raw = rawOf(file)
 
-    expect(raw['provisional']).toBe(true)
-    expect(String(raw['note'] ?? '')).toContain('PROVISIONAL')
+    expect(typeof raw['provisional'], `${file} has no provisional flag`).toBe('boolean')
+    const note = String(raw['note'] ?? '')
+    expect(note, `${file} has no note`).not.toBe('')
+    if (raw['provisional'] === true) expect(note).toContain('PROVISIONAL')
   })
 })

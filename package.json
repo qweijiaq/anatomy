@@ -14,7 +14,8 @@
     "test": "vitest run",
     "eval": "node --experimental-strip-types eval/run.ts",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
-    "verify": "bash scripts/verify.sh"
+    "verify": "bash scripts/verify.sh",
+    "eval:recall": "node --experimental-strip-types eval/recall-lite.ts"
   },
   "dependencies": {
     "tokenx": "^0.4.1"

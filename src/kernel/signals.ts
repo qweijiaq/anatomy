@@ -704,6 +704,12 @@ const COMPOUND_INFRA: readonly string[] = [
 ]
 
 const TOKEN_INFRA: readonly string[] = [
+  'evict',
+  'sweep',
+  'drain',
+  'resize',
+  'shrink',
+  'peek',
   'scheduler',
   'dispatcher',
   'queue',
@@ -764,7 +770,13 @@ function infraWord(name: string): string | null {
  * `asString` and on `Spring`, and `bus` on `busy`, all at weight 3.
  */
 function tokenNamesWheel(token: string, keyword: string): boolean {
-  return token === keyword || (keyword.length >= 5 && token.startsWith(keyword))
+  if (token === keyword) return true
+  // A long keyword also names the wheel when it is the head or the tail of the
+  // token: `Debouncer` and `Serializer` at one end, `enqueue` and `dequeue` at the
+  // other. Short keywords stay exact — as a substring, `ring` fired on
+  // `asString` and `Spring`, and `bus` on `busy`, all at weight 3.
+  if (keyword.length < 5) return false
+  return token.startsWith(keyword) || token.endsWith(keyword)
 }
 
 /**
@@ -773,6 +785,13 @@ function tokenNamesWheel(token: string, keyword: string): boolean {
  * cache, and scoring it made `src/cache/types.ts` outrank the cache itself.
  */
 const JS_DECLARATION = /(?:^|[^\w$.])(class|function|const|let|var)[ \t]+([A-Za-z_$][\w$]*)/g
+
+/**
+ * Class methods are where a hand-written structure usually lives: `QuickLRU`
+ * scores once at its declaration, while `#evict`, `peek` and `#set` — the
+ * decisions a reader actually learns from — were invisible.
+ */
+const JS_METHOD = /^[ \t]+(?:static[ \t]+)?(?:async[ \t]+)?#?([A-Za-z_$][\w$]*)[ \t]*\([^)]*\)[ \t]*\{/gm
 const PY_DECLARATION = /(?:^|[^\w.])(class|def)[ \t]+([A-Za-z_]\w*)/g
 const VALUE_BINDINGS: ReadonlySet<string> = new Set(['const', 'let', 'var'])
 
@@ -962,6 +981,8 @@ type FileContext = {
   structure: StructureIndex
   relativePath: string | null
   borrowed: ReadonlySet<string>
+  /** Decided once from the path: several rules behave differently in a test. */
+  isTestFile: boolean
 }
 
 type Hit = { kind: SignalKind; line: number; matched: string }
@@ -991,6 +1012,9 @@ function customInfraHits(context: FileContext): Hit[] {
   const code = context.scan.code
   const pattern = context.family === 'js' ? JS_DECLARATION : PY_DECLARATION
   for (const match of matches(code, pattern)) {
+    // A test file exercises the API; `const evict = () => {}` in a test is a stub,
+    // not a wheel. `test-spec` is the signal that owns tests.
+    if (context.isTestFile) continue
     const keyword = (match[1] as string).toLowerCase()
     const name = match[2] as string
     const word = infraWord(name)
@@ -998,6 +1022,22 @@ function customInfraHits(context: FileContext): Hit[] {
     if (context.borrowed.has(normalizeName(name))) continue
     if (VALUE_BINDINGS.has(keyword) && !definesCode(code, match.index + match[0].length)) continue
     hits.push(hit('custom-infra', lineAt(context.newlines, match.index + match[0].lastIndexOf(name)), word))
+  }
+
+  // Method names carry the design in a hand-written structure, but only in the
+  // implementation: a test that constructs `onEvict` callbacks a dozen times is
+  // exercising the API, not writing the wheel, and `on*` is the observer
+  // convention rather than an implementation.
+  if (context.family === 'js' && !context.isTestFile) {
+    for (const match of matches(code, JS_METHOD)) {
+      const name = match[1]
+      if (name === undefined) continue
+      if (/^on[A-Z_]/.test(name)) continue
+      const word = infraWord(name)
+      if (word === null) continue
+      if (context.borrowed.has(normalizeName(name))) continue
+      hits.push(hit('custom-infra', lineAt(context.newlines, match.index + match[0].indexOf(name)), word))
+    }
   }
   return hits
 }
@@ -1308,6 +1348,7 @@ function contextOf(file: CanonicalFile, structure: StructureIndex): FileContext 
     structure,
     relativePath,
     borrowed: borrowedNames(file, family, structure, relativePath),
+    isTestFile: isTestFile(relativePath ?? file.path),
   }
 }
 

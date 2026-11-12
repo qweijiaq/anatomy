@@ -529,6 +529,67 @@ describe('evolution', () => {
 
 // --- test-spec ------------------------------------------------------------
 
+describe('custom-infra in a hand-written structure', () => {
+  it('scores the methods, not only the class that holds them', () => {
+    // The decisions a reader learns from live in the methods: a class scores once
+    // at its declaration, and `#moveToRecent`/`evict`/`resize` used to be invisible.
+    const file = fileOf(
+      [
+        'export default class QuickLRU extends Map {',
+        '  #moveToRecent(key, item) {',
+        '    if (!this.#cache.has(key)) return',
+        '  }',
+        '',
+        '  evict(count = 1) {',
+        '    let removed = 0',
+        '  }',
+        '}',
+      ].join('\n'),
+      'src/cache.js',
+    )
+    // Grouping collapses a short file into one candidate on purpose; what this
+    // proves is that the methods were scanned at all.
+    const words = scoreFile(file, emptyIndex()).flatMap((candidate) => candidate.matched)
+    expect(words).toContain('custom-infra:evict')
+  })
+
+  it('does not score the on* callback convention as an implementation', () => {
+    const file = fileOf(
+      [
+        'class Store {',
+        '  set(key, value) {',
+        '    this.onEvict(key)',
+        '  }',
+        '}',
+      ].join('\n'),
+      'src/store.js',
+    )
+    const words = scoreFile(file, emptyIndex()).flatMap((candidate) => candidate.matched)
+    expect(words).not.toContain('custom-infra:evict')
+  })
+
+  it('does not score methods in a test file', () => {
+    // A test that builds `onEvict` callbacks a dozen times is exercising the API.
+    const file = fileOf(
+      ['it("works", () => {', '  const evict = () => {}', '})'].join('\n'),
+      'test/cache.test.js',
+    )
+    const words = scoreFile(file, emptyIndex()).flatMap((candidate) => candidate.matched)
+    expect(words.some((word) => word.startsWith('custom-infra'))).toBe(false)
+  })
+
+  it('recognises a wheel at the tail of a name too', () => {
+    // `enqueue`/`dequeue` never start with `queue`; matching only the head missed
+    // every queue written as a verb pair.
+    const file = fileOf(
+      ['class Queue {', '  enqueue(value) {', '    this.#size++', '  }', '}'].join('\n'),
+      'src/queue.js',
+    )
+    const words = scoreFile(file, emptyIndex()).flatMap((candidate) => candidate.matched)
+    expect(words).toContain('custom-infra:queue')
+  })
+})
+
 describe('test-spec chained calls', () => {
   it('counts the assertions of an it.each table', () => {
     // Vitest's table form opens two argument lists; only the second holds the
