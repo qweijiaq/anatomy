@@ -16,7 +16,7 @@ import type {
   StructureIndex,
 } from '../src/contracts/types.js'
 import { scanRepo } from '../src/kernel/pipeline.js'
-import { file, gzip, tar } from './helpers/tar.js'
+import { file, gzip, tar, type EntrySpec } from './helpers/tar.js'
 
 const fixtureRepo = fileURLToPath(new URL('./fixtures/scan-repo/', import.meta.url)).replace(
   /\/$/,
@@ -336,6 +336,13 @@ function archiveSource() {
   }
 }
 
+/** A tarball URL whose bytes are `entries`, answered by a fetch stand-in. */
+function archiveOf(entries: EntrySpec[], url = 'https://example.test/wrapped.tar.gz') {
+  const bytes = gzip(tar(entries))
+  const impl = (async () => new Response(bytes, { status: 200 })) as unknown as typeof fetch
+  return { url, deps: { fetchImpl: impl, now: () => new Date('2026-11-12T00:00:00.000Z') } }
+}
+
 /** `anatomy-acquire-*` directories currently in the temp dir: the download scratch space. */
 async function acquireDirs(): Promise<string[]> {
   return (await readdir(tmpdir())).filter((name) => name.startsWith('anatomy-acquire-'))
@@ -453,6 +460,73 @@ describe('scanRepo', () => {
     expect(existsSync(path.join(out, result.runId, 'tree'))).toBe(false)
     // The download scratch directory is not the run: nothing of it survives.
     expect(await acquireDirs()).toStrictEqual(before)
+  })
+
+  it('descends into the single directory a checkout tarball wraps the repository in', async () => {
+    const out = await temporaryDir('ana-scan-')
+    const archive = archiveOf([
+      file('pkg-abc123/package.json', '{"name":"wrapped","main":"src/index.ts"}'),
+      file('pkg-abc123/src/index.ts', 'export class Widget {\n  start(): void {}\n}\n'),
+    ])
+
+    const result = await scanRepo(archive.url, {
+      baseDir: out,
+      deps: archive.deps,
+      keepTree: true,
+    })
+
+    // Scope paths are repository-relative: the archive's wrapper is not part of
+    // the project, so it must not appear in a citation.
+    expect(result.scope.files.map((entry) => entry.path).sort()).toStrictEqual([
+      'package.json',
+      'src/index.ts',
+    ])
+    expect(result.root).toBe(path.join(out, result.runId, 'tree', 'pkg-abc123'))
+    expect(result.scope.root).toBe(result.root)
+    expect(await readFile(path.join(result.root, 'src', 'index.ts'), 'utf8')).toContain('Widget')
+
+    // The chosen root is recorded, so a later reader resolves the same files.
+    const manifest = await artifact<RunManifest>(out, result.runId, 'manifest')
+    expect(manifest.treeRoot).toBe('pkg-abc123')
+  })
+
+  it('keeps the extraction directory as the root when the archive has two top-level entries', async () => {
+    const out = await temporaryDir('ana-scan-')
+    const archive = archiveOf([
+      file('CHANGELOG.md', '# changelog\n'),
+      file('pkg-abc123/src/index.ts', 'export class Widget {\n  start(): void {}\n}\n'),
+    ])
+
+    const result = await scanRepo(archive.url, { baseDir: out, deps: archive.deps })
+
+    // Two top-level entries: no single project to descend into.
+    expect(result.root).toBe(path.join(out, result.runId, 'tree'))
+    expect(result.scope.files.map((entry) => entry.path).sort()).toStrictEqual([
+      'CHANGELOG.md',
+      'pkg-abc123/src/index.ts',
+    ])
+    const manifest = await artifact<RunManifest>(out, result.runId, 'manifest')
+    expect(manifest.treeRoot).toBeUndefined()
+  })
+
+  it('does not unwrap when the caller named a subpath', async () => {
+    const out = await temporaryDir('ana-scan-')
+    const archive = archiveOf([
+      file('pkg-abc123/src/index.ts', 'export class Widget {\n  start(): void {}\n}\n'),
+    ])
+
+    // The subpath was written against the archive as extracted; moving the root
+    // underneath it would point the scope at nothing.
+    const result = await scanRepo(archive.url, {
+      baseDir: out,
+      deps: archive.deps,
+      subpath: 'pkg-abc123/src',
+    })
+
+    expect(result.root).toBe(path.join(out, result.runId, 'tree'))
+    expect(result.scope.files.map((entry) => entry.path)).toStrictEqual([
+      'pkg-abc123/src/index.ts',
+    ])
   })
 
   it('keeps the extracted archive tree readable with keepTree', async () => {

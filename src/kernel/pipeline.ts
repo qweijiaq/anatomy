@@ -20,7 +20,7 @@
  * indexed — never installed, built or run.
  */
 
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -184,7 +184,10 @@ export async function scanRepo(
     let result: PipelineResult | undefined
     let failure: unknown
     try {
-      const root = await materialize(run, source, archive)
+      const root = await materialize(run, source, archive, subpath === '')
+      // Recorded relative to the extraction directory: absolute paths differ per
+      // machine, and this field exists to say *which* subdirectory was analysed.
+      manifest.treeRoot = root === run.treeDir ? undefined : path.relative(run.treeDir, root)
       const scope = await selectScope(root, subpath === '' ? {} : { subpath })
       const profile = await profileRepo(root, scope)
       // One language family per pass, merged afterwards: a polyglot tree has no
@@ -342,6 +345,7 @@ async function materialize(
   run: Run,
   source: ResolvedSource,
   archive: { dir: string; file: string } | null,
+  unwrap = false,
 ): Promise<string> {
   if (archive === null) {
     if (source.path === undefined) {
@@ -351,5 +355,12 @@ async function materialize(
   }
   await rm(run.treeDir, { recursive: true, force: true })
   await extractTarSafe(archive.file, run.treeDir)
-  return run.treeDir
+  if (!unwrap) return run.treeDir
+  // A release tarball wraps the project in `<owner>-<repo>-<sha>/`. Analysing the
+  // wrapper makes every path one level deeper than the reader expects, so the
+  // single directory it contains *is* the project.
+  const entries = await readdir(run.treeDir, { withFileTypes: true })
+  const only = entries[0]
+  if (entries.length !== 1 || only === undefined || !only.isDirectory()) return run.treeDir
+  return path.join(run.treeDir, only.name)
 }

@@ -145,6 +145,7 @@ function brief(doc: ReportDocument): string {
   lines.push('')
 
   lines.push('## 分析口径', '')
+  if (doc.source !== '') lines.push(`- 来源：${proseOr(doc.source, '（未知）')}`)
   lines.push(`- 根目录：${proseOr(doc.analysis.root, '（未知）')}`)
   lines.push(
     `- 规模：${numberText(doc.analysis.totals.files)} 个文件 / ` +

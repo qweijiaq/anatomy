@@ -153,6 +153,7 @@ export async function readReportInput(
   ])
 
   return {
+    source: typeof manifest.source === 'string' ? manifest.source : '',
     problem: synthesis.problem,
     topFive: synthesis.topFive,
     points,

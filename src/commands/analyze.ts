@@ -387,6 +387,7 @@ export async function runAnalyze(
     ].map((entry) => ({ ...entry, reason: redactReason(entry.reason) }))
 
     const report: ReportInput = {
+      source: input,
       problem: synthesis.problem,
       topFive: synthesis.topFive,
       points,

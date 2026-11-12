@@ -84,9 +84,13 @@ const validation: ValidationResult = {
   stats: { evidenceRate: 0.75, droppedEvidence: 2, avgEvidence: 2.5 },
 }
 
+/** The input the run was asked about: what the page's heading names. */
+const source = 'https://github.com/example/anatomy-fixture'
+
 function reportOf(over: Partial<ReportInput> = {}): ReportInput {
   const points = [pointOf()]
   return {
+    source,
     problem: '这个仓库把写路径收敛成单线程队列。',
     topFive: ['用队列把并发写串起来'],
     points,
@@ -107,10 +111,13 @@ const fenceCount = (md: string): number =>
 // --- structure ------------------------------------------------------------
 
 describe('renderMarkdown — one page, in the promised order', () => {
-  it('opens with the repository and puts the brief before the points', () => {
+  it('opens with the source it was asked about and puts the brief before the points', () => {
     const md = renderMarkdown(input)
 
+    // The title is the short name a reader would recognise; the exact source it
+    // was asked about is stated in the 口径 block, where it is evidence.
     expect(md.split('\n')[0]).toBe('# anatomy-fixture')
+    expect(md).toContain(`- 来源：${source}`)
     const problem = md.indexOf('## 这次分析在解决什么')
     const topFive = md.indexOf('## 最值得学的 1 件事')
     const firstPoint = md.indexOf('## 1. 用队列把并发写串起来')

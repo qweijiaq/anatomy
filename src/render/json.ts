@@ -72,6 +72,8 @@ export type ReportNotRendered = { pointId: string; reason: string }
 
 export type ReportDocument = {
   repo: string
+  /** What the caller named as its source; empty when it named nothing. */
+  source: string
   problem: string
   topFive: string[]
   trust: ReportTrust
@@ -235,6 +237,17 @@ export function repoName(root: unknown): string {
   return parts.length === 0 ? '' : (parts[parts.length - 1] as string)
 }
 
+function sourceName(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  // `https://github.com/o/r.git` and `./r/` name the same repository.
+  return value.trim().replace(/[\\/]+$/, '').replace(/\.git$/, '')
+}
+
+function firstNonEmpty(...values: string[]): string {
+  for (const value of values) if (value !== '') return value
+  return ''
+}
+
 function languageList(value: unknown): ReportAnalysis['languages'] {
   if (!isRecord(value)) return []
   const entries: Array<{ language: string; files: number }> = []
@@ -299,7 +312,13 @@ export function buildReport(input: ReportInput): ReportDocument {
   }
 
   return {
-    repo: repoName(scope['root']),
+    // A caller that names its source gets that name; the directory basename is
+    // only a fallback, because `tree` is never what the reader asked about.
+    // A caller that names its source gets a name derived from *that*, because the
+    // directory basename is `tree` for every archive ever analysed. The last path
+    // segment works for a URL, a checkout path and a bare repo name alike.
+    source: sourceName(input['source']),
+    repo: firstNonEmpty(repoName(sourceName(input['source'])), repoName(scope['root'])),
     problem: text(source['problem']),
     topFive: stringList(source['topFive']),
     trust: {

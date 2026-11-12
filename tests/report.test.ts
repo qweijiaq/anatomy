@@ -11,7 +11,7 @@
  * repairs its input would hide a corrupted artifact forever.
  */
 
-import { existsSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 import { afterAll, describe, expect, it } from 'vitest'
@@ -60,7 +60,7 @@ describe('runReport', () => {
 
     const markdown = await runReport(runId, { baseDir })
 
-    expect(markdown.startsWith('# fixture-repo\n')).toBe(true)
+    expect(markdown.startsWith(`# ${path.basename(repo)}\n`)).toBe(true)
     expect(markdown).toContain('## 这次分析的可信度')
     expect(headings(markdown).length).toBe(cited.length)
     for (const point of cited) {
@@ -70,6 +70,29 @@ describe('runReport', () => {
         expect(markdown).toContain(evidence.snippet)
       }
     }
+  })
+
+  it('names the analysed source in the heading, and re-renders it from the artifacts', async () => {
+    const baseDir = temporaryDir('ana-report-out-')
+    // A repository whose directory is called `tree`, the name an extracted
+    // checkout used to end up with as its report title.
+    const repo = path.join(temporaryDir('ana-report-repo-'), 'tree')
+    mkdirSync(path.join(repo, 'src'), { recursive: true })
+    writeFileSync(path.join(repo, 'package.json'), JSON.stringify({ name: 'tree', type: 'module' }))
+    writeFileSync(
+      path.join(repo, 'src', 'index.ts'),
+      'export class Widget {\n  start(): void {}\n}\n',
+    )
+
+    const { runId, reportPath } = await runAnalyze(repo, { baseDir, client: fakeClient() })
+
+    expect(path.basename(repo)).toBe('tree')
+    expect(readFileSync(reportPath, 'utf8').split('\n')[0]).toBe(`# ${path.basename(repo)}`)
+
+    // The heading comes back from the run directory alone, not from the process
+    // that analysed it.
+    const markdown = await runReport(runId, { baseDir })
+    expect(markdown.split('\n')[0]).toBe(`# ${path.basename(repo)}`)
   })
 
   it('keeps the tail that names what the budget cut', async () => {
@@ -112,7 +135,9 @@ describe('runReport', () => {
       out: { write: (chunk: string) => (printed += chunk) },
     })
 
+    // The title is the short name; the full source is stated in the 口径 block.
     expect(markdown.startsWith('# demo\n')).toBe(true)
+    expect(markdown).toContain('- 来源：/tmp/demo')
     expect(printed).toBe(markdown)
   })
 

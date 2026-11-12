@@ -301,8 +301,10 @@ describe('runAnalyze', () => {
     expect(existsSync(result.reportPath)).toBe(true)
 
     const markdown = await readFile(result.reportPath, 'utf8')
-    // The heading is the directory the reader typed, not the whole temp path.
-    expect(markdown.startsWith('# fixture-repo\n')).toBe(true)
+    // The heading is the recognisable name of the input the reader gave; the
+    // exact source is restated in the 口径 block, where it is evidence.
+    expect(markdown.startsWith(`# ${path.basename(repo)}\n`)).toBe(true)
+    expect(markdown).toContain(`- 来源：${repo}`)
     expect(markdown).toContain('## 这次分析的可信度')
     expect(markdown).toMatch(/已取证点占比：\d+\.\d%/)
     expect(markdown).toMatch(/每点平均证据数：\d/)
@@ -390,7 +392,8 @@ describe('runAnalyze', () => {
     const result = await runAnalyze(repo, { baseDir, client, lang: 'en' })
 
     const markdown = await readFile(result.reportPath, 'utf8')
-    expect(markdown.startsWith('# fixture-repo\n')).toBe(true)
+    expect(markdown.startsWith(`# ${path.basename(repo)}\n`)).toBe(true)
+    expect(markdown).toContain(`- 来源：${repo}`)
     expect(markdown.length).toBeGreaterThan(0)
 
     // The switch is a prompt switch: the judge and the synthesiser asked in English.

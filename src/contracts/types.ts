@@ -212,9 +212,17 @@ export type RunManifest = {
   status: 'complete' | 'failed'
   /** When the last artifact landed. Absent for a `failed` run. */
   completedAt?: string
+  /**
+   * The directory the run actually analysed. A release archive wraps the
+   * project in `<owner>-<repo>-<sha>/`, and analysing the wrapper would make
+   * every reported path one level deeper than the reader expects.
+   */
+  treeRoot?: string
 }
 
 export type ReportInput = {
+  /** What the reader asked about: the URL or path handed to `analyze`. */
+  source: string
   problem: string
   topFive: string[]
   points: LearningPoint[]

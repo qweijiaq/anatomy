@@ -261,7 +261,9 @@ export function storedRun(
 
   const manifest = {
     runId,
-    source: 'fixture',
+    // Matches `scope.root` below: a run's source and the directory it analysed
+    // are the same project, and the report names it once.
+    source: '/tmp/demo',
     ref: 'local',
     sha: 'fixture-sha',
     subpath: '',
