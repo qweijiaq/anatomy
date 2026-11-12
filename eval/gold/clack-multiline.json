@@ -1,0 +1,27 @@
+{
+  "repo": "https://github.com/natemoo-re/clack",
+  "ref": "5f274603f0a4c15633d46b1060eb1d4eb69609f2",
+  "sha": "5f274603f0a4c15633d46b1060eb1d4eb69609f2",
+  "provisional": false,
+  "note": "sha 是标注当日该仓库默认分支的真实提交；区间对着这个提交的源码逐个函数量过。",
+  "points": [
+    {
+      "path": "packages/core/src/prompts/multi-line.ts",
+      "startLine": 7,
+      "endLine": 9,
+      "why": "把方向键等控制动作放进一个 Set，判断时用集合查找而不是一串或条件"
+    },
+    {
+      "path": "packages/core/src/prompts/multi-line.ts",
+      "startLine": 10,
+      "endLine": 19,
+      "why": "isControlCharacter 用码点范围判断是否控制字符，避免逐字符维护白名单"
+    },
+    {
+      "path": "packages/core/src/prompts/multi-line.ts",
+      "startLine": 21,
+      "endLine": 160,
+      "why": "多行编辑的状态（光标、行数组、历史）全部挂在类实例上，渲染只读状态，按键只改状态"
+    }
+  ]
+}

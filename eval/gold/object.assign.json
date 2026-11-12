@@ -1,0 +1,27 @@
+{
+  "repo": "https://github.com/ljharb/object.assign",
+  "ref": "7f6aa5ae8a297c4e227648a52fd6e03a564b0f8a",
+  "sha": "7f6aa5ae8a297c4e227648a52fd6e03a564b0f8a",
+  "provisional": false,
+  "note": "sha 是标注当日该仓库默认分支的真实提交；区间对着这个提交的源码逐个函数量过。",
+  "points": [
+    {
+      "path": "implementation.js",
+      "startLine": 1,
+      "endLine": 46,
+      "why": "实现里对每个自有键先做词法序过滤（只取普通可枚举键）再赋值，把规范里的抽象操作逐步落成代码"
+    },
+    {
+      "path": "polyfill.js",
+      "startLine": 1,
+      "endLine": 55,
+      "why": "polyfill 先检测原生实现是否够格（存在且无缺角），不够格才替换，避免覆盖可用的原生"
+    },
+    {
+      "path": "polyfill.js",
+      "startLine": 1,
+      "endLine": 20,
+      "why": "polyfill 先用一组检测判断原生 assign 是否可依赖（存在、函数、无缺角），检测不通过才整体替换"
+    }
+  ]
+}

@@ -200,6 +200,43 @@ export async function resolveSource(
 }
 
 /**
+ * Turn in-archive symlinks into files, or refuse them.
+ *
+ * A link is followed only when it resolves — relative to the link's own directory —
+ * to a regular file that the same archive contains, after normalisation. That is
+ * what a release tarball's `LICENSE -> packages/core/LICENSE` needs. Everything
+ * else stays refused: a link out of the archive, a link to a directory, a chain, a
+ * cycle, or an absolute target. Following links blindly is how an archive escapes
+ * its extraction directory, so the rule stays "the bytes must already be here".
+ */
+function resolveSymlinks(plan: PlannedEntry[], root: string): PlannedEntry[] {
+  const regular = new Set(
+    plan.filter((entry): entry is Extract<PlannedEntry, { kind: 'file' }> => entry.kind === 'file')
+      .map((entry) => entry.name),
+  )
+  const out: PlannedEntry[] = []
+  for (const entry of plan) {
+    if (entry.kind !== 'symlink') {
+      out.push(entry)
+      continue
+    }
+    if (path.isAbsolute(entry.linkTo)) throw unsafe(entry.name, 'symbolic link to an absolute path')
+    const resolved = path.posix.normalize(
+      path.posix.join(path.posix.dirname(entry.name), entry.linkTo),
+    )
+    if (resolved.startsWith('..')) throw unsafe(entry.name, 'symbolic link outside the archive')
+    if (!regular.has(resolved)) throw unsafe(entry.name, 'symbolic link to a file the archive lacks')
+    const source = plan.find(
+      (candidate): candidate is Extract<PlannedEntry, { kind: 'file' }> =>
+        candidate.kind === 'file' && candidate.name === resolved,
+    )
+    if (source === undefined) throw unsafe(entry.name, 'symbolic link to a file the archive lacks')
+    out.push({ kind: 'file', name: entry.name, target: entry.target, data: source.data })
+  }
+  return out
+}
+
+/**
  * Domain tag in front of the tree digest, so it is never mistaken for a digest of
  * something else and an all-excluded tree is not `sha256("")`.
  */
@@ -338,12 +375,24 @@ export function deriveRunId(input: {
 const BLOCK = 512
 /** ustar stores paths over 100 bytes as `prefix` + '/' + `name`. */
 const MAGIC_START = 257
+const LINK_START = 157
+const LINK_LENGTH = 100
 const PREFIX_START = 345
 const PREFIX_LENGTH = 155
 
 type PlannedEntry =
   | { kind: 'file'; name: string; target: string; data: Buffer }
   | { kind: 'dir'; name: string; target: string }
+  /**
+   * A link inside the archive, resolved after every entry is known.
+   *
+   * Repositories really do contain these: `clack` ships `LICENSE -> packages/core/LICENSE`,
+   * which a release tarball stores as a symlink. Refusing the whole archive over it
+   * made a real project unanalysable; creating it blindly is how an archive escapes
+   * its directory. The honest middle is to follow the link only when it points at a
+   * regular file that the archive itself contains.
+   */
+  | { kind: 'symlink'; name: string; target: string; linkTo: string }
 
 const unsafe = (name: string, reason: string): Error =>
   new Error(`anatomy: unsafe entry: ${name} (${reason})`)
@@ -380,6 +429,9 @@ export async function extractTarSafe(
       await mkdir(entry.target, { recursive: true })
       continue
     }
+    // `resolveSymlinks` has already turned every acceptable link into a file, so a
+    // symlink cannot reach this loop; the guard keeps the type honest.
+    if (entry.kind === 'symlink') throw unsafe(entry.name, 'symbolic link')
     await mkdir(path.dirname(entry.target), { recursive: true })
     await writeFile(entry.target, entry.data)
     written += entry.data.length
@@ -550,20 +602,26 @@ function planEntries(bytes: Buffer, root: string): PlannedEntry[] {
       plan.push({ kind: 'file', name, target, data: Buffer.from(body) })
       continue
     }
+    if (typeflag === '2') {
+      // The link target is read now and resolved by `resolveSymlinks` once every
+      // member is known: a link to a file the archive does not contain is a way out.
+      const linkTo = field(header.subarray(LINK_START, LINK_START + LINK_LENGTH))
+      if (linkTo.trim() === '') throw unsafe(name, 'symbolic link with no target')
+      plan.push({ kind: 'symlink', name, target, linkTo })
+      continue
+    }
     const reason =
       typeflag === '1'
         ? 'hard link'
-        : typeflag === '2'
-          ? 'symbolic link'
-          : typeflag === '3' || typeflag === '4'
-            ? 'device node'
-            : typeflag === '6'
-              ? 'fifo'
-              : `unsupported typeflag "${typeflag}"`
+        : typeflag === '3' || typeflag === '4'
+          ? 'device node'
+          : typeflag === '6'
+            ? 'fifo'
+            : `unsupported typeflag "${typeflag}"`
     throw unsafe(name, reason)
   }
 
   if (!terminated) throw new Error('anatomy: truncated tar archive')
   if (plan.length === 0) throw new Error('anatomy: tar archive contains no entries')
-  return plan
+  return resolveSymlinks(plan, root)
 }

@@ -1,0 +1,27 @@
+{
+  "repo": "https://github.com/jshttp/etag",
+  "ref": "5df2cfdd46d310ccf51638d5b702375cbd99da44",
+  "sha": "5df2cfdd46d310ccf51638d5b702375cbd99da44",
+  "provisional": false,
+  "note": "sha 是标注当日该仓库默认分支的真实提交；区间对着这个提交的源码逐个函数量过。",
+  "points": [
+    {
+      "path": "index.js",
+      "startLine": 39,
+      "endLine": 68,
+      "why": "entitytag 把「空实体」单独短路成一个固定 hash，其余按长度与内容哈希拼接，避免对空输入走哈希"
+    },
+    {
+      "path": "index.js",
+      "startLine": 104,
+      "endLine": 124,
+      "why": "isstats 用特征属性判断入参是 fs.Stats 还是普通实体，而不是 instanceof，因此跨模块的 Stats 也能识别"
+    },
+    {
+      "path": "index.js",
+      "startLine": 70,
+      "endLine": 102,
+      "why": "etag 支持弱校验标记与自定义生成函数两个选项，但默认路径不构造额外对象"
+    }
+  ]
+}

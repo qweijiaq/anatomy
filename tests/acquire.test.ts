@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { lstat, mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -494,7 +494,7 @@ const EVIL: Array<{ name: string; reason: RegExp; entries: EntrySpec[] }> = [
   },
   {
     name: 'symlink.tar',
-    reason: /unsafe entry: safe\/link \(symbolic link\)/,
+    reason: /unsafe entry: safe\/link \(symbolic link to an absolute path\)/,
     entries: [file('safe/ok.txt', 'ok\n'), symlink('safe/link', '/etc/passwd')],
   },
 ]
@@ -504,6 +504,34 @@ describe('extractTarSafe rejects archives that escape the destination', () => {
   // temp directory and compared byte for byte, so a test run never writes into
   // `tests/fixtures` (which would dirty `git status` and fail on a read-only
   // checkout) while a drifted helper still shows up as a diff.
+  it('follows a symlink that points at a file the archive contains', async () => {
+    // `clack` ships `LICENSE -> packages/core/LICENSE`, which a release tarball
+    // stores as a symlink. Refusing the archive over it made a real project
+    // unanalysable; following it blindly is how an archive escapes its directory.
+    const dir = await tempDir()
+    const archive = path.join(dir, 'internal.tar')
+    await writeFile(
+      archive,
+      tar([file('packages/core/LICENSE', 'MIT\n'), symlink('LICENSE', 'packages/core/LICENSE')]),
+    )
+    const dest = await tempDir()
+
+    await extractTarSafe(archive, dest)
+
+    expect(await readFile(path.join(dest, 'LICENSE'), 'utf8')).toBe('MIT\n')
+    expect((await lstat(path.join(dest, 'LICENSE'))).isSymbolicLink()).toBe(false)
+  })
+
+  it('refuses a symlink to a path outside the archive', async () => {
+    const dir = await tempDir()
+    const archive = path.join(dir, 'escape.tar')
+    await writeFile(archive, tar([file('safe/ok.txt', 'ok\n'), symlink('safe/out', '../../etc')]))
+    const dest = await tempDir()
+
+    await expect(extractTarSafe(archive, dest)).rejects.toThrow(/symbolic link outside the archive/)
+    expect(await readdir(dest)).toEqual([])
+  })
+
   it('reproduces the committed fixtures byte for byte', async () => {
     const dir = await tempDir()
     for (const evil of EVIL) {
