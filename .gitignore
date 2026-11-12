@@ -4,3 +4,4 @@ dist/
 ANA/
 .ana/runs/*/tree/
 .superpowers/
+.npm-cache/
