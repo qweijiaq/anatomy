@@ -529,6 +529,24 @@ describe('evolution', () => {
 
 // --- test-spec ------------------------------------------------------------
 
+describe('test-spec chained calls', () => {
+  it('counts the assertions of an it.each table', () => {
+    // Vitest's table form opens two argument lists; only the second holds the
+    // callback, and a version that looked at the first lost the whole block.
+    const file = fileOf([
+      "it.each([[1, 2], [3, 4]])('adds', (a, b) => {",
+      '  expect(a + b).toBe(3)',
+      '  expect(a).toBeLessThan(b)',
+      '  expect(b).toBeGreaterThan(a)',
+      '  expect(a * b).toBeGreaterThan(0)',
+      '})',
+    ].join('\n'), 'src/a.test.ts')
+    expect(scoreFile(file, emptyIndex())).toContainEqual(
+      expect.objectContaining({ kind: 'test-spec' }),
+    )
+  })
+})
+
 describe('test-spec', () => {
   const denseTest = (assertions: number): string => {
     const lines = [

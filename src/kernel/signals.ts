@@ -896,6 +896,44 @@ function callParen(code: string, from: number): number {
   return -1
 }
 
+/**
+ * The parenthesis of the call whose arguments contain `at`, or -1.
+ *
+ * Chained calls open one argument list per call: `it.each([[1, 2]])('adds',
+ * () => { … })`. Only the last pair contains the callback, so the scan follows a
+ * chain — a `(` that starts right after a closed `)` continues the same
+ * expression — and gives up as soon as ordinary code appears between them, which
+ * is what separates a chain from a second statement. Using the first `(` the call
+ * name opened made every `it.each` form look like a declaration with no body,
+ * losing the assertion density that makes a test file a specification.
+ */
+function enclosingCallParen(code: string, from: number, at: number): number {
+  let depth = 0
+  let last = -1
+  let closedAt = -1
+  for (let index = from; index < at; index += 1) {
+    const char = code.charAt(index)
+    if (char === '(') {
+      if (depth === 0) {
+        if (closedAt !== -1 && code.slice(closedAt + 1, index).trim() !== '') return -1
+        last = index
+      }
+      depth += 1
+      continue
+    }
+    if (char === ')') {
+      depth -= 1
+      if (depth === 0) {
+        closedAt = index
+        last = -1
+      }
+      continue
+    }
+    if (depth === 0 && (char === ';' || char === '{' || char === '}')) return -1
+  }
+  return depth > 0 ? last : -1
+}
+
 /** Whether the offset `at` still sits inside the argument list opened at `open`. */
 function insideCallArguments(code: string, open: number, at: number): boolean {
   let depth = 0
@@ -1079,7 +1117,7 @@ function testSpecHits(context: FileContext): Hit[] {
     // belongs to somebody else: `it.todo('x')` above a dense `it('y', () => { … })`
     // used to read that test's assertions as its own.
     const open = code.indexOf('{', match.index)
-    const paren = callParen(code, match.index)
+    const paren = enclosingCallParen(code, match.index, open === -1 ? match.index : open)
     if (open !== -1 && paren !== -1 && insideCallArguments(code, paren, open)) {
       const close = matchBrace(code, open)
       count(code.slice(match.index, close === -1 ? code.length : close + 1), line)
