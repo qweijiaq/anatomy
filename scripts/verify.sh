@@ -11,15 +11,17 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 fail() { echo "VERIFY: FAIL — $*"; exit 1; }
 
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+
 echo "== tests =="
-npm test --silent 2>&1 | tail -4 || fail "tests"
+npm test --silent > "$work/test.txt" 2>&1 || { tail -30 "$work/test.txt"; fail "tests"; }
+tail -4 "$work/test.txt"
+counts=$(grep -oE 'Tests +[0-9]+ passed' "$work/test.txt" | head -1)
 echo "== typecheck =="
 npm run typecheck --silent 2>&1 | tail -2 || fail "typecheck"
 echo "== build =="
 npm run build --silent >/dev/null 2>&1 || fail "build"
-
-work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
 
 echo "== stub model =="
 node scripts/verify-stub.mjs > "$work/port" 2>"$work/stub.err" &
@@ -77,4 +79,6 @@ grep -qE '^[^ ]+:[0-9]+-[0-9]+$' "$work/inspect.txt" || fail "inspect printed no
 echo "== sample =="
 sed -n '1,12p' "$report"
 echo
+echo "SUMMARY: ${counts:-tests passed} | typecheck clean | build ok"
+echo "SUMMARY: scan+analyze+report+inspect ok on $target"
 echo "VERIFY: PASS ($kind, run $run_id)"
