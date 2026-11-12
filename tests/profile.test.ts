@@ -300,6 +300,19 @@ describe('profileRepo', () => {
     expect((await profileOf(await repoOf(files))).notes).toEqual([])
   })
 
+  it('reports a notebook-only repository as unanalysed rather than silent', async () => {
+    const files: Record<string, string> = {
+      'notes.ipynb': JSON.stringify({ cells: [], metadata: {}, nbformat: 4 }) + '\n',
+    }
+
+    // A notebook is a language this tool cannot read, not repo furniture. Denying
+    // `ipynb` made a notebook-only repository report no caveat at all, even though
+    // not one line of it was read: silence reads as a clean bill of health.
+    expect((await profileOf(await repoOf(files))).notes).toEqual([
+      'unanalysed language: other (ipynb) (100%)',
+    ])
+  })
+
   it('does not report dotfile config or snapshot files as an unreadable language', async () => {
     const configs = [
       '.eslintrc',

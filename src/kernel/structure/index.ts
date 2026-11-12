@@ -9,6 +9,7 @@
 import type { StructureIndex } from '../../contracts/types.js'
 
 export { indexTypeScript } from './ts.js'
+export { indexPython, type PythonIndexOptions } from './python.js'
 
 /**
  * One index from many.

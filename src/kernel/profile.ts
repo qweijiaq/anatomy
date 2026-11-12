@@ -78,8 +78,11 @@ const UNSUPPORTED_LANGUAGES: ReadonlyMap<string, string> = new Map([
  * saying so would bury the caveat that matters — a tree that is mostly Rust
  * cannot be read at all. Repo furniture that is not source at all is here too: a
  * checksum file (`go.sum`), an INI config (`setup.cfg`), a type stub (`*.pyi`),
- * test snapshots (`*.snap`), a build source map (`*.map`) or a log. Dotfiles are
- * not listed: `extensionKey` reports no extension for them at all, because the
+ * test snapshots (`*.snap`), a build source map (`*.map`) or a log. A notebook is
+ * deliberately *not* here: `.ipynb` holds code this tool cannot read, and denying
+ * it made a notebook-only repository report no caveat at all — the honesty channel
+ * going quiet exactly where it was needed. Dotfiles are not listed:
+ * `extensionKey` reports no extension for them at all, because the
  * `.eslintrc`/`.dockerignore`/`.gitattributes` family has no language to name and
  * listing each one is an endless list that misses the next tool's config.
  */
@@ -103,7 +106,6 @@ const NON_CODE_EXTENSIONS: ReadonlySet<string> = new Set([
   'snap',
   'csv',
   'xml',
-  'ipynb',
   'map',
   'log',
 ])
