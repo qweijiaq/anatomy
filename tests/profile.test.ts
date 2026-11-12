@@ -300,6 +300,36 @@ describe('profileRepo', () => {
     expect((await profileOf(await repoOf(files))).notes).toEqual([])
   })
 
+  it('does not report dotfile config or snapshot files as an unreadable language', async () => {
+    const configs = [
+      '.eslintrc',
+      '.npmrc',
+      '.prettierrc',
+      '.nvmrc',
+      '.gitattributes',
+      '.dockerignore',
+    ]
+    const files: Record<string, string> = { 'src/a.ts': 'export const a = 1\n' }
+    for (const name of configs) files[name] = 'x\n'
+
+    // Six dotfile configs beside one source file is 86% of the scope, and a dotfile
+    // has no extension to name a language with. Reporting `other (dockerignore)` is a
+    // caveat about a file this tool never claimed to read: a false alarm in the
+    // honesty channel, from the exact files a tool repository is full of.
+    expect((await profileOf(await repoOf(files))).notes).toEqual([])
+
+    // Snapshots are test output, not source: 20 of them beside 100 TypeScript files
+    // is 17% of the scope and reads as an unanalysed language without this.
+    const snapshots: Record<string, string> = {}
+    for (let index = 0; index < 20; index += 1) {
+      snapshots[`src/__snapshots__/s${index}.snap`] = 'exports[`x`] = 1\n'
+    }
+    for (let index = 0; index < 100; index += 1) {
+      snapshots[`src/f${index}.ts`] = 'export const x = 1\n'
+    }
+    expect((await profileOf(await repoOf(snapshots))).notes).toEqual([])
+  })
+
   it('stays quiet about an unsupported language below five percent', async () => {
     const files: Record<string, string> = { 'core.rs': 'fn main() {}\n' }
     for (let index = 0; index < 20; index += 1) {

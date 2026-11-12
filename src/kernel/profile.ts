@@ -76,11 +76,12 @@ const UNSUPPORTED_LANGUAGES: ReadonlyMap<string, string> = new Map([
  * Extensions that name a file *format* rather than a language. A repository that
  * is mostly Markdown, JSON or CSS has no unreadable language to warn about, and
  * saying so would bury the caveat that matters — a tree that is mostly Rust
- * cannot be read at all. Dotfile extensions appear here without their dot, so
- * `.gitignore` reads as `gitignore`, and the same goes for repo furniture that is
- * not source at all: a checksum file (`go.sum`), an environment file (`.env`), an
- * INI config (`setup.cfg`) or a type stub (`*.pyi`) is not a language anatomy
- * failed to read.
+ * cannot be read at all. Repo furniture that is not source at all is here too: a
+ * checksum file (`go.sum`), an INI config (`setup.cfg`), a type stub (`*.pyi`),
+ * test snapshots (`*.snap`), a build source map (`*.map`) or a log. Dotfiles are
+ * not listed: `extensionKey` reports no extension for them at all, because the
+ * `.eslintrc`/`.dockerignore`/`.gitattributes` family has no language to name and
+ * listing each one is an endless list that misses the next tool's config.
  */
 const NON_CODE_EXTENSIONS: ReadonlySet<string> = new Set([
   'md',
@@ -91,7 +92,6 @@ const NON_CODE_EXTENSIONS: ReadonlySet<string> = new Set([
   'yml',
   'ini',
   'cfg',
-  'env',
   'sum',
   'css',
   'scss',
@@ -100,8 +100,12 @@ const NON_CODE_EXTENSIONS: ReadonlySet<string> = new Set([
   'svg',
   'lock',
   'pyi',
-  'gitignore',
-  'editorconfig',
+  'snap',
+  'csv',
+  'xml',
+  'ipynb',
+  'map',
+  'log',
 ])
 
 /** A language below this share of kept files is not worth a caveat. */
@@ -175,12 +179,16 @@ function baseName(filePath: string): string {
   return filePath.slice(Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\')) + 1)
 }
 
-/** `README.md` -> `md`, `.gitignore` -> `gitignore`, `Makefile` -> ''. */
+/**
+ * The extension of a path, lowercased, or '' when it has no *extension*: either no
+ * dot at all (`Makefile`), or only a leading one. A dotfile is a name, not a stem
+ * with an extension — `.eslintrc` is not written in a language called `eslintrc`,
+ * and reporting it as one buries the caveat that matters under repo furniture.
+ */
 function extensionKey(filePath: string): string {
   const base = baseName(filePath)
   const dot = base.lastIndexOf('.')
-  if (dot === -1) return ''
-  if (dot === 0) return base.slice(1).toLowerCase()
+  if (dot <= 0) return ''
   return base.slice(dot + 1).toLowerCase()
 }
 

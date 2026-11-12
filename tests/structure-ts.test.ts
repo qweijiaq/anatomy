@@ -140,6 +140,77 @@ describe('indexTypeScript', () => {
     expect(moduleAt(index, 'src/dir/index.ts').path).toBe('src/dir/index.ts')
   })
 
+  it('resolves only to paths that become modules', async () => {
+    const index = await indexOf({
+      'src/a.ts': [
+        "import './styles.css'",
+        "import data from './config.json'",
+        "import type { T } from './types'",
+        "import { gone } from './missing'",
+        '',
+        'export const a = [data, gone] as unknown as T[]',
+        '',
+      ].join('\n'),
+      'src/styles.css': 'a { color: red }\n',
+      'src/config.json': '{"x": 1}\n',
+      'src/types.d.ts': 'export type T = string\n',
+    })
+
+    const imports = moduleAt(index, 'src/a.ts').imports
+    // A real file is not automatically a module: a `resolved` path no `ModuleNode`
+    // backs is a dangling edge every consumer would have to guard against.
+    expect(imports).toContainEqual({ from: 'src/a.ts', specifier: './styles.css', resolved: null })
+    expect(imports).toContainEqual({ from: 'src/a.ts', specifier: './config.json', resolved: null })
+    // A declaration file is a resolution target that is deliberately not indexed.
+    expect(imports).toContainEqual({ from: 'src/a.ts', specifier: './types', resolved: null })
+    expect(index.modules.map((module) => module.path)).toEqual(['src/a.ts'])
+    // None of the above is a broken specifier; only `./missing` names nothing at all.
+    expect(index.unresolved).toBe(1)
+  })
+
+  it('probes the .tsx twin first for a .jsx specifier', async () => {
+    const index = await indexOf({
+      'src/view.tsx': "import { c } from './c.jsx'\nexport const view = c\n",
+      'src/c.ts': 'export const c = 1\n',
+      'src/c.tsx': 'export const c = 2\n',
+    })
+
+    // `./c.jsx` names the React component; probing `c.ts` first would bind the edge
+    // to the plainer twin that happens to share the stem.
+    expect(moduleAt(index, 'src/view.tsx').imports).toEqual([
+      { from: 'src/view.tsx', specifier: './c.jsx', resolved: 'src/c.tsx' },
+    ])
+  })
+
+  it('takes import=require and export-from as edge sources', async () => {
+    const index = await indexOf({
+      'src/legacy.ts': "import y = require('./y')\nexport const uses = y\n",
+      'src/reexport.ts': "export * from './z'\n",
+      'src/y.ts': 'export const y = 1\n',
+      'src/z.ts': 'export const z = 1\n',
+    })
+
+    expect(moduleAt(index, 'src/legacy.ts').imports).toEqual([
+      { from: 'src/legacy.ts', specifier: './y', resolved: 'src/y.ts' },
+    ])
+    expect(moduleAt(index, 'src/reexport.ts').imports).toEqual([
+      { from: 'src/reexport.ts', specifier: './z', resolved: 'src/z.ts' },
+    ])
+    expect(index.unresolved).toBe(0)
+  })
+
+  it('collects the members of a dotted namespace', async () => {
+    const index = await indexOf({
+      'src/ns.ts': 'namespace A.B {\n  export const q = 1\n}\n',
+    })
+
+    // `namespace A.B` nests: the outer body is another `ModuleDeclaration`, so its
+    // members are one level deeper than a plain `namespace A` block.
+    expect(index.symbols.map((symbol) => `${symbol.name}:${symbol.kind}:${symbol.line}`)).toEqual([
+      'q:const:2',
+    ])
+  })
+
   it('indexes only the files the scope kept', async () => {
     const index = await indexOf(resolutionFiles())
     const paths = index.modules.map((module) => module.path)
@@ -213,6 +284,11 @@ describe('mergeIndexes', () => {
     symbols: [{ name: 'x', kind: 'const', path: target, line: 1 }],
     unresolved,
     notes,
+  })
+
+  it('merges nothing into an empty index', () => {
+    // The fold's identity: no indexes is an index with nothing in it, not undefined.
+    expect(mergeIndexes([])).toEqual({ modules: [], symbols: [], unresolved: 0, notes: [] })
   })
 
   it('concatenates, dedupes and sums', () => {

@@ -9,11 +9,13 @@
  *    on repositories it cannot build, and a single broken file would take the whole
  *    run's structure with it. The parser alone works on code that does not compile,
  *    and its recovery is what keeps a broken file's imports readable.
- * 2. A `resolved` edge is a claim that a file exists. Resolution is hand-rolled
- *    against the *scope's* file set rather than the filesystem, so an edge can only
- *    ever point at something the reader can actually be shown; anything else is
- *    `resolved: null`. A package specifier is not a failure, so only a broken
- *    relative import increments `unresolved`.
+ * 2. A `resolved` edge is a claim that an indexed module exists. Resolution is
+ *    hand-rolled against the *scope's* file set rather than the filesystem, and the
+ *    hit must be a path this pass emitted a `ModuleNode` for — a `.css`, `.json` or
+ *    `.d.ts` target resolves to `null` — so an edge can only ever point at something
+ *    the reader can actually be shown. A package specifier is not a failure, and
+ *    neither is a non-module target, so only a broken relative import increments
+ *    `unresolved`.
  */
 
 import { readFile } from 'node:fs/promises'
@@ -74,7 +76,12 @@ function candidatesFor(base: string): string[] {
   const esm = /\.(?:js|jsx)$/.exec(base)
   if (esm !== null) {
     const stem = base.slice(0, esm.index)
-    candidates.push(`${stem}.ts`, `${stem}.tsx`, `${stem}.d.ts`)
+    // The twin follows the specifier's own kind: `./c.jsx` names a React component,
+    // so `c.tsx` is the likelier target, and probing `c.ts` first would bind the edge
+    // to the plainer file that happens to share the stem.
+    const twins = esm[0] === '.jsx' ? ['.tsx', '.ts'] : ['.ts', '.tsx']
+    for (const extension of twins) candidates.push(`${stem}${extension}`)
+    candidates.push(`${stem}.d.ts`)
   }
   for (const extension of PROBE_EXTENSIONS) candidates.push(`${base}${extension}`)
   for (const extension of PROBE_EXTENSIONS) candidates.push(`${base}/index${extension}`)
@@ -196,8 +203,12 @@ function collectDeclaration(
       for (const name of names) pushSymbol(symbols, name, 'const', filePath, line)
     }
   } else if (ts.isModuleDeclaration(statement) && statement.body !== undefined) {
+    // `namespace A.B { … }` nests: the outer body is another `ModuleDeclaration`, so
+    // recursing only on a `ModuleBlock` would drop every member of a dotted name.
     if (ts.isModuleBlock(statement.body)) {
       collectNamespaceMembers(statement.body.statements, sourceFile, filePath, symbols)
+    } else if (ts.isModuleDeclaration(statement.body)) {
+      collectDeclaration(statement.body, sourceFile, filePath, symbols)
     }
   }
 }
@@ -283,13 +294,25 @@ export async function indexTypeScript(root: string, scope: Scope): Promise<Struc
       collectDeclaration(statement, sourceFile, file.path, symbols)
     }
 
-    for (const edge of imports) {
-      if (!isRelativeSpecifier(edge.specifier)) continue
-      edge.resolved = resolveRelativeSpecifier(edge.specifier, file.path, kept)
-      if (edge.resolved === null) unresolved += 1
-    }
-
     modules.push({ path: file.path, imports })
+  }
+
+  // Edges are resolved once every module is known, because a `resolved` path is a
+  // promise that a node exists: a `.css`, `.json` or `.d.ts` target is a real kept
+  // file but never a `ModuleNode`, and an edge pointing at one is exactly the dangling
+  // edge every consumer would otherwise have to guard against. A hit on such a file is
+  // not a broken specifier, so it stays out of the `unresolved` tally.
+  const emitted = new Set(modules.map((module) => module.path))
+  for (const module of modules) {
+    for (const edge of module.imports) {
+      if (!isRelativeSpecifier(edge.specifier)) continue
+      const target = resolveRelativeSpecifier(edge.specifier, module.path, kept)
+      if (target === null) {
+        unresolved += 1
+      } else if (emitted.has(target)) {
+        edge.resolved = target
+      }
+    }
   }
 
   if (parseErrors > 0) notes.push(`parse errors in ${parseErrors} files`)
