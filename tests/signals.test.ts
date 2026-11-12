@@ -711,6 +711,29 @@ describe('a decision comment that explains the next declaration', () => {
   })
 })
 
+describe('a value declared on a later line', () => {
+  it('counts a multi-line arrow function as code', () => {
+    // `const replaceClose = (` … `) => …`: the arrow opens on a later line, and the
+    // first version only looked at the declaration's own line. Every such helper was
+    // invisible — the whole of colorette scored nothing.
+    const file = fileOf(
+      ['const replaceRing = (', '  index,', '  string', ') => index + string', ''].join('\n'),
+      'src/a.js',
+    )
+    const words = scoreFile(file, emptyIndex()).flatMap((candidate) => candidate.matched)
+    expect(words).toContain('custom-infra:ring')
+  })
+
+  it('does not count a multi-line boolean as code', () => {
+    const file = fileOf(
+      ['export const isRingSupported =', '  !isDisabled && isCI', ''].join('\n'),
+      'src/a.js',
+    )
+    const words = scoreFile(file, emptyIndex()).flatMap((candidate) => candidate.matched)
+    expect(words).not.toContain('custom-infra:ring')
+  })
+})
+
 describe('a function named after a standard algorithm', () => {
   it('scores lowerBound as a design choice', () => {
     // The name says "I implemented the standard binary search", which is a decision

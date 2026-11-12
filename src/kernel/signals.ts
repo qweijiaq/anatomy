@@ -936,15 +936,37 @@ const VALUE_BINDINGS: ReadonlySet<string> = new Set(['const', 'let', 'var'])
  * are calls into somebody else's implementation, which is the difference between
  * writing a cache and using one.
  */
+/**
+ * What may follow a line break after `=` and still mean "this declares code".
+ *
+ * An arrow, a function, an object or a parenthesised parameter list. A bare
+ * identifier, a `!` or a `[` is a value: every multi-line arrow *and* every
+ * multi-line expression used to be treated alike, which made the whole of
+ * colorette — short arrow helpers over a boolean flag — score nothing at all.
+ */
+const MULTILINE_CODE =
+  /^(?:[\s]*\([\s\S]*?\)\s*(?::[^=]*)?=>|[\s]*(?:async\s+)?function\b|[\s]*\{|[\s]*[A-Za-z_$][\w$]*\s*=>)/
+
 const CODE_INITIALIZER = /^\s*(?:async\s+)?(?:function\b|class\b|\{|\(|[A-Za-z_$][\w$]*\s*=>)/
 
 function definesCode(code: string, from: number): boolean {
-  const rest = code.slice(from, Math.min(code.length, from + 400))
-  const lineEnd = rest.indexOf('\n')
-  const window = lineEnd === -1 ? rest : rest.slice(0, lineEnd)
-  const equals = window.indexOf('=')
+  // A long signature can push the `=>` past this window; see the fallback below.
+  const rest = code.slice(from, Math.min(code.length, from + 1200))
+  const equals = rest.indexOf('=')
   if (equals === -1) return false
-  return CODE_INITIALIZER.test(window.slice(equals + 1))
+  const runEnd = rest.indexOf('\n', equals)
+  const ownLine = rest.slice(equals + 1, runEnd === -1 ? rest.length : runEnd)
+  // Same line: `const cache = new Map()`, `const q = () => {}`.
+  if (CODE_INITIALIZER.test(ownLine)) return true
+  // A value that opens on a later line. `const name = (` … `) => …` is a function;
+  // `export const flag =` followed by `!disabled && …` is a value. Only the first
+  // continuation character decides, and the two shapes are then unambiguous.
+  //
+  // Read from a *fresh* slice: `rest` may already be clipped at 1200 characters, and
+  // `.slice()` past the end silently yields `''`, which read as "not code".
+  const value = code.slice(from + equals + 1, Math.min(code.length, from + equals + 2600))
+  const after = value.replace(/^[ \t]*\r?\n/, '')
+  return MULTILINE_CODE.test(after.slice(0, 200))
 }
 
 /**
