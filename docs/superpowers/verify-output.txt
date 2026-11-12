@@ -1,7 +1,7 @@
 == tests ==
       Tests  610 passed (610)
-   Start at  07:38:11
-   Duration  4.74s (transform 1.49s, setup 0ms, collect 10.77s, tests 12.14s, environment 4ms, prepare 2.66s)
+   Start at  07:43:47
+   Duration  3.53s (transform 931ms, setup 0ms, collect 5.99s, tests 9.32s, environment 3ms, prepare 1.42s)
 
 == typecheck ==
 == build ==
@@ -9,7 +9,7 @@
 == scan (github) ==
 run 62c3ec65279b  13 files, 2606 lines  nothing excluded
 index.js:105  5  custom-infra
-index.js:137  5  custom-infra
+index.js:120  5  custom-infra
 == analyze (github) ==
 == report (tree deleted) ==
 == inspect ==

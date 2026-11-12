@@ -529,6 +529,47 @@ function maxBraceDepth(code: string, from: number, to: number): number {
  * `f()`, `(a) =>`, and `f(): void` all count; `if (...)`, `else`, and `class A`
  * do not.
  */
+/**
+ * The header with embedded brace groups removed.
+ *
+ * `function f(x, options = {})` has braces inside its parameter list. The body scan
+ * steps over them (they are a default value, not a body), leaving them in the header
+ * text — and a header that does not end in `)` is not recognised as a function by
+ * `isFunctionHeader`. Removing them restores the shape the check expects.
+ */
+/**
+ * The last brace at nesting level zero that is not inside an argument group.
+ *
+ * `function f(x, o = {}) {` has two braces: the default value's and the body's. Only
+ * the argument group's brace may be stepped over, so a header boundary must look past
+ * it — otherwise the header becomes `) ` and `isFunctionHeader` rejects a real
+ * function.
+ */
+function lastStructuralBrace(text: string, which: '{' | '}'): number {
+  let depth = 0
+  let last = -1
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text.charAt(index)
+    if (char === '(' || char === '[') depth += 1
+    else if (char === ')' || char === ']') {
+      if (depth > 0) depth -= 1
+    } else if (char === which && depth === 0) last = index
+  }
+  return last
+}
+
+function withoutBraceGroups(header: string): string {
+  let out = ''
+  let depth = 0
+  for (const char of header) {
+    if (char === '{') depth += 1
+    else if (char === '}') {
+      if (depth > 0) depth -= 1
+    } else if (depth === 0) out += char
+  }
+  return out
+}
+
 function isFunctionHeader(header: string): boolean {
   let text = header.trimEnd()
   if (text.length === 0) return false
@@ -593,17 +634,23 @@ function genericFunctionSpans(code: string, newlines: readonly number[]): Functi
   return spans
 }
 
+
 function jsFunctionSpans(code: string, newlines: readonly number[]): FunctionSpan[] {
   const spans: FunctionSpan[] = []
   let argumentDepth = 0
+  // Where the current balanced argument group started, so its partner can be found
+  // without scanning from the top of the file for every brace.
+  const openStack: number[] = []
   for (let index = 0; index < code.length; index += 1) {
     const char = code.charAt(index)
     if (char === '(' || char === '[') {
+      if (argumentDepth === 0) openStack.push(index)
       argumentDepth += 1
       continue
     }
     if (char === ')' || char === ']') {
       if (argumentDepth > 0) argumentDepth -= 1
+      if (argumentDepth === 0) openStack.pop()
       continue
     }
     if (char !== '{') continue
@@ -612,16 +659,36 @@ function jsFunctionSpans(code: string, newlines: readonly number[]): FunctionSpa
     // `new Response(body, { … })` became "functions" that spanned a whole suite:
     // the statement boundary scan reaches back past statementless lines, so the
     // header absorbed whatever statements came before it.
-    if (argumentDepth !== 0) continue
+    //
+    // A *default parameter* is the exception: `function f(x, options = {}) {`. Its
+    // brace also opens inside the argument list, but it closes again before the body
+    // does — and the body is the first `{` that comes *after* the argument list has
+    // closed. Reading the braces literally hid every function with a defaulted
+    // object parameter, which is most of a modern JavaScript API.
+    if (argumentDepth !== 0) {
+      // A brace group inside an argument list is a value being passed, never a body:
+      // skip it whole. The *enclosing* list may still be open — `f(x, o = {})` has
+      // one group for the parameters — so the next `{` after it is the body.
+      const inner = matchBrace(code, index)
+      index = inner === -1 ? code.length : inner
+      continue
+    }
+    // The header runs back to the end of the previous statement — but a brace group
+    // that was stepped over (a default parameter) is not a boundary: cutting there
+    // would leave `) {` as the header and lose the function entirely. Boundaries are
+    // found on the blanked-brace view instead.
+    const scanView = code.slice(0, index)
     const boundary = Math.max(
-      code.lastIndexOf(';', index - 1),
-      code.lastIndexOf('{', index - 1),
-      code.lastIndexOf('}', index - 1),
+      scanView.lastIndexOf(';'),
+      lastStructuralBrace(scanView, '{'),
+      lastStructuralBrace(scanView, '}'),
     )
     const headerStart = boundary + 1
     if (index - headerStart > 400) continue
+    // A default parameter's braces were skipped above, so they are part of the
+    // header text: `function f(x, o = {})` is one header with two brace groups in it.
     const header = code.slice(headerStart, index)
-    if (!isFunctionHeader(header)) continue
+    if (!isFunctionHeader(withoutBraceGroups(header))) continue
     const close = matchBrace(code, index)
     const bodyEnd = close === -1 ? code.length - 1 : close
     const firstChar = headerStart + (header.length - header.trimStart().length)
