@@ -24,6 +24,16 @@
  *   by identity and joined with the judge's own skip list and the synthesis
  *   outcome. The report tail then states the gaps instead of the page reading as
  *   if nothing was left out.
+ *
+ * Two more follow from what each stage costs:
+ *
+ * - the key is checked and the budget clamped before the scan, so a keyless run
+ *   fails for free instead of after a download and an extraction;
+ * - the judged artifacts are written before synthesis and a synthesis failure is
+ *   caught, because the judge is the stage that spends the budget: a 5xx in the
+ *   last request must not discard a run that already paid for every judgement.
+ *   The synthesiser is offered only the titles the page will render, so the TOP
+ *   list cannot name a claim the body withholds.
  */
 
 import { writeFile } from 'node:fs/promises'
@@ -40,12 +50,17 @@ import { DEFAULT_BUDGET_TOKENS } from '../contracts/types.js'
 import type { AcquireDeps } from '../kernel/acquire.js'
 import { clampBudget, fitCandidates } from '../kernel/budget.js'
 import { scanRepo } from '../kernel/pipeline.js'
-import { renderJson } from '../render/json.js'
+import { normalizeEvidence, renderJson } from '../render/json.js'
 import { renderMarkdown } from '../render/markdown.js'
 import type { Run } from '../store/runs.js'
 import { closeRun } from '../store/runs.js'
 import type { ModelClient } from '../writing/client.js'
-import { createModelClient, DEFAULT_MODEL } from '../writing/client.js'
+import {
+  createModelClient,
+  DEFAULT_MODEL,
+  MissingCredentialsError,
+  resolveApiKey,
+} from '../writing/client.js'
 import { buildJudgePrompt, judgeCandidates } from '../writing/judge.js'
 import type { Lang } from '../writing/prompts/zh.js'
 import { rankPoints } from '../writing/rank.js'
@@ -181,8 +196,43 @@ function locationOf(candidate: { path: string; line: number }): string {
 }
 
 /** What the synthesis stage actually did, in one line the reader can check. */
-function synthesisGap(synthesis: Synthesis, ranked: number): string {
-  return `synthesis chose ${synthesis.topFive.length} of ${ranked} ranked points`
+function synthesisGap(synthesis: Synthesis, renderable: number): string {
+  return `synthesis chose ${synthesis.topFive.length} of ${renderable} rendered points`
+}
+
+/** The gap recorded when the last stage fails after every judge call succeeded. */
+function synthesisFailureReason(error: unknown): string {
+  return `synthesis failed: ${messageOf(error)}`
+}
+
+/**
+ * Fails, before anything is acquired, when no key can be found.
+ *
+ * `createModelClient` resolves the key at `complete` time on purpose — a user who
+ * only runs `ana scan` must not need one — so the client cannot answer this
+ * question when it is built. Left to the client, a keyless run would download
+ * and extract the repository, judge nothing, and only then say the key was
+ * missing: hours of acquisition for an error that is knowable for free. The
+ * check therefore happens here, at the head of the run, and says exactly what
+ * the client would have said at the first request.
+ */
+function requireApiKey(explicit: string | undefined): void {
+  if (resolveApiKey(explicit) === '') throw new MissingCredentialsError()
+}
+
+/**
+ * Whether the page will actually show `point`.
+ *
+ * `render/json.ts` withholds every point whose evidence does not survive its own
+ * normaliser, and lists it in `notRendered` instead. The synthesiser only ever
+ * sees titles, so offering it one the body withholds is precisely how the TOP
+ * list ends up naming a claim the page never shows. The test is the renderer's
+ * normaliser rather than a copy of its rule, so the two cannot drift apart.
+ */
+function willRender(point: LearningPoint): boolean {
+  const evidence = (point as { theirs?: { evidence?: unknown } }).theirs?.evidence
+  if (!Array.isArray(evidence)) return false
+  return evidence.some((item, index) => normalizeEvidence(item, index) !== null)
 }
 
 /**
@@ -309,6 +359,13 @@ export async function runAnalyze(
   const lang: Lang = opts.lang ?? 'zh'
   const model = opts.model ?? DEFAULT_MODEL
 
+  // The two things the run cannot do without are settled before it acquires
+  // anything: a caller with no key, or a model whose budget cannot be clamped,
+  // learns it without paying for a download and an extraction first.
+  if (opts.client === undefined) requireApiKey(opts.apiKey)
+  const client = opts.client ?? createModelClient({ model, apiKey: opts.apiKey })
+  const budget = clampBudget(opts.budget ?? DEFAULT_BUDGET_TOKENS, model)
+
   // Held outside the `try` because the scan can throw *after* it opened the run
   // and extracted the tree, and it never returns a handle when it does. Without
   // one, every failed run leaves a copy of the repository behind.
@@ -333,8 +390,6 @@ export async function runAnalyze(
     // The scan called its own artifacts complete; this run also owes the report.
     await stampStatus(run, 'failed')
 
-    const client = opts.client ?? createModelClient({ model, apiKey: opts.apiKey })
-    const budget = clampBudget(opts.budget ?? DEFAULT_BUDGET_TOKENS, model)
     const fitted = fitCandidates(
       scanned.candidates,
       (candidate) => candidateContext(candidate, lang),
@@ -361,18 +416,18 @@ export async function runAnalyze(
     // Ranked after validation, so a point whose evidence was thrown away cannot
     // take a top-five slot from a point that has some.
     const points = rankPoints(judged.points, fitted.kept)
-    const synthesis = await synthesize({
-      client,
-      profile: scanned.profile,
-      structure: scanned.structure,
-      titles: points.map((point) => point.title),
-      lang,
-    })
+
+    // Only the points the page will actually show. A point kept on zero evidence
+    // is real work for `points.json` and a real gap for `notRendered`, but it is
+    // not a candidate for the TOP list, and the synthesiser must not be told
+    // otherwise.
+    const renderedPoints = points.filter(willRender)
+    const renderedTitles = new Set(renderedPoints.map((point) => point.title))
 
     // Redacted here rather than at each sink: this array is `skipped.json` and the
     // report tail at once, and a reason that reached one of them unredacted would
     // have reached the disk.
-    const skipped: AnalyzeSkip[] = [
+    const judgedSkips: AnalyzeSkip[] = [
       ...cut.map((candidate) => ({
         path: candidate.path,
         line: candidate.line,
@@ -383,13 +438,55 @@ export async function runAnalyze(
         line: entry.line,
         reason: entry.reason,
       })),
-      { path: '', line: 0, reason: synthesisGap(synthesis, points.length) },
     ].map((entry) => ({ ...entry, reason: redactReason(entry.reason) }))
+
+    // The artifacts the judging call paid for land before the one stage that can
+    // still fail. A 5xx at synthesis must not cost a run that already judged
+    // every candidate: without these writes, `ana report` answers "no such run"
+    // for a run whose tokens were all spent.
+    await scanned.run.write('points', points)
+    await scanned.run.write('validation', judged.validation)
+    await scanned.run.write('skipped', judgedSkips)
+
+    let synthesis: Synthesis
+    let synthesisFailure = ''
+    try {
+      synthesis = await synthesize({
+        client,
+        profile: scanned.profile,
+        structure: scanned.structure,
+        titles: renderedPoints.map((point) => point.title),
+        lang,
+      })
+    } catch (error) {
+      // A transport failure here is not worth the run. What the model would have
+      // written is missing; what was verified is not, and the report says so.
+      synthesisFailure = synthesisFailureReason(error)
+      synthesis = { problem: '', topFive: [] }
+    }
+
+    // A second line of defence: `synthesize` only answers with titles it was
+    // offered, but the page must never advertise a claim its body withholds even
+    // if that changes.
+    const topFive = synthesis.topFive.filter((title) => renderedTitles.has(title))
+
+    const skipped: AnalyzeSkip[] = [
+      ...judgedSkips,
+      {
+        path: '',
+        line: 0,
+        reason: redactReason(
+          synthesisFailure === ''
+            ? synthesisGap(synthesis, renderedPoints.length)
+            : synthesisFailure,
+        ),
+      },
+    ]
 
     const report: ReportInput = {
       source: input,
       problem: synthesis.problem,
-      topFive: synthesis.topFive,
+      topFive,
       points,
       validation: judged.validation,
       profile: scanned.profile,
@@ -402,7 +499,9 @@ export async function runAnalyze(
       report,
       points,
       judged.validation,
-      synthesis,
+      // `synthesis.json` is the brief the page was rendered from, not the raw
+      // reply: a title dropped by the filter above is not in the report.
+      { problem: synthesis.problem, topFive },
       skipped,
     )
 

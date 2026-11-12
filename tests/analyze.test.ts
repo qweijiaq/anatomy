@@ -23,9 +23,11 @@ import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 
 import { runAnalyze } from '../src/commands/analyze.js'
 import type { LearningPoint, RunManifest } from '../src/contracts/types.js'
+import type { AcquireDeps } from '../src/kernel/acquire.js'
 import type { Run } from '../src/store/runs.js'
 import {
   MissingCredentialsError,
+  ModelRequestError,
   type ModelClient,
   type ModelRequest,
   type ModelResponse,
@@ -287,6 +289,68 @@ function failingClient(error: Error): ModelClient {
 const runPath = (baseDir: string, runId: string, name: string): string =>
   path.join(baseDir, runId, name)
 
+/** The title of the point the client below submits with no citation at all. */
+const UNSOURCED_TITLE = '没有证据的猜测'
+
+/**
+ * Judges the first candidate with a point that cites nothing.
+ *
+ * The reply is shape-valid, so nothing is retried: the point survives validation
+ * as a downgraded zero-evidence point — present in `points.json`, withheld from
+ * the page as `notRendered`. That is the case the TOP list must not be told
+ * about.
+ */
+function partlyUnsourcedClient(): FakeClient {
+  const inner = fakeClient()
+  let stated = false
+
+  return {
+    calls: inner.calls,
+    async complete(request: ModelRequest): Promise<ModelResponse> {
+      // The synthesis prompt is the one with no `path:line` slice in it.
+      if (stated || citedLines(request.user).length === 0) return inner.complete(request)
+      stated = true
+      inner.calls.push({ system: request.system, user: request.user })
+      return {
+        json: {
+          id: 'fixture-unsourced',
+          title: UNSOURCED_TITLE,
+          kind: 'algorithm',
+          problem: { constraint: '没有约束', stakes: '没有代价' },
+          alternatives: [{ approach: '凭直觉', cost: '说不出为什么' }],
+          theirs: { summary: '我猜是这样。', evidence: [] },
+          mechanism: '猜的。',
+          tradeoffs: [{ cost: '不能核对', whenItHurts: '读者去查的时候' }],
+          confidence: 'medium',
+          unknowns: [],
+          recipe: null,
+        },
+        usage: { in: 1, out: 1 },
+      }
+    },
+  }
+}
+
+/**
+ * Answers every judge call, then fails the synthesis request with a 5xx.
+ *
+ * The judge prompt always carries a slice; the synthesis prompt never does, so
+ * "no cited lines" is the last stage of the run.
+ */
+function failingSynthesisClient(inner: FakeClient): ModelClient {
+  return {
+    async complete(request: ModelRequest): Promise<ModelResponse> {
+      if (citedLines(request.user).length === 0) {
+        throw new ModelRequestError('upstream answered HTTP 500', {
+          retryable: false,
+          status: 500,
+        })
+      }
+      return inner.complete(request)
+    },
+  }
+}
+
 // --- the run --------------------------------------------------------------
 
 describe('runAnalyze', () => {
@@ -401,7 +465,98 @@ describe('runAnalyze', () => {
     expect(client.calls.some((call) => call.system.includes('synthesiser'))).toBe(true)
   })
 
+  it('offers the synthesiser only the titles the page will show', async () => {
+    const baseDir = temporaryDir('ana-analyze-out-')
+    const repo = fixtureRepo()
+    const client = partlyUnsourcedClient()
+
+    const result = await runAnalyze(repo, { baseDir, client })
+
+    const points = await artifact<LearningPoint[]>(baseDir, result.runId, 'points')
+    const unsourced = points.filter((point) => point.theirs.evidence.length === 0)
+    const sourced = points.filter((point) => point.theirs.evidence.length > 0)
+    expect(unsourced.length).toBe(1)
+    expect(sourced.length).toBeGreaterThan(0)
+
+    // The synthesis request never names the claim the body withholds, and does
+    // name every claim it shows.
+    const synthesisCall = client.calls.find((call) => citedLines(call.user).length === 0)
+    if (synthesisCall === undefined) throw new Error('the run never asked for a synthesis')
+    const offered = offeredTitles(synthesisCall.user)
+    expect(offered).not.toContain(UNSOURCED_TITLE)
+    for (const point of sourced) expect(offered).toContain(point.title)
+
+    // And the page's TOP list names only what the page shows.
+    const report = await artifact<{ topFive: string[]; points: Array<{ title: string }> }>(
+      baseDir,
+      result.runId,
+      'report',
+    )
+    const shown = report.points.map((point) => point.title)
+    expect(shown).not.toContain(UNSOURCED_TITLE)
+    expect(report.topFive.length).toBeGreaterThan(0)
+    for (const title of report.topFive) expect(shown).toContain(title)
+  })
+
   // --- failures -------------------------------------------------------------
+
+  it('keeps a judged run when synthesis fails at the last step', async () => {
+    const baseDir = temporaryDir('ana-analyze-out-')
+    const repo = fixtureRepo()
+
+    const result = await runAnalyze(repo, {
+      baseDir,
+      client: failingSynthesisClient(fakeClient()),
+    })
+
+    // Everything the judging call paid for is on disk...
+    const points = await artifact<LearningPoint[]>(baseDir, result.runId, 'points')
+    expect(points.length).toBeGreaterThan(0)
+    expect(existsSync(runPath(baseDir, result.runId, 'validation.json'))).toBe(true)
+    // ...the failure is declared rather than hidden...
+    const skipped = await artifact<Array<{ path: string; line: number; reason: string }>>(
+      baseDir,
+      result.runId,
+      'skipped',
+    )
+    expect(skipped.some((entry) => entry.reason.startsWith('synthesis failed'))).toBe(true)
+    expect(skipped.some((entry) => entry.reason.includes('500'))).toBe(true)
+
+    // ...and the page exists, with no invented brief.
+    const report = await artifact<{ problem: string; topFive: string[] }>(
+      baseDir,
+      result.runId,
+      'report',
+    )
+    expect(report.problem).toBe('')
+    expect(report.topFive).toEqual([])
+    const markdown = await readFile(result.reportPath, 'utf8')
+    expect(markdown).toContain('## 这次分析的可信度')
+    expect(markdown).toContain('这次没有选出最值得学的条目')
+
+    const manifest = await artifact<RunManifest>(baseDir, result.runId, 'manifest')
+    expect(manifest.status).toBe('complete')
+  })
+
+  it('refuses a keyless run before it acquires anything', async () => {
+    const baseDir = temporaryDir('ana-analyze-out-')
+    const fetchImpl = vi.fn()
+    const deps: AcquireDeps = {
+      fetchImpl: fetchImpl as unknown as NonNullable<AcquireDeps['fetchImpl']>,
+    }
+    vi.stubEnv('ANA_API_KEY', '')
+    const failure = await runAnalyze('https://github.com/owner/repo', { baseDir, deps }).catch(
+      (error: unknown) => error,
+    )
+    vi.unstubAllEnvs()
+
+    // The failure is the client's own, raised before a byte was fetched.
+    expect(failure).toBeInstanceOf(MissingCredentialsError)
+    expect((failure as Error).message).toContain('ANA_API_KEY')
+    expect(fetchImpl).not.toHaveBeenCalled()
+    // No run directory either: nothing was opened on the user's behalf.
+    expect(readdirSync(baseDir)).toEqual([])
+  })
 
   it('keeps the stage failure when the cleanup also fails', async () => {
     const baseDir = temporaryDir('ana-analyze-out-')

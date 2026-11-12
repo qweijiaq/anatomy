@@ -162,7 +162,7 @@ function pick(explicit: string | undefined, envName: string, fallback: string): 
  * Read at call time so `createModelClient()` is safe to build before the CLI has
  * parsed its flags, and so a test can stub the environment per call.
  */
-function resolveApiKey(explicit: string | undefined): string {
+export function resolveApiKey(explicit: string | undefined): string {
   const key = typeof explicit === 'string' && explicit !== '' ? explicit : process.env['ANA_API_KEY']
   return typeof key === 'string' ? key.trim() : ''
 }
