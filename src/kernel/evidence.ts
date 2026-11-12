@@ -34,12 +34,88 @@ import type {
   LearningPoint,
   ValidationResult,
 } from '../contracts/types.js'
-import { canonicalizeFile, lineRangeOfSnippet } from './canonicalize.js'
+import { canonicalizeFile } from './canonicalize.js'
 
 /** The unknown every downgraded point carries. Shared so it stays one string. */
 export const NO_VERIFIABLE_EVIDENCE = 'no verifiable evidence'
 
 const CONFIDENCES: readonly string[] = ['high', 'medium', 'low']
+
+/**
+ * What makes a snippet worth being called evidence: length, not punctuation.
+ *
+ * A single character always appears somewhere in a file, so a one-letter
+ * "quote" would certify any point — a fabricated one included. Eight
+ * non-whitespace characters is enough for `n * 2`-sized code fragments to fail
+ * closed, unless they carry a word or a name of three characters or more.
+ */
+const MIN_SNIPPET_NON_WHITESPACE = 8
+/** A word, a name or a number on its own is evidence even when short. */
+const ALNUM_RUN = /[A-Za-z0-9]{3,}/
+
+function isSubstantial(snippet: string): boolean {
+  const dense = snippet.replace(/\s+/g, '')
+  return dense.length >= MIN_SNIPPET_NON_WHITESPACE || ALNUM_RUN.test(dense)
+}
+
+/** 1-based number of the line that holds the character at `index`. */
+function lineOfIndex(text: string, index: number): number {
+  let line = 1
+  for (let at = text.indexOf('\n'); at !== -1 && at < index; at = text.indexOf('\n', at + 1)) {
+    line += 1
+  }
+  return line
+}
+
+/**
+ * The line range a snippet occupies when it matches at `index`.
+ *
+ * A leading newline still belongs to the line it terminates and a trailing one
+ * to the line it ends, so neither lengthens the range. The lines are counted
+ * from the match offset itself rather than from the text before it: a match
+ * that starts mid-line is on that line, not on the next one.
+ */
+function rangeOfMatch(
+  text: string,
+  index: number,
+  snippet: string,
+): { startLine: number; endLine: number } {
+  const matched = text.slice(index, index + snippet.length)
+  let newlines = 0
+  for (let at = matched.indexOf('\n'); at !== -1; at = matched.indexOf('\n', at + 1)) {
+    newlines += 1
+  }
+
+  const startLine = lineOfIndex(text, index)
+  const endLine = matched.endsWith('\n') ? startLine + newlines - 1 : startLine + newlines
+  return { startLine, endLine: Math.max(startLine, endLine) }
+}
+
+/**
+ * The range of the occurrence of `snippet` that covers lines `start..end`.
+ *
+ * Every occurrence is considered, because duplicated code is cited from
+ * wherever the model saw it: taking the first occurrence's range would drop an
+ * honest citation of the second copy. The scan stops once an occurrence begins
+ * after `end`: later ones can only be further away.
+ */
+function rangeOfCitedOccurrence(
+  text: string,
+  snippet: string,
+  start: number,
+  end: number,
+): { accepted: true } | { accepted: false; first: { startLine: number; endLine: number } | null } {
+  let first: { startLine: number; endLine: number } | null = null
+
+  for (let at = text.indexOf(snippet); at !== -1; at = text.indexOf(snippet, at + 1)) {
+    const range = rangeOfMatch(text, at, snippet)
+    if (first === null) first = range
+    if (range.startLine === start && range.endLine === end) return { accepted: true }
+    if (range.startLine > end) break
+  }
+
+  return { accepted: false, first }
+}
 
 /**
  * `runId` plus the first six hex characters of `sha256(path + "\0" + line)`.
@@ -129,7 +205,7 @@ async function verifyEvidence(
   const evidencePath = fields['path']
   const startLine = fields['startLine']
   const endLine = fields['endLine']
-  const snippet = fields['snippet']
+  const rawSnippet = fields['snippet']
 
   if (typeof evidencePath !== 'string' || evidencePath === '') {
     return { ok: false, reason: 'evidence has no path' }
@@ -140,8 +216,21 @@ async function verifyEvidence(
       reason: `evidence ${evidencePath} has non-integer line numbers`,
     }
   }
-  if (typeof snippet !== 'string' || snippet.trim() === '') {
+  if (typeof rawSnippet !== 'string') {
     return { ok: false, reason: `evidence ${evidencePath}:${startLine} has an empty snippet` }
+  }
+
+  // Canonical text never contains `\r`, so a model that echoes a CRLF file back
+  // at us would otherwise lose correct evidence to its own line endings.
+  const snippet = rawSnippet.replace(/\r\n?/g, '\n')
+  if (snippet.trim() === '') {
+    return { ok: false, reason: `evidence ${evidencePath}:${startLine} has an empty snippet` }
+  }
+  if (!isSubstantial(snippet)) {
+    return {
+      ok: false,
+      reason: `evidence ${evidencePath}:${startLine} is too short to be evidence`,
+    }
   }
 
   const start = startLine as number
@@ -172,16 +261,16 @@ async function verifyEvidence(
       return { ok: false, reason: `snippet is not on line ${start} of ${relPath}` }
     }
   } else {
-    const range = lineRangeOfSnippet(file.text, snippet)
-    if (range === null) {
-      return { ok: false, reason: `snippet is not in ${relPath}` }
-    }
-    if (range.startLine !== start || range.endLine !== end) {
+    const cited = rangeOfCitedOccurrence(file.text, snippet, start, end)
+    if (!cited.accepted) {
+      const first = cited.first
       return {
         ok: false,
         reason:
-          `snippet in ${relPath} is on lines ${range.startLine}..${range.endLine}, ` +
-          `not ${start}..${end}`,
+          first === null
+            ? `snippet is not in ${relPath}`
+            : `snippet in ${relPath} is on lines ${first.startLine}..${first.endLine}, ` +
+              `not ${start}..${end}`,
       }
     }
   }
@@ -234,13 +323,16 @@ function checkShape(raw: unknown): Shape {
   }
 
   const confidence = fields['confidence']
-  if (typeof confidence !== 'string' || !CONFIDENCES.includes(confidence)) {
+  const normalized = typeof confidence === 'string' ? confidence.trim().toLowerCase() : ''
+  if (typeof confidence !== 'string' || !CONFIDENCES.includes(normalized)) {
     return {
       reason: `point ${id} has confidence ${String(confidence)}, not high|medium|low`,
     }
   }
 
-  return { point: raw as LearningPoint }
+  // The point is kept with the confidence this module understood, not with the
+  // spelling the model used: `High` must not survive into the report.
+  return { point: { ...(raw as LearningPoint), confidence: normalized as LearningPoint['confidence'] } }
 }
 
 /** `Math.round(x * 100) / 100`, without the usual float noise in between. */
@@ -282,12 +374,21 @@ export async function validatePoints(
     const point = shape.point
     const submitted = point.theirs.evidence as unknown[]
     const verified: Evidence[] = []
+    const verifiedIds = new Set<string>()
     const failures: string[] = []
 
     for (const item of submitted) {
       const verdict = await verifyEvidence(item, lookup, runId)
-      if (verdict.ok) verified.push(verdict.evidence)
-      else failures.push(verdict.reason)
+      if (!verdict.ok) {
+        failures.push(verdict.reason)
+        continue
+      }
+      // Repeating one real snippet five times is not five pieces of evidence,
+      // and untrusted input must not be able to move the trust stats.
+      const evidence = verdict.evidence
+      if (verifiedIds.has(evidence.id)) continue
+      verifiedIds.add(evidence.id)
+      verified.push(evidence)
     }
 
     if (failures.length > 0) {

@@ -44,6 +44,14 @@ writeFileSync(
 writeFileSync(path.join(root, 'crlf.ts'), 'export const crlf = true\r\nexport const also = 1\r\n')
 writeFileSync(path.join(root, 'bom.ts'), '\uFEFFexport const bom = 1\n')
 writeFileSync(path.join(root, 'latin1.ts'), Buffer.from('// café\nconst montant = 1\n', 'latin1'))
+// The same two-line block at lines 3-4 and again at 90-91: duplicated code is
+// exactly what this product reads a repository for.
+const duplicated: string[] = ['export const dup = 1', 'function a() {', '  return n * 2', '}']
+while (duplicated.length < 89) duplicated.push(`const filler${duplicated.length + 1} = 1`)
+duplicated.push('  return n * 2', '}')
+writeFileSync(path.join(root, 'dup.ts'), `${duplicated.join('\n')}\n`)
+// 1 `l1`, 2 `export function f() {`, 3 `  return 1`, 4 `}`, 5 `l5`.
+writeFileSync(path.join(root, 'newline.ts'), 'l1\nexport function f() {\n  return 1\n}\nl5\n')
 writeFileSync(path.join(outside, 'secret.ts'), 'export const secret = 1\n')
 
 afterAll(() => {
@@ -109,6 +117,40 @@ describe('validatePoints — evidence that does not hold up drops the point', ()
 
     expect(result.dropped[0]?.reason).toMatch(/not on line 2 of a\.ts/)
     expect(result.stats.droppedEvidence).toBe(1)
+  })
+
+  it('drops snippets too thin to certify a point', async () => {
+    // Each of these sits on the line it is cited at, so the only thing wrong
+    // with it is that one character cannot be evidence of anything.
+    const thin = [
+      { startLine: 3, snippet: 'n' },
+      { startLine: 2, snippet: '{' },
+      { startLine: 3, snippet: '   ' },
+    ]
+
+    for (const { startLine, snippet } of thin) {
+      const result = await validatePoints(
+        [withEvidence([ev({ startLine, endLine: startLine, snippet })])],
+        root,
+        'run1',
+      )
+
+      expect(result.kept).toEqual([])
+      expect(result.dropped).toHaveLength(1)
+      expect(result.stats.droppedEvidence).toBe(1)
+    }
+  })
+
+  it('drops the off-by-one range a leading newline would suggest', async () => {
+    // `'\n  return 1'` sits on lines 2-3 of newline.ts; 3-4 is the wrong range.
+    const result = await validatePoints(
+      [withEvidence([ev({ path: 'newline.ts', startLine: 3, endLine: 4, snippet: '\n  return 1' })])],
+      root,
+      'run1',
+    )
+
+    expect(result.kept).toEqual([])
+    expect(result.dropped[0]?.reason).toMatch(/lines 2\.\.3/)
   })
 
   it('drops a snippet that is not in the file at all', async () => {
@@ -268,6 +310,46 @@ describe('validatePoints — evidence that holds up is kept', () => {
     expect(result.kept).toHaveLength(1)
   })
 
+  it('accepts the second citation of duplicated code', async () => {
+    const snippet = 'return n * 2\n}'
+    const result = await validatePoints(
+      [
+        withEvidence([
+          ev({ path: 'dup.ts', startLine: 3, endLine: 4, snippet }),
+          ev({ path: 'dup.ts', startLine: 90, endLine: 91, snippet }),
+        ]),
+      ],
+      root,
+      'run1',
+    )
+
+    expect(result.dropped).toEqual([])
+    expect(result.kept[0]?.theirs.evidence.map((item) => item.startLine)).toEqual([3, 90])
+  })
+
+  it('accepts the honest range of a snippet that starts with a newline', async () => {
+    const result = await validatePoints(
+      [withEvidence([ev({ path: 'newline.ts', startLine: 2, endLine: 3, snippet: '\n  return 1' })])],
+      root,
+      'run1',
+    )
+
+    expect(result.kept).toHaveLength(1)
+  })
+
+  it('accepts a snippet the model echoed back with CRLF', async () => {
+    const canonical = 'export const answer = 42\nexport function double(n: number) {'
+    const result = await validatePoints(
+      [withEvidence([ev({ startLine: 1, endLine: 2, snippet: canonical.replace(/\n/g, '\r\n') })])],
+      root,
+      'run1',
+    )
+
+    expect(result.dropped).toEqual([])
+    expect(result.kept).toHaveLength(1)
+    expect(result.kept[0]?.theirs.evidence[0]?.snippet).toBe(canonical)
+  })
+
   it('accepts a file that starts with a BOM', async () => {
     const result = await validatePoints(
       [withEvidence([ev({ path: 'bom.ts', snippet: BOM_SNIPPET })])],
@@ -295,8 +377,9 @@ describe('validatePoints — evidence that holds up is kept', () => {
   })
 
   it('accepts a part of a line as well as a whole line', async () => {
+    // Longer than the minimum length below, and still only part of line 3.
     const result = await validatePoints(
-      [withEvidence([ev({ startLine: 3, endLine: 3, snippet: 'n * 2' })])],
+      [withEvidence([ev({ startLine: 3, endLine: 3, snippet: 'return n * 2' })])],
       root,
       'run1',
     )
@@ -355,6 +438,20 @@ describe('validatePoints — no verifiable evidence downgrades instead of droppi
     expect(result.kept[0]?.unknowns).toEqual(['no verifiable evidence'])
   })
 
+  it('reads a confidence the model capitalized or padded', async () => {
+    for (const confidence of ['High', ' HIGH ']) {
+      const result = await validatePoints(
+        [withEvidence([ev()], { confidence: confidence as LearningPoint['confidence'] })],
+        root,
+        'run1',
+      )
+
+      expect(result.dropped).toEqual([])
+      expect(result.kept).toHaveLength(1)
+      expect(result.kept[0]?.confidence).toBe('high')
+    }
+  })
+
   it('leaves a high-confidence point alone when its evidence verifies', async () => {
     const result = await validatePoints([pt()], root, 'run1')
 
@@ -383,6 +480,14 @@ describe('validatePoints — stats describe what survived', () => {
       droppedEvidence: 1,
       avgEvidence: 1,
     })
+  })
+
+  it('counts one snippet repeated five times once', async () => {
+    const copies = Array.from({ length: 5 }, () => ev())
+    const result = await validatePoints([withEvidence(copies)], root, 'run1')
+
+    expect(result.kept[0]?.theirs.evidence).toHaveLength(1)
+    expect(result.stats).toEqual({ evidenceRate: 1, droppedEvidence: 0, avgEvidence: 1 })
   })
 
   it('rounds the mean to two decimals', async () => {
