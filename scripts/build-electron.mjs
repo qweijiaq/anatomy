@@ -51,4 +51,8 @@ await copyFile(
   path.join(outDir, 'python_index.py'),
 )
 
+// The Dock icon is read from `<app>/build/`; copy it next to the bundle so the path
+// in main.ts holds in a packaged layout too.
+await copyFile(path.join(root, 'build', 'icon-1024.png'), path.join(outDir, 'icon-1024.png'))
+
 process.stdout.write('built dist-electron/main.cjs and dist-electron/preload.cjs\n')
