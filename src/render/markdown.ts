@@ -54,7 +54,7 @@ const CONFIDENCE_LABEL: Record<string, string> = {
  * output only runs through `prose()` into paragraph text, and a code span needs
  * a closing backtick, so a lone one renders literally anyway. Where a backtick
  * really could break structure — titles, snippets, citations — the code already
- * goes through `codeSpan()`/`fence()`, which size their own delimiters to the
+ * goes through `inlineCode()`/`fence()`, which size their own delimiters to the
  * content instead of escaping it.
  */
 function prose(value: unknown): string {
@@ -324,6 +324,114 @@ function tail(doc: ReportDocument): string {
  * numbers and the coverage tail stay, and the missing middle is explained from
  * the profile notes and the skip list rather than left blank.
  */
+
+/**
+ * What the kernel saw, for the reader who wants to look themselves.
+ *
+ * The page above reports what the model could write about and verify. Everything
+ * else the scan produced was, until now, thrown away at the end of the run: twenty
+ * candidates scored and ranked, a module graph with 57 nodes, and the report said
+ * "被预算裁掉的候选：12 个" without naming one. That is a strange place to spend
+ * the effort and then discard it — the ranking is deterministic, costs nothing to
+ * print, and every line of it is checkable by opening the file at that line.
+ *
+ * So this appendix inverts the emphasis: the prose above is what the model gave
+ * you, this is what the machine found. Neither is verification of the other.
+ */
+function appendix(input: ReportInput): string {
+  const sections: string[] = []
+  const candidates = Array.isArray(input.candidates) ? input.candidates : []
+  const structure = input.structure
+
+  if (candidates.length > 0) {
+    const sorted = [...candidates].sort(
+      (a, b) => b.score - a.score || a.path.localeCompare(b.path) || a.line - b.line,
+    )
+    const shown = sorted.slice(0, APPENDIX_CANDIDATES)
+
+    sections.push('## 值得自己去看的位置')
+    sections.push('')
+    sections.push(
+      `扫描共给出 ${candidates.length} 个候选点。**分数是规则命中累加，不是质量评分**——` +
+        '它只说明这里同时符合几条启发式，不说明这里一定值得学。',
+    )
+    sections.push('')
+    sections.push('| 位置 | 类型 | 分 | 命中的规则 |')
+    sections.push('| --- | --- | --- | --- |')
+    for (const candidate of shown) {
+      const matched = candidate.matched.map((item) => prose(item)).join('、')
+      sections.push(
+        `| ${inlineCode(`${candidate.path}:${candidate.line}`)} | ${prose(candidate.kind)} | ` +
+          `${candidate.score} | ${matched} |`,
+      )
+    }
+    sections.push('')
+    if (candidates.length > shown.length) {
+      sections.push(`按分数排在后面的 ${candidates.length - shown.length} 个没有列出。`)
+      sections.push('')
+    }
+
+    const byKind = new Map<string, number>()
+    for (const candidate of candidates) {
+      byKind.set(candidate.kind, (byKind.get(candidate.kind) ?? 0) + 1)
+    }
+    const distribution = [...byKind.entries()]
+      .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+      .map(([kind, count]) => `${prose(kind)} ${count}`)
+      .join('、')
+    sections.push(`**信号分布**：${distribution}`)
+    sections.push('')
+  }
+
+  if (structure !== undefined && Array.isArray(structure.modules) && structure.modules.length > 0) {
+    const inbound = new Map<string, number>()
+    for (const module of structure.modules) {
+      for (const edge of module.imports) {
+        if (typeof edge.resolved !== 'string' || edge.resolved === '') continue
+        inbound.set(edge.resolved, (inbound.get(edge.resolved) ?? 0) + 1)
+      }
+    }
+    const hubs = [...inbound.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, 8)
+    const leaves = structure.modules.filter((module) => !inbound.has(module.path))
+
+    sections.push('## 这个仓库的形状')
+    sections.push('')
+    sections.push(`- 模块：${structure.modules.length} 个；其中 ${leaves.length} 个没有任何文件导入它`)
+    if (hubs.length > 0) {
+      sections.push(
+        `- 被依赖最多：${hubs.map(([name, count]) => `${inlineCode(name)} (${count})`).join('、')}`,
+      )
+    }
+    if (structure.unresolved > 0) {
+      sections.push(`- 未解析的导入：${structure.unresolved} 条（多半是外部依赖或路径别名）`)
+    }
+    const entryPoints = input.profile.entryPoints
+    if (entryPoints.length > 0) {
+      sections.push(`- 入口：${entryPoints.map((item) => inlineCode(item)).join('、')}`)
+    }
+    const manifests = input.profile.manifests
+    if (manifests.length > 0) {
+      sections.push(`- 清单文件：${manifests.map((item) => inlineCode(item)).join('、')}`)
+    }
+    sections.push(
+      `- 测试 / CI / 文档：${input.profile.hasTests ? '有' : '无'} / ` +
+        `${input.profile.hasCi ? '有' : '无'} / ${input.profile.hasDocs ? '有' : '无'}`,
+    )
+    sections.push('')
+    sections.push(
+      '这些数字来自结构索引，没有经过模型。它们只说明代码长什么样，不说明写得好不好。',
+    )
+    sections.push('')
+  }
+
+  return sections.join('\n')
+}
+
+/** How many candidates the appendix prints. Enough to browse, few enough to read. */
+const APPENDIX_CANDIDATES = 20
+
 export function renderMarkdown(input: ReportInput): string {
   const doc = buildReport(input)
   const sections: string[] = [`# ${proseOr(doc.repo, '未知仓库')}`, brief(doc)]
@@ -334,6 +442,8 @@ export function renderMarkdown(input: ReportInput): string {
     doc.points.forEach((point, index) => sections.push(pointSection(point, index + 1)))
   }
 
+  const extra = appendix(input)
+  if (extra !== '') sections.push(extra)
   sections.push(tail(doc))
   return `${sections.join('\n\n')}\n`
 }

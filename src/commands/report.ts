@@ -28,10 +28,12 @@
 import path from 'node:path'
 
 import type {
+  Candidate,
   LearningPoint,
   Profile,
   ReportInput,
   Scope,
+  StructureIndex,
   ValidationResult,
 } from '../contracts/types.js'
 import { DEFAULT_RUNS_DIR } from '../kernel/pipeline.js'
@@ -152,6 +154,14 @@ export async function readReportInput(
     requireArtifact<Scope>(baseDir, runId, 'scope'),
   ])
 
+  // Read, not required: these feed the appendix, and a run written before the
+  // appendix existed must still render. A missing artifact drops one section; a
+  // `requireArtifact` here would make every old run unreadable.
+  const [candidates, structure] = await Promise.all([
+    readRunArtifact<Candidate[]>(baseDir, runId, 'candidates'),
+    readRunArtifact<StructureIndex>(baseDir, runId, 'structure'),
+  ])
+
   return {
     source: typeof manifest.source === 'string' ? manifest.source : '',
     problem: synthesis.problem,
@@ -161,6 +171,8 @@ export async function readReportInput(
     profile,
     scope,
     skipped: skipLinesFrom(skipped),
+    ...(candidates === null ? {} : { candidates }),
+    ...(structure === null ? {} : { structure }),
   }
 }
 

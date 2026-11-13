@@ -541,6 +541,8 @@ export async function runAnalyze(
       profile: scanned.profile,
       scope: scanned.scope,
       skipped: skipLines(skipped, cut.length, budget),
+      candidates: scanned.candidates,
+      structure: scanned.structure,
     }
 
     const reportPath = await persist(

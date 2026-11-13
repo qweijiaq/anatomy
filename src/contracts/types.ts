@@ -262,6 +262,14 @@ export type ReportInput = {
   profile: Profile
   scope: Scope
   skipped: string[]
+  /**
+   * What the kernel saw, for the appendix.
+   *
+   * Optional because a report can be re-rendered from a run directory written
+   * before these were stored: the section is dropped rather than the run refused.
+   */
+  candidates?: Candidate[]
+  structure?: StructureIndex
 }
 
 // --- defaults (spec §5, §7.2, R9) ----------------------------------------

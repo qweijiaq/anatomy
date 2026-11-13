@@ -9,11 +9,13 @@
 import { describe, expect, it } from 'vitest'
 
 import type {
+  Candidate,
   Evidence,
   LearningPoint,
   Profile,
   ReportInput,
   Scope,
+  StructureIndex,
   ValidationResult,
 } from '../src/contracts/types.js'
 import { renderJson } from '../src/render/json.js'
@@ -589,3 +591,79 @@ describe('renderMarkdown — the heading counts what is listed', () => {
   })
 })
 
+
+describe('renderMarkdown — the appendix', () => {
+  const candidates: Candidate[] = [
+    {
+      id: 'a',
+      path: 'lib/auth.mjs',
+      line: 24,
+      kind: 'security',
+      score: 3,
+      matched: ['security:constant-time-compare'],
+    },
+    {
+      id: 'b',
+      path: 'lib/store.mjs',
+      line: 368,
+      kind: 'security',
+      score: 7,
+      matched: ['security:allow-list', 'data-integrity:upsert-or-ignore'],
+    },
+  ]
+
+  const structure: StructureIndex = {
+    modules: [
+      { path: 'lib/store.mjs', imports: [] },
+      {
+        path: 'lib/app.mjs',
+        imports: [{ from: 'lib/app.mjs', specifier: './store.mjs', resolved: 'lib/store.mjs' }],
+      },
+    ],
+    symbols: [],
+    unresolved: 2,
+    notes: [],
+  }
+
+  it('lists the candidates the page threw away, highest score first', () => {
+    const md = renderMarkdown(reportOf({ candidates, structure }))
+    expect(md).toContain('## 值得自己去看的位置')
+    insecure(md)
+    // Ranking, not source order: store.mjs:368 (7) before auth.mjs:24 (3).
+    expect(md.indexOf('lib/store.mjs:368')).toBeLessThan(md.indexOf('lib/auth.mjs:24'))
+  })
+
+  it('states that the score is rule hits and not a quality rating', () => {
+    const md = renderMarkdown(reportOf({ candidates, structure }))
+    expect(md).toContain('分数是规则命中累加，不是质量评分')
+    expect(md).toContain('信号分布')
+  })
+
+  it('reports the shape of the graph as counts a reader can act on', () => {
+    const md = renderMarkdown(reportOf({ candidates, structure }))
+    expect(md).toContain('## 这个仓库的形状')
+    expect(md).toContain('模块：2 个')
+    expect(md).toContain('被依赖最多')
+    expect(md).toContain('未解析的导入：2 条')
+  })
+
+  it('drops the whole appendix for a run that predates it, instead of crashing', () => {
+    const md = renderMarkdown(reportOf({}))
+    expect(md).not.toContain('## 值得自己去看的位置')
+    expect(md).not.toContain('## 这个仓库的形状')
+    // The rest of the report is unaffected.
+    expect(md).toContain('## 这次分析在解决什么')
+  })
+
+  it('keeps the appendix before the closing "没看的部分"', () => {
+    const md = renderMarkdown(reportOf({ candidates, structure }))
+    expect(md.indexOf('## 值得自己去看的位置')).toBeLessThan(md.indexOf('## 没看的部分'))
+  })
+})
+
+/** The appendix must not be able to break the page it is appended to. */
+function insecure(md: string): void {
+  expect(md.split('<details>').length - 1).toBe(
+    md.split('</details>').length - 1,
+  )
+}
