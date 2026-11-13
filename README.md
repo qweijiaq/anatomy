@@ -22,6 +22,13 @@ npm install
 npm run verify        # the last line should read VERIFY: PASS
 ```
 
+That is the whole check. It runs the tests, the typecheck, the build, and then the
+CLI end to end against a local stub model — no API key and no network — and it
+cleans up after itself. Nothing else needs to run to know the repository is sound.
+
+Do not use `npm start` or `npm run dev:*` for this: they open a window and never
+exit.
+
 ## Desktop app
 
 ```bash
