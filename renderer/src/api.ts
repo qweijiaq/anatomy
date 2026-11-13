@@ -141,6 +141,7 @@ type AnaBridge = {
   report: {
     read(runId: string): Promise<{ ok: boolean; markdown?: string; message?: string }>
     list(): Promise<{ ok: boolean; runs: ReportSummary[] }>
+    forget(kind: 'run' | 'app', id: string): Promise<{ ok: boolean; message?: string }>
   }
   models: {
     list(): Promise<{ ok: boolean; models?: Array<{ id: string; ownedBy?: string }>; message?: string }>

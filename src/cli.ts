@@ -24,6 +24,7 @@ import {
   ScanUsageError,
   type ScanIo,
 } from './commands/scan.js'
+import { FORGET_USAGE, forget, parseForgetArgs } from './commands/forget.js'
 import {
   INSPECT_APP_USAGE,
   parseInspectAppArgs,
@@ -167,6 +168,7 @@ Commands:
   inspect-app <dir>  Reconstruct a JS/Electron app from shipped artifacts, via REA
   app-report <name>  Re-render the facts report of a reconstructed application
   app-diff <a> <b>   Compare two surveys: what changed on the boundary
+  forget <id>        Delete one stored run (or one survey with --app)
 
 Options:
   --version          Print the version
@@ -286,6 +288,34 @@ export async function runCli(
           return 1
         }
         io.err.write(`ana: ${describeFailure(error)}\n`)
+        return 1
+      }
+    }
+    case 'forget': {
+      if (argv[1] === '--help' || argv[1] === '-h') {
+        io.out.write(`${FORGET_USAGE}\n`)
+        return 0
+      }
+      let parsed
+      try {
+        parsed = parseForgetArgs(argv.slice(1))
+      } catch (error) {
+        io.err.write(`ana: ${(error as Error).message}\n\n${FORGET_USAGE}\n`)
+        return 2
+      }
+      try {
+        const result = await forget(parsed.id, {
+          target: parsed.target,
+          ...(parsed.baseDir === undefined ? {} : { baseDir: parsed.baseDir }),
+        })
+        if ('missing' in result) {
+          io.err.write(`ana: 没有 ${parsed.id}，什么都没删。\n`)
+          return 1
+        }
+        io.out.write(`已删除 ${result.removed}\n`)
+        return 0
+      } catch (error) {
+        io.err.write(`ana: ${(error as Error).message}\n`)
         return 1
       }
     }

@@ -1277,3 +1277,42 @@
   max-width: 420px;
   margin-bottom: var(--space-2);
 }
+
+/* 历史行里的删除。默认几乎不可见——它不是这一行的主要动作，但必须在；
+   进入确认态时变红并显示「真的删？」，因为删除没有撤销。 */
+.history__forget {
+  grid-column: 4;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-align: right;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+
+.history__row:hover .history__forget,
+.history__forget:focus-visible {
+  opacity: 1;
+}
+
+.history__forget:hover {
+  color: var(--error);
+}
+
+.history__forget--armed {
+  opacity: 1;
+  color: var(--error);
+  font-weight: 600;
+}
+
+.history__row {
+  grid-template-columns: minmax(0, 1fr) auto var(--space-5) auto;
+}
+
+.survey__aside {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}

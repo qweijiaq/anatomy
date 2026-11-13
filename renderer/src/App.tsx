@@ -265,6 +265,40 @@ export function App(): React.JSX.Element {
     }
   }, [diffBefore, diffAfter])
 
+  /**
+   * 删除一份存下来的分析。
+   *
+   * 两段式：第一次点把按钮变成「真的删？」，三秒后自己复原。删除没有撤销，而一个
+   * 弹窗要自己画、要抢焦点、要处理 Esc——为一个动作不值得。二次确认同样能拦住误点。
+   */
+  const [forgetting, setForgetting] = useState('')
+
+  const removeStored = useCallback(
+    async (kind: 'run' | 'app', id: string): Promise<void> => {
+      if (forgetting !== id) {
+        setForgetting(id)
+        window.setTimeout(() => setForgetting((current) => (current === id ? '' : current)), 3000)
+        return
+      }
+      setForgetting('')
+      const result = await api().report.forget(kind, id)
+      if (!result.ok) {
+        setError(result.message ?? '删不掉。')
+        return
+      }
+      if (kind === 'run') {
+        void refreshHistory()
+        if (runId === id) {
+          setMarkdown('')
+          setRunId('')
+        }
+      } else {
+        setSurveys((current) => current.filter((item) => item.dirName !== id))
+      }
+    },
+    [forgetting, runId, refreshHistory],
+  )
+
   /** 打开一份旧报告：走和刚跑完完全相同的渲染路径。 */
   const openReport = useCallback(async (id: string): Promise<void> => {
     setError('')
@@ -386,6 +420,8 @@ export function App(): React.JSX.Element {
             }
             surveys={surveys}
             onSelect={setSurveyDir}
+            onForget={(id) => void removeStored('app', id)}
+            forgetting={forgetting}
           />
         ) : markdown === '' ? (
           <section className="intro">
@@ -455,6 +491,26 @@ export function App(): React.JSX.Element {
                         </span>
                         <span className="history__open" aria-hidden="true">
                           →
+                        </span>
+                        <span
+                          className={`history__forget ${forgetting === item.runId ? 'history__forget--armed' : ''}`}
+                          role="button"
+                          tabIndex={0}
+                          onPointerDown={(event) => {
+                            // 行本身是按钮，删除不能在它里面再嵌一个按钮。
+                            event.preventDefault()
+                            event.stopPropagation()
+                            void removeStored('run', item.runId)
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key !== 'Enter') return
+                            event.preventDefault()
+                            event.stopPropagation()
+                            void removeStored('run', item.runId)
+                          }}
+                          title="删掉这份分析"
+                        >
+                          {forgetting === item.runId ? '真的删？' : '×'}
                         </span>
                       </button>
                     </li>

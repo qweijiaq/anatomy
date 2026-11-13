@@ -71,11 +71,16 @@ export function AppSurveyView({
   survey,
   surveys,
   onSelect,
+  onForget,
+  forgetting,
 }: {
   survey: AppSurvey
   /** Every survey on disk; rendered as a picker when there is more than one. */
   surveys: AppSurvey[]
   onSelect: (dirName: string) => void
+  onForget: (dirName: string) => void
+  /** The id whose delete is waiting for a second click, if any. */
+  forgetting: string
 }): React.JSX.Element {
   const partial = survey.surface.semantics !== 'partial' && survey.surface.semantics !== 'complete'
   const bridges = survey.modules.filter((module) => module.kind === 'context-bridge-api')
@@ -106,10 +111,22 @@ export function AppSurveyView({
             {survey.format} · {survey.digest} · 证据 <code className="inline-code">{survey.evidenceId.slice(0, 14)}</code>
           </p>
         </div>
-        <span className="survey__badge">
-          {survey.statistics.relevantFiles} 文件 / {survey.statistics.parsedJavaScriptFiles} 解析 /{' '}
-          {survey.statistics.findings} 条事实
-        </span>
+        <div className="survey__aside">
+          <span className="survey__badge">
+            {survey.statistics.relevantFiles} 文件 / {survey.statistics.parsedJavaScriptFiles} 解析 /{' '}
+            {survey.statistics.findings} 条事实
+          </span>
+          <button
+            className={`btn btn--ghost btn--sm ${
+              forgetting === (survey.dirName ?? '') ? 'btn--danger-ghost' : ''
+            }`}
+            type="button"
+            onClick={() => onForget(survey.dirName ?? '')}
+            title="删掉这份重建结果和它的证据文件"
+          >
+            {forgetting === (survey.dirName ?? '') ? '真的删？' : '删除'}
+          </button>
+        </div>
       </header>
 
       {survey.retried && (

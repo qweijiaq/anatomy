@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url'
 import { activeModelConfig, getSettingsView, readKey, rememberRepo, saveSettings } from './settings.js'
 import { createModelClient, MissingCredentialsError } from '../src/writing/client.js'
 import { runAnalyze } from '../src/commands/analyze.js'
+import { forget } from '../src/commands/forget.js'
 import { NoSuchRunError, runReport } from '../src/commands/report.js'
 import { diffSurveys, isEmptyDiff } from '../src/app/diff.js'
 import { renderAppDiff } from '../src/render/app-diff.js'
@@ -364,6 +365,26 @@ ipcMain.handle('surveys:diff', async (_event, before: unknown, after: unknown) =
     return { ok: true, markdown: `# ${b.name}\n\n两次分析的暴露面没有差异。\n` }
   }
   return { ok: true, markdown: renderAppDiff(diff) }
+})
+
+/**
+ * Deleting one stored analysis from the window.
+ *
+ * Same rule as the CLI: an id, never a path, resolved under a known directory. The
+ * view that shows a row is also the view that can remove it — a history nobody can
+ * prune is a history that becomes a liability.
+ */
+ipcMain.handle('runs:forget', async (_event, kind: unknown, id: unknown) => {
+  if (typeof id !== 'string' || (kind !== 'run' && kind !== 'app')) {
+    return { ok: false, message: '需要 run id 和应用名。' }
+  }
+  try {
+    const result = await forget(id, { target: kind })
+    if ('missing' in result) return { ok: false, message: '这一份已经不在了。' }
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
 })
 
 // --- model discovery --------------------------------------------------------
