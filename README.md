@@ -17,6 +17,9 @@ Takes an open-source repository apart into **design notes backed by line-level e
 
 Source code is public; the scarce thing is judgement — picking the twenty decisions worth studying out of two hundred thousand lines.
 
+**This repository is the project.** Its directory also holds unrelated work
+(`emcr-pipeline`, `github-profile`); nothing outside this tree belongs to anatomy.
+
 ```bash
 npm install
 npm run verify        # the last line should read VERIFY: PASS
@@ -62,7 +65,14 @@ ana inspect-app <dir>            # reconstruct from shipped artefacts: modules, 
 ana app-report <name>            # the facts report for one application
 ana app-diff <a> <b>             # what changed on the boundary between two builds
 ana forget <id> [--app]          # delete one stored analysis
+ana mcp                          # serve the deterministic half over MCP on stdio
 ```
+
+`ana mcp` exposes `anatomy_scan`, `anatomy_report` and `anatomy_evidence` as MCP
+tools — the facts, not the judgement. No model is called and no key is read, so an
+agent that already has a model can take the evidence and do the writing itself. It
+deliberately does **not** expose `analyze`: an MCP server that quietly bills the
+caller's provider is a bad guest.
 
 `inspect-app` needs Node ^22.23.4 || ^24.22.1 || >=26.12.1 and a `rea` it can run
 (`npx rea-agents setup`, or point `ANA_REA` at its `scripts/rea.mjs`). A whole
@@ -127,15 +137,21 @@ eval/           gold set and recall scripts (npm run eval)
 
 ## Known blind spots
 
-29 gold repositories, 90 annotated points, current candidate recall **60%**.
+29 gold repositories, 90 annotated points, current candidate recall **61%**.
 
-Which means four annotated points in ten never become candidates at all, and no model can write about a line it was never shown. The number stays in the repository because that is more useful than hiding it:
+Which means roughly four annotated points in ten never become candidates at all, and no model can write about a line it was never shown. The number stays in the repository because that is more useful than hiding it:
 
 ```bash
 npm run eval:recall
 ```
 
 `docs/superpowers/recall-lite.txt` is a dated snapshot of one such run, per repository — including the previous 46% it improved from.
+
+## Release status
+
+`0.1.0` — the first version whose reports are worth reading. Not on npm: `ana` runs
+from a checkout (`npm run build && node dist/cli.js …`). The MCP server is in this
+version; `publish` is not.
 
 ## What this version is
 
@@ -149,12 +165,14 @@ One unambiguous statement, so nothing is left pending a decision:
   with no model called at all
 - complete reports in Chinese and English, frame and prose alike
 
-Recall is 60% on the tracked gold set, and that is this version's ceiling as well as
-its measurement: four annotated points in ten never become candidates.
+Recall is 61% on the tracked gold set, and that is this version's ceiling as well as
+its measurement: roughly four annotated points in ten never become candidates.
 
 ## Not built yet
 
-- MCP server, `ana publish`.
+- **`ana publish`** — a hosted report. Deliberately not built: the report is
+  evidence-bound, and hosting it invites a reader to treat it as a page rather than
+  a document with citations. Deferred, not rejected.
 - Structure analysis for languages other than TypeScript/JavaScript and Python.
 - **A judgement report for an application without source.** REA reconstructs what
   the code does; inferring why it was designed that way needs a second verifier

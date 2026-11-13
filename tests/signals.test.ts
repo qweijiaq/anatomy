@@ -1418,3 +1418,30 @@ describe('idiom', () => {
     expect(candidates.flatMap((c) => c.matched)).not.toContain('idiom:folded-loop-guard')
   })
 })
+
+describe('idiom — platform semantics', () => {
+  it('sees a weak collection, which is a lifetime decision', () => {
+    const text = [
+      'const cleanups = new WeakMap()',
+      'export function remember(promise, fn) {',
+      '  cleanups.set(promise, fn)',
+      '}',
+      '',
+    ].join('\n')
+    const candidates = scoreFile(fileOf(text), emptyIndex())
+    expect(candidates[0]!.matched).toContain('idiom:weak-collection')
+  })
+
+  it('sees a class that stands on a built-in instead of reimplementing it', () => {
+    const text = ['export class QuickLRU extends Map {', '  get size() { return 0 }', '}', ''].join('\n')
+    // `Map` in the wheel vocabulary already flags the name; this asserts the
+    // inheritance shape fires too, because `extends Map` is the decision.
+    expect(scoreFile(fileOf(text), emptyIndex())[0]!.matched).toContain('idiom:extends-builtin')
+  })
+
+  it('does not fire the inheritance shape on an ordinary class', () => {
+    const text = ['export class Point {', '  x = 0', '}', ''].join('\n')
+    const matched = scoreFile(fileOf(text), emptyIndex()).flatMap((c) => c.matched)
+    expect(matched).not.toContain('idiom:extends-builtin')
+  })
+})

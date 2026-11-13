@@ -1737,6 +1737,17 @@ const IDIOM_PATTERNS: ReadonlyArray<{ label: string; re: RegExp; source?: 'text'
   // The whole implementation is one delegating call. A wrapper library like this is
   // a decision about which substrate to stand on, which is the thing worth learning.
   { label: 'delegates-whole-body', re: /\breturn\s+[A-Za-z_$][\w$]*\s*\([^;]*?=>/g },
+  // A weak collection where a `Map` would do: the keys are owned by someone else,
+  // and holding them here would keep them alive. That is a lifetime decision, not a
+  // micro-optimisation, and it is invisible to every name-based rule.
+  { label: 'weak-collection', re: /\bnew[ \t]+Weak(?:Map|Set)[ \t]*\(/g },
+  // Standing on the platform's implementation instead of writing one: extending
+  // `Map`, `EventEmitter` or a stream class means the semantics — ordering, flow
+  // control, error propagation — are already correct.
+  {
+    label: 'extends-builtin',
+    re: /\bclass[ \t]+[A-Za-z_$][\w$]*[ \t]+extends[ \t]+(?:Map|Set|Array|Promise|Error|EventEmitter|PassThrough|Readable|Writable|Duplex|Transform|Stream)\b/g,
+  },
   // A default derived from another parameter: the recursive call then passes one
   // argument instead of computing four, and there is no second entry point.
   { label: 'derived-default', re: /\(\s*[^()]*\w+\s*=\s*[A-Za-z_$][\w$.]*\s*[,)]/g },

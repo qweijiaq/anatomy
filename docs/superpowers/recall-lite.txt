@@ -3,7 +3,7 @@
 **这份文件是一次运行的记录，不是实时数据。** 生成日期 2026-11-14，命令 `npm run eval:recall`，
 不需要任何模型凭据，全程离线读公开归档。要当前数字就重新跑一次。
 
-`overall candidate recall: 54/90 = 60%`
+`overall candidate recall: 55/90 = 61%`
 
 候选召回是「内核有没有把候选放在金标认为重要的那几行上」，它只是召回的天花板：
 没有候选的地方，模型再强也产不出学习点。
@@ -18,7 +18,7 @@ clack-multiline.json     candidates  59  gold 3  hit 1  recall 33%
 colorette.json           candidates   5  gold 4  hit 1  recall 25%
 debounce-fn.json         candidates   2  gold 4  hit 2  recall 50%
 defu.json                candidates   6  gold 3  hit 2  recall 67%
-delay.json               candidates   2  gold 3  hit 1  recall 33%
+delay.json               candidates   3  gold 3  hit 2  recall 67%
 dequal.json              candidates  28  gold 3  hit 2  recall 67%
 destr.json               candidates   2  gold 3  hit 2  recall 67%
 dlv.json                 candidates   1  gold 3  hit 3  recall 100%
@@ -33,29 +33,28 @@ p-all.json               candidates   2  gold 3  hit 3  recall 100%
 p-debounce.json          candidates  10  gold 3  hit 3  recall 100%
 p-limit.json             candidates   4  gold 3  hit 1  recall 33%
 p-queue.json             candidates 133  gold 3  hit 2  recall 67%
-p-retry.json             candidates  27  gold 3  hit 1  recall 33%
-p-timeout.json           candidates   8  gold 3  hit 2  recall 67%
-quick-lru.json           candidates  23  gold 4  hit 4  recall 100%
+p-retry.json             candidates  28  gold 3  hit 1  recall 33%
+p-timeout.json           candidates   9  gold 3  hit 2  recall 67%
+quick-lru.json           candidates  24  gold 4  hit 4  recall 100%
 slugify.json             candidates   7  gold 3  hit 2  recall 67%
 tealdeer.json            candidates  12  gold 3  hit 1  recall 33%
 totalist.json            candidates   6  gold 3  hit 3  recall 100%
 yocto-queue.json         candidates   7  gold 3  hit 3  recall 100%
 ```
 
-## 这个数字意味着什么
+## 演进
 
-29 个仓库、90 个标注点，其中 54/90 = 60% 被候选覆盖。
+| 版本 | 召回 | 改了什么 |
+|---|---|---|
+| 早期 | 41/90 = 46% | 词表与复杂度规则为主 |
+| 加 security / data-integrity / resilience / idiom | 54/90 = 60% | `dlv`、`p-all` 从零候选到 3/3 |
+| 加 weak-collection 与 extends-builtin | **55/90 = 61%** | `delay` 从 33% 到 67%：`new WeakMap()` 让清理函数的生命周期跟着 key 走，这是判断不到的规则 |
 
-剩下没覆盖的点里，**没有一类是「再加一条正则就能修」的**：
+## 还剩什么
 
-- 短函数里的一处判断（`dlv` 六行、`p-all` 五行），任何基于长度、嵌套、词表的规则都看不见；
-- 需要解析语义而不是匹配形状的情况，意味着换解析器（TS 编译器 API 与 Python `ast` 都已在依赖里）。
+`merge-streams` 仍停在 33%：它的第一个金标点是「继承 PassThroughStream 而不是自己实现可读流」，
+但那是个 50 行的类，被 `idiom` 的「短函数」门槛挡在外面。我试过放宽到任何 `…Stream` 的别名继承，
+**测不出任何收益**，于是撤销了——没有证据的规则只是噪音。
 
-## 上一版快照是 46%（41/90，30 个仓库）
-
-那一版之后做的改动，全部记录在 git log 里：`evolution` 学会读 camelCase 标识符（`legacyPath`
-这类名字里带词但没有词边界的写法）、`complexity` 单独命中时降权、新增 security /
-data-integrity / resilience / idiom 四类信号。其中 idiom 那条是专门为上面「短函数里的一处判断」
-加的，`dlv` 与 `p-all` 因此从 0 到 3/3、3/3。
-
-数字从 46% 到 60%，涨的 13 个点里有 6 个来自 `dlv` / `p-all` / `etag` 这三个曾经零候选的仓库。
+后面要再往上，需要的是能读语义的东西（TS 编译器 API 与 Python `ast` 都已在依赖里），
+不是再加一条正则。

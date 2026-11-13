@@ -17,6 +17,9 @@
 
 源代码是公开的，稀缺的不是代码，是判断力——从二十万行里挑出二十个真正值得学的决定。
 
+**本仓库即项目。** 它所在的工作区里还有无关的 `emcr-pipeline` 与 `github-profile`；
+anatomy 不含这份源码树之外的任何东西。
+
 ```bash
 npm install
 npm run verify        # 末行应为 VERIFY: PASS
@@ -63,7 +66,12 @@ ana inspect-app <dir>            # 从打包产物重建：模块、IPC、contex
 ana app-report <name>            # 单份事实报告
 ana app-diff <a> <b>             # 两份的差异：暴露面变了什么
 ana forget <id> [--app]          # 删掉一份存下来的分析
+ana mcp                          # 把确定性的一半以 MCP 挂在 stdio 上
 ```
+
+`ana mcp` 提供 `anatomy_scan`、`anatomy_report`、`anatomy_evidence` 三个工具——给的是事实，
+不是判断。不调模型、不读 Key，所以已经有模型的一方可以拿证据自己写。**故意不暴露
+`analyze`**：一个会悄悄花掉调用方额度的 MCP 服务是坏客人。
 
 `inspect-app` 需要 Node ^22.23.4 || ^24.22.1 || >=26.12.1 和一个可用的 `rea`
 （`npx rea-agents setup`，或用 `ANA_REA` 指向它的 `scripts/rea.mjs`）。
@@ -128,15 +136,20 @@ eval/           gold 集与召回率脚本（npm run eval）
 
 ## 知道自己会看漏
 
-29 个 gold 仓库、90 个标注点，当前候选召回率 **60%**。
+29 个 gold 仓库、90 个标注点，当前候选召回率 **61%**。
 
-也就是说四成的标注点连候选都没进，模型再强也写不出来。这个数字留在仓库里，比藏起来有用：
+也就是说约四成的标注点连候选都没进，模型再强也写不出来。这个数字留在仓库里，比藏起来有用：
 
 ```bash
 npm run eval:recall
 ```
 
 `docs/superpowers/recall-lite.txt` 是其中一次的带日期快照，逐仓库列出——也包括它从 46% 涨上来的那一版。
+
+## 发布状态
+
+`0.1.0` —— 第一个报告值得读的版本。没有发到 npm：`ana` 从 checkout 跑
+（`npm run build && node dist/cli.js …`）。MCP server 在这一版里，`publish` 不在。
 
 ## 这一版是什么
 
@@ -149,12 +162,13 @@ npm run eval:recall
 - **没有源码**的应用：经 REA 出事实报告与两份差异，全程不调模型
 - 中文与英文的完整报告，骨架和正文都是
 
-召回率在跟踪的 gold 集上是 60%，这既是这一版的实测值，也是它的上限：十个专家标注点里
+召回率在跟踪的 gold 集上是 61%，这既是这一版的实测值，也是它的上限：十个专家标注点里
 有四个连候选都进不去。
 
 ## 未做
 
-- MCP server、`ana publish`。
+- **`ana publish`** —— 托管版报告。故意没做：报告是绑在证据上的，托管出去会诱导读者把它
+  当成一个页面而不是一份带引用的文档。是延后，不是否决。
 - 其他语言的结构分析：目前只认 TS/JS 与 Python。
 - 无源码应用只能出**事实报告**，还没有判断版：从重建图推「为什么这么设计」需要第二个
   校验器（对 `evidence_id` 而不是磁盘字节），没做之前宁可不写。

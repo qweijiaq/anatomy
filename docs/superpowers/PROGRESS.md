@@ -19,7 +19,7 @@ VERIFY: PASS (github, run <runId>)
 
 | 步骤 | 断言 |
 |---|---|
-| `npm test` | 32 个测试文件、709 个测试全过 |
+| `npm test` | 33 个测试文件、719 个测试全过 |
 | `npm run typecheck` | 三套 tsconfig（`tsconfig.json` + `tsconfig.test.json` + `tsconfig.desktop.json`）均无诊断 |
 | `npm run build` | 编译成功，且 `python_index.py` 被复制进 `dist/` |
 | `ana scan <真实仓库>` | 取回 GitHub 归档，输出 `path:line` 形式的候选 |
@@ -75,4 +75,4 @@ node dist/cli.js analyze https://github.com/<owner>/<repo> --top 8
 
 ## 明确未做
 
-MCP server（6 工具与 `submit_points`）与 `ana publish` 不在本次范围内，README 的「Not built yet」列着它们。
+`ana mcp` 在这一版实现：`anatomy_scan` / `anatomy_report` / `anatomy_evidence` 三个工具，stdio JSON-RPC，无依赖、不调模型。`ana publish` 仍未做，README 里写了裁定理由。

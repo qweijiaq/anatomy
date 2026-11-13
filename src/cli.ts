@@ -25,6 +25,7 @@ import {
   type ScanIo,
 } from './commands/scan.js'
 import { FORGET_USAGE, forget, parseForgetArgs } from './commands/forget.js'
+import { serveMcp } from './commands/mcp.js'
 import {
   APP_DIFF_USAGE,
   APP_REPORT_USAGE,
@@ -160,6 +161,15 @@ export type CliIo = {
   err: { write(chunk: string): unknown }
 }
 
+export const MCP_USAGE = `Usage: ana mcp
+
+Serve anatomy's deterministic half over MCP on stdio: anatomy_scan, anatomy_report,
+anatomy_evidence. No model is called and no provider key is read, so an agent that
+already has a model can take the facts and do the judging itself.
+
+The server speaks JSON-RPC 2.0, one message per line. stdout belongs to the
+protocol; diagnostics belong on stderr.`
+
 const USAGE = `Usage: ana <command> [options]
 
 Commands:
@@ -171,6 +181,7 @@ Commands:
   app-report <name>  Re-render the facts report of a reconstructed application
   app-diff <a> <b>   Compare two surveys: what changed on the boundary
   forget <id>        Delete one stored run (or one survey with --app)
+  mcp                Serve the deterministic half over MCP stdio (no model calls)
 
 Options:
   --version          Print the version
@@ -291,6 +302,16 @@ export async function runCli(
         io.err.write(`ana: ${describeFailure(error)}\n`)
         return 1
       }
+    }
+    case 'mcp': {
+      if (argv[1] === '--help' || argv[1] === '-h') {
+        io.out.write(`${MCP_USAGE}\n`)
+        return 0
+      }
+      // Stdout is the protocol channel. Anything that would print to it — usage,
+      // progress, a stray console.log — corrupts the stream, so the server owns it.
+      await serveMcp(process.stdin, process.stdout)
+      return 0
     }
     case 'forget': {
       if (argv[1] === '--help' || argv[1] === '-h') {

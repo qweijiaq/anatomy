@@ -3,7 +3,7 @@
 这个文件不解释产品，只做一件事：把"说完成了"和"能被核对"之间的缺口关掉。每条要求后面是
 **能跑出证据的测试名**或**已提交的文件**，两者都可以独立检查。
 
-运行全部测试：`npm test`（32 个文件 / 709 个测试）。最近的完整机器输出提交在
+运行全部测试：`npm test`（32 个文件 / 719 个测试）。最近的完整机器输出提交在
 `docs/superpowers/verify-output.txt`。
 
 ## 要求 1 — 每个任务走完 实现 → 审查 → 修复 闭环
@@ -16,13 +16,17 @@
 
 ## 要求 2 — `npm test` 全绿
 
-`docs/superpowers/verify-output.txt`：`Tests  709 passed`（该文件是带日期的运行快照，见其首行）。
+`docs/superpowers/verify-output.txt`：`Tests  719 passed`（该文件是带日期的运行快照，见其首行）。
 
 ## 要求 3 — `npm run typecheck` 全绿
 
-`package.json` 的 `typecheck` 脚本同时跑两套配置：`tsc --noEmit`（src）与
-`tsc -p tsconfig.test.json`（src + tests + eval）。任何测试文件里的类型错误都会让它失败——这一条
-本身曾是个缺陷，见 Task 1 的审查记录。
+`package.json` 的 `typecheck` 脚本跑三套配置：`tsc --noEmit`（src）、
+`tsc -p tsconfig.test.json`（src + tests + eval）、`tsc -p tsconfig.desktop.json`
+（electron + renderer）。任何测试或渲染层文件里的类型错误都会让它失败。
+
+这一条本身曾是个更糟的缺陷：`verify.sh` 把它接在 `| tail -2` 之后，而管道的退出码是 `tail` 的，
+所以 tsc 报错时闸门依然打印 `VERIFY: PASS`。现在脚本用 `set -o pipefail` 并显式捕获退出码，
+两个配置各造一次真类型错误都验证过会 FAIL。
 
 ## 要求 4 — `ana analyze` 对真实开源仓库产出带行号证据的中文报告
 

@@ -1,6 +1,6 @@
 {
   "name": "anatomy",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
   "description": "Dissect a repository into evidence-backed design notes: every claim cites file:line and is checked against the bytes on disk",
   "license": "MIT",
