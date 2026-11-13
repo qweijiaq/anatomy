@@ -1240,3 +1240,34 @@
   text-align: right;
   white-space: nowrap;
 }
+
+/* 差异对比的选择条。粘在纸上沿：滚动看差异时，改「前/后」的入口还在。 */
+.diffbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+  margin-bottom: var(--space-4);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.diffbar__label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+/* 两个下拉各占一半，路径和摘要都长得下。 */
+.diffbar .select {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.diffbar__close {
+  flex: none;
+  margin-left: auto;
+}

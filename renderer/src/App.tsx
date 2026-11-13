@@ -22,6 +22,7 @@ import {
   type SettingsView,
 } from './api.js'
 import { AppSurveyView } from './components/AppSurveyView.js'
+import { Select } from './components/Select.js'
 import { ReportView } from './components/ReportView.js'
 import { SettingsPanel } from './components/SettingsPanel.js'
 import { providerOf } from './providers.js'
@@ -60,6 +61,55 @@ function whenText(iso: string): string {
   const days = Math.round(hours / 24)
   if (days < 30) return `${days} 天前`
   return new Date(then).toLocaleDateString('zh-CN')
+}
+
+/**
+ * Which two surveys to compare.
+ *
+ * Backed by the hand-drawn `Select`, for the same reason as everywhere else: the
+ * native popup ignores every token here. Each option carries the build digest,
+ * because two analyses of the same app produced directory names that differ only in
+ * that suffix — without it the list is two identical-looking strings.
+ */
+function DiffBar({
+  surveys,
+  before,
+  after,
+  onBefore,
+  onAfter,
+  onRun,
+  onClose,
+}: {
+  surveys: AppSurvey[]
+  before: string
+  after: string
+  onBefore: (value: string) => void
+  onAfter: (value: string) => void
+  onRun: () => void
+  onClose: () => void
+}): React.JSX.Element {
+  const options = surveys
+    .filter((survey) => (survey.dirName ?? '') !== '')
+    .map((survey) => ({
+      value: survey.dirName as string,
+      label: `${survey.name} · ${survey.digest}`,
+      hint: `${survey.surface.ipcOperations} 通道`,
+    }))
+
+  return (
+    <div className="diffbar">
+      <span className="diffbar__label">前</span>
+      <Select value={before} options={options} onChange={onBefore} placeholder="选一份" />
+      <span className="diffbar__label">后</span>
+      <Select value={after} options={options} onChange={onAfter} placeholder="选一份" />
+      <button className="btn btn--ghost btn--sm" type="button" onClick={onRun}>
+        重新对比
+      </button>
+      <button className="btn btn--ghost btn--sm diffbar__close" type="button" onClick={onClose}>
+        退出对比
+      </button>
+    </div>
+  )
 }
 
 /**
@@ -123,6 +173,10 @@ export function App(): React.JSX.Element {
   // 重建过的应用（走 CLI 的 inspect-app）。界面只读，不触发分析。
   const [surveys, setSurveys] = useState<AppSurvey[]>([])
   const [surveyOpen, setSurveyOpen] = useState(false)
+  // 对比：打开时固定两份，人自己挑，不靠「最新的两份」猜。
+  const [diffOpen, setDiffOpen] = useState(false)
+  const [diffBefore, setDiffBefore] = useState('')
+  const [diffAfter, setDiffAfter] = useState('')
 
   useEffect(() => {
     if (!bridgeAvailable()) return
@@ -161,7 +215,14 @@ export function App(): React.JSX.Element {
     void api()
       .surveys.list()
       .then((result) => {
-        if (result.ok && Array.isArray(result.surveys)) setSurveys(result.surveys)
+        if (result.ok && Array.isArray(result.surveys)) {
+          setSurveys(result.surveys)
+          // 默认：第二份当「前」，第一份当「后」——列表顺序是读盘顺序，不承诺时间，
+          // 所以这只是起点，不是判断。
+          const [newest, previous] = result.surveys
+          setDiffAfter((current) => (current === '' ? (newest?.dirName ?? '') : current))
+          setDiffBefore((current) => (current === '' ? (previous?.dirName ?? '') : current))
+        }
       })
       .catch(() => {
         // A missing directory is not an error: nothing has been reconstructed yet.
@@ -175,12 +236,14 @@ export function App(): React.JSX.Element {
    * 已经是 `readdir` 的顺序，不保证时间，因此显式按 evidenceId 去重后取前两个。
    */
   const openDiff = useCallback(async (): Promise<void> => {
-    const [a, b] = surveys
-    if (a === undefined || b === undefined) return
-    const before = a.dirName ?? ''
-    const after = b.dirName ?? ''
+    const before = diffBefore
+    const after = diffAfter
     if (before === '' || after === '') {
-      setError('这两份 survey 缺少目录信息。')
+      setError('先挑两份 survey。')
+      return
+    }
+    if (before === after) {
+      setError('前后选的是同一份，看不出差异。')
       return
     }
     setError('')
@@ -188,6 +251,7 @@ export function App(): React.JSX.Element {
       const result = await api().surveys.diff(before, after)
       if (result.ok && typeof result.markdown === 'string') {
         setSurveyOpen(false)
+        setDiffOpen(true)
         setMarkdown(result.markdown)
         setRunId('')
         setProgress(null)
@@ -197,7 +261,7 @@ export function App(): React.JSX.Element {
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
     }
-  }, [surveys])
+  }, [diffBefore, diffAfter])
 
   /** 打开一份旧报告：走和刚跑完完全相同的渲染路径。 */
   const openReport = useCallback(async (id: string): Promise<void> => {
@@ -276,8 +340,12 @@ export function App(): React.JSX.Element {
             <button
               className="btn btn--ghost btn--sm"
               type="button"
-              onClick={() => void openDiff()}
-              title="最新两份重建结果的差异"
+              onClick={() => {
+                setDiffOpen(true)
+                setSurveyOpen(false)
+                void openDiff()
+              }}
+              title="挑两份重建结果对比"
             >
               对比
             </button>
@@ -423,6 +491,18 @@ export function App(): React.JSX.Element {
               </div>
             </aside>
             <div className="paper">
+              {diffOpen && <DiffBar
+                surveys={surveys}
+                before={diffBefore}
+                after={diffAfter}
+                onBefore={setDiffBefore}
+                onAfter={setDiffAfter}
+                onRun={() => void openDiff()}
+                onClose={() => {
+                  setDiffOpen(false)
+                  setMarkdown('')
+                }}
+              />}
               <ReportView markdown={markdown} />
             </div>
           </>
