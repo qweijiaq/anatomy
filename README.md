@@ -26,18 +26,21 @@ That is the whole check. It runs the tests, the typecheck, the build, and then t
 CLI end to end against a local stub model — no API key and no network — and it
 cleans up after itself. Nothing else needs to run to know the repository is sound.
 
-Do not use `npm start` or `npm run dev:*` for this: they open a window and never
-exit.
+Do not use `npm run start:desktop` or `npm run dev:*` to verify anything: they open
+a window and never exit.
 
 ## Desktop app
 
 ```bash
-npm run start:desktop          # build the payload and open the window
+npm run start:desktop          # build the payload, then open the window
 
 npm run build:desktop          # payload only (dist-electron + dist-renderer)
 npm run build:bundle           # assemble out/anatomy.app, a 233 MB runtime copy
-npm run clean                 # remove every build artefact
+npm run clean                  # remove every build artefact
 ```
+
+`start:desktop` builds first, so it works from a clean tree. `dev:desktop` does not:
+it expects the payload to exist and a Vite server on 5199.
 
 Paste a repository URL into the window and the analysis runs. The model key is configured inside the app and encrypted on the machine (the renderer never sees it). The provider presets are the same set as reading-notes, including Anthropic's native protocol. Details in [docs/desktop.md](docs/desktop.md).
 
@@ -131,6 +134,23 @@ Which means four annotated points in ten never become candidates at all, and no 
 ```bash
 npm run eval:recall
 ```
+
+`docs/superpowers/recall-lite.txt` is a dated snapshot of one such run, per repository — including the previous 46% it improved from.
+
+## What this version is
+
+One unambiguous statement, so nothing is left pending a decision:
+
+- eight commands, all usable; `npm run verify` is the single gate (703 tests, three
+  tsconfigs, and the CLI end to end against a local stub model)
+- a repository **with** source: design notes where every claim cites a line and is
+  checked against the bytes on disk; anything unverifiable never reaches the page
+- an application **without** source: facts report and a two-build diff through REA,
+  with no model called at all
+- complete reports in Chinese and English, frame and prose alike
+
+Recall is 60% on the tracked gold set, and that is this version's ceiling as well as
+its measurement: four annotated points in ten never become candidates.
 
 ## Not built yet
 

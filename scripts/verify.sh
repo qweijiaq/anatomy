@@ -6,7 +6,12 @@
 # otherwise. The model is a local stand-in, so no provider key is needed and the
 # run is deterministic; every citation in the report is still checked against the
 # bytes on disk by the product's own validator.
-set -u
+# `pipefail` is load-bearing, not decoration: the typecheck gate below pipes into
+# `tail`, and a pipeline's exit status is the *last* command's. Without it a
+# failing `tsc` was reported as a passing step and the script still printed
+# VERIFY: PASS — a gate that cannot fail is worse than no gate, because it is
+# believed.
+set -u -o pipefail
 
 cd "$(dirname "$0")/.." || exit 1
 fail() { echo "VERIFY: FAIL — $*"; exit 1; }
@@ -19,7 +24,13 @@ npm test --silent > "$work/test.txt" 2>&1 || { tail -30 "$work/test.txt"; fail "
 tail -4 "$work/test.txt"
 counts=$(grep -oE 'Tests +[0-9]+ passed' "$work/test.txt" | head -1)
 echo "== typecheck =="
-npm run typecheck --silent 2>&1 | tail -2 || fail "typecheck"
+# Captured into a variable rather than piped: `$?` after a pipeline is the exit
+# status of the pipeline, and `set -o pipefail` covers it, but an explicit check
+# states the intent where a reader will look for it.
+typecheck_log=$(npm run typecheck --silent 2>&1)
+typecheck_status=$?
+echo "$typecheck_log" | tail -2
+[ "$typecheck_status" -eq 0 ] || fail "typecheck (exit $typecheck_status)"
 echo "== build =="
 npm run build --silent >/dev/null 2>&1 || fail "build"
 

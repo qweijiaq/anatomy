@@ -1,13 +1,23 @@
+# verify.sh 输出 — 快照
+
+**这是一次运行的历史记录，不是实时数据。** 生成于 2026-11-14 02:32，退出码 0。
+要当前输出就重新跑 `npm run verify`。
+
+```
+> anatomy@0.0.1 verify
+> bash scripts/verify.sh
+
 == tests ==
-      Tests  610 passed (610)
-   Start at  07:43:47
-   Duration  3.53s (transform 931ms, setup 0ms, collect 5.99s, tests 9.32s, environment 3ms, prepare 1.42s)
+      Tests  703 passed (703)
+   Start at  02:31:55
+   Duration  3.69s (transform 1.30s, setup 0ms, collect 6.49s, tests 10.90s, environment 5ms, prepare 2.33s)
 
 == typecheck ==
+
 == build ==
 == stub model ==
 == scan (github) ==
-run 62c3ec65279b  13 files, 2606 lines  nothing excluded
+run 99b9ec642560  13 files, 2606 lines  nothing excluded
 index.js:105  5  custom-infra
 index.js:120  5  custom-infra
 == analyze (github) ==
@@ -27,6 +37,8 @@ index.js:120  5  custom-infra
 ## 这次分析的可信度
 
 
-SUMMARY: Tests  610 passed | typecheck clean | build ok
-SUMMARY: scan+analyze+report+inspect ok on https://github.com/sindresorhus/quick-lru
-VERIFY: PASS (github, run 62c3ec65279b)
+== forget ==
+SUMMARY: Tests  703 passed | typecheck clean | build ok
+SUMMARY: scan+analyze+report+inspect+forget ok on https://github.com/sindresorhus/quick-lru
+VERIFY: PASS (github, run 29ec34ce573a, deleted)
+```

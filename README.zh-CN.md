@@ -25,17 +25,21 @@ npm run verify        # 末行应为 VERIFY: PASS
 这一条就够了：它跑测试、类型检查、构建，然后用本地假模型把 CLI 端到端走一遍，
 不需要 Key、不需要外网，跑完自己清理。判断这个仓库是否健康，不需要再跑别的。
 
-**不要用 `npm start` 或 `npm run dev:*` 来验证**——它们会开一个窗口然后一直不退出。
+**不要用 `npm run start:desktop` 或 `npm run dev:*` 来验证任何东西**——它们会开一个窗口
+然后一直不退出。
 
 ## 桌面应用
 
 ```bash
-npm run start:desktop          # 构建载荷并开窗口
+npm run start:desktop          # 先构建载荷，再开窗口
 
 npm run build:desktop          # 只构建载荷（dist-electron + dist-renderer）
 npm run build:bundle           # 组装 out/anatomy.app（233MB 的运行时副本）
-npm run clean                 # 清掉全部构建产物
+npm run clean                  # 清掉全部构建产物
 ```
+
+`start:desktop` 会先构建，所以从干净的工作区也能直接跑。`dev:desktop` 不会：它要求载荷
+已经存在，且 5199 上有一个 Vite 服务。
 
 窗口里填一个仓库地址就能跑分析，模型 Key 在应用内配置（加密存在本机，
 渲染进程拿不到）。provider 预设与 reading-notes 同一套，含 Anthropic 原生协议。
@@ -131,6 +135,22 @@ eval/           gold 集与召回率脚本（npm run eval）
 ```bash
 npm run eval:recall
 ```
+
+`docs/superpowers/recall-lite.txt` 是其中一次的带日期快照，逐仓库列出——也包括它从 46% 涨上来的那一版。
+
+## 这一版是什么
+
+一句话说清，不留悬空：
+
+- 八条命令都可用；`npm run verify` 是唯一闸门（703 个测试、三套 tsconfig、CLI 端到端
+  跑假模型）
+- **有源码**的仓库：产出带行号证据的设计笔记，每条主张都对着磁盘字节核对过，
+  核对不过就不进正文
+- **没有源码**的应用：经 REA 出事实报告与两份差异，全程不调模型
+- 中文与英文的完整报告，骨架和正文都是
+
+召回率在跟踪的 gold 集上是 60%，这既是这一版的实测值，也是它的上限：十个专家标注点里
+有四个连候选都进不去。
 
 ## 未做
 

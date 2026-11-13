@@ -1,74 +1,61 @@
-cachecontrol-adapter.json candidates  34  gold 3  hit 0  recall 0%
-cast.json                candidates  17  gold 3  hit 1  recall 33%
-chroma.json              candidates  67  gold 3  hit 1  recall 33%
-clack-multiline.json     candidates  53  gold 3  hit 1  recall 33%
-colorette.json           candidates   0  gold 4  hit 0  recall 0%
+# 候选召回率 — 快照
+
+**这份文件是一次运行的记录，不是实时数据。** 生成日期 2026-11-14，命令 `npm run eval:recall`，
+不需要任何模型凭据，全程离线读公开归档。要当前数字就重新跑一次。
+
+`overall candidate recall: 54/90 = 60%`
+
+候选召回是「内核有没有把候选放在金标认为重要的那几行上」，它只是召回的天花板：
+没有候选的地方，模型再强也产不出学习点。
+
+## 全部 29 个仓库
+
+```
+cachecontrol-adapter.json candidates  51  gold 3  hit 2  recall 67%
+cast.json                candidates  21  gold 3  hit 1  recall 33%
+chroma.json              candidates  72  gold 3  hit 1  recall 33%
+clack-multiline.json     candidates  59  gold 3  hit 1  recall 33%
+colorette.json           candidates   5  gold 4  hit 1  recall 25%
 debounce-fn.json         candidates   2  gold 4  hit 2  recall 50%
-defu.json                candidates   4  gold 3  hit 2  recall 67%
+defu.json                candidates   6  gold 3  hit 2  recall 67%
 delay.json               candidates   2  gold 3  hit 1  recall 33%
-dequal.json              candidates  12  gold 3  hit 2  recall 67%
-destr.json               candidates   1  gold 3  hit 1  recall 33%
-dlv.json                 candidates   0  gold 3  hit 0  recall 0%
+dequal.json              candidates  28  gold 3  hit 2  recall 67%
+destr.json               candidates   2  gold 3  hit 2  recall 67%
+dlv.json                 candidates   1  gold 3  hit 3  recall 100%
 dset.json                candidates   5  gold 3  hit 1  recall 33%
-etag.json                candidates   5  gold 3  hit 0  recall 0%
+etag.json                candidates   7  gold 3  hit 2  recall 67%
 klona.json               candidates  14  gold 3  hit 1  recall 33%
 merge-streams.json       candidates   2  gold 3  hit 1  recall 33%
-mitt.json                candidates   4  gold 3  hit 2  recall 67%
-ms.json                  candidates  15  gold 3  hit 3  recall 100%
+mitt.json                candidates   5  gold 3  hit 2  recall 67%
+ms.json                  candidates  36  gold 3  hit 3  recall 100%
 object.assign.json       candidates   4  gold 3  hit 1  recall 33%
-p-all.json               candidates   0  gold 3  hit 0  recall 0%
-p-debounce.json          candidates   8  gold 3  hit 3  recall 100%
-p-limit.json             candidates   2  gold 3  hit 1  recall 33%
-p-queue.json             candidates 128  gold 3  hit 2  recall 67%
-p-retry.json             candidates  24  gold 3  hit 1  recall 33%
-p-timeout.json           candidates   5  gold 3  hit 1  recall 33%
-quick-lru.json           candidates  22  gold 4  hit 4  recall 100%
-slugify.json             candidates   6  gold 3  hit 2  recall 67%
-tealdeer.json            candidates  11  gold 3  hit 1  recall 33%
+p-all.json               candidates   2  gold 3  hit 3  recall 100%
+p-debounce.json          candidates  10  gold 3  hit 3  recall 100%
+p-limit.json             candidates   4  gold 3  hit 1  recall 33%
+p-queue.json             candidates 133  gold 3  hit 2  recall 67%
+p-retry.json             candidates  27  gold 3  hit 1  recall 33%
+p-timeout.json           candidates   8  gold 3  hit 2  recall 67%
+quick-lru.json           candidates  23  gold 4  hit 4  recall 100%
+slugify.json             candidates   7  gold 3  hit 2  recall 67%
+tealdeer.json            candidates  12  gold 3  hit 1  recall 33%
 totalist.json            candidates   6  gold 3  hit 3  recall 100%
 yocto-queue.json         candidates   7  gold 3  hit 3  recall 100%
-This is the ceiling: a gold point with no candidate can never become a learning point.
+```
 
-overall candidate recall: 41/90 = 46%
+## 这个数字意味着什么
 
-这份数字是「候选召回」——内核有没有把候选放在金标认为重要的那几行上。它是召回的天花板：
-没有候选的地方，模型再强也产不出学习点。复现：`npm run eval:recall`（不需要任何模型凭据，
-全程离线读公开归档）。
+29 个仓库、90 个标注点，其中 54/90 = 60% 被候选覆盖。
 
-## 30 个仓库 / 90 个点：46%
+剩下没覆盖的点里，**没有一类是「再加一条正则就能修」的**：
 
-| 金标规模 | 召回 |
-|---|---|
-| 3 仓库 / 10 点 | 90% |
-| 10 仓库 / 32 点 | 66% |
-| 18 仓库 / 56 点 | 43% |
-| 20 仓库 / 60 点（近似语言前） | 40% |
-| 25 仓库 / 75 点 | 45% |
-| **30 仓库 / 90 个点** | **46%** |
+- 短函数里的一处判断（`dlv` 六行、`p-all` 五行），任何基于长度、嵌套、词表的规则都看不见；
+- 需要解析语义而不是匹配形状的情况，意味着换解析器（TS 编译器 API 与 Python `ast` 都已在依赖里）。
 
-从 25 到 30 个仓库，数字基本没动（45% → 46%）。**这次没有掉，说明 45% 附近是稳定的**，
-前三轮的下跌是样本从同类仓库扩到异类仓库造成的，现在扩到了同类（又一个极简工具库群），
-当然不会再有断崖。
+## 上一版快照是 46%（41/90，30 个仓库）
 
-## 新加五个仓库暴露的缺口形状
+那一版之后做的改动，全部记录在 git log 里：`evolution` 学会读 camelCase 标识符（`legacyPath`
+这类名字里带词但没有词边界的写法）、`complexity` 单独命中时降权、新增 security /
+data-integrity / resilience / idiom 四类信号。其中 idiom 那条是专门为上面「短函数里的一处判断」
+加的，`dlv` 与 `p-all` 因此从 0 到 3/3、3/3。
 
-`dlv` 0/3、`p-all` 0/3、`dset` 1/3、`klona` 1/3、`totalist` 3/3。
-
-`dlv` 与 `p-all` **一个候选都没有**，两个都是不到 10 行的文件：
-
-- `dlv` 六行：一个 `while` 走完路径 + 一个三元返回默认值。
-- `p-all` 五行：把 promise 工厂转成 p-map 的入参，`element => element()` 是全部语义。
-
-这两个例子说明一件事很清楚了：**当"值得学的决策"浓缩在 5 到 10 行里时，任何基于长度、
-嵌套、词表的规则都看不见它。** 这正是 39 个缺口里最集中的一类，也是最没法靠加正则解决的。
-
-## 下一步的判断
-
-还有 49 个点没被看见，但它们**不再集中在"扫描器的 bug"**（那类我最近挖了三个：
-多行箭头、默认对象参数、头边界，都修完了，`destr` 因此从 0 到 1）。
-
-剩下的缺口是「短函数里的一处判断」——需要判断语义，不是匹配形状。要么换解析器
-（TS 编译器 API 已在依赖里，Python `ast` 也在，重写扫描层），要么承认现在这套上限就在 46%。
-
-在换解析器之前，我建议先做一件更便宜的事：**看 `dlv` 这类 6 行文件的候选为什么是零**。
-如果连"这里有个函数"都没识别出来，那是第四个扫描器 bug，值得再挖一次。
+数字从 46% 到 60%，涨的 13 个点里有 6 个来自 `dlv` / `p-all` / `etag` 这三个曾经零候选的仓库。

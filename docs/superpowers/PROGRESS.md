@@ -1,6 +1,6 @@
 # anatomy — 状态与验收
 
-**状态：完成**（计划 15/15，分支 `mvp`，未合并到 `main`）
+**状态：完成并已合并**（计划 15/15；分支 `main`，已推送到 qweijiaq/anatomy）
 
 ## 一条命令验收
 
@@ -19,8 +19,8 @@ VERIFY: PASS (github, run <runId>)
 
 | 步骤 | 断言 |
 |---|---|
-| `npm test` | 23 个测试文件、532 个测试全过 |
-| `npm run typecheck` | 两套 tsconfig（`tsconfig.json` + `tsconfig.test.json`）均无诊断 |
+| `npm test` | 32 个测试文件、703 个测试全过 |
+| `npm run typecheck` | 三套 tsconfig（`tsconfig.json` + `tsconfig.test.json` + `tsconfig.desktop.json`）均无诊断 |
 | `npm run build` | 编译成功，且 `python_index.py` 被复制进 `dist/` |
 | `ana scan <真实仓库>` | 取回 GitHub 归档，输出 `path:line` 形式的候选 |
 | `ana analyze` | 写出 `report.md` 等产物；报告含标题、`已取证点占比`、`没看的部分`、以及 `` `path:start-end` `` 证据行 |
@@ -75,4 +75,4 @@ node dist/cli.js analyze https://github.com/<owner>/<repo> --top 8
 
 ## 明确未做
 
-MCP server（6 工具与 `submit_points`）、`ana publish`、合并到 `main`。前两项是下一份计划的范围；分支保持 `mvp` 未合并，等人工决定。
+MCP server（6 工具与 `submit_points`）与 `ana publish` 不在本次范围内，README 的「Not built yet」列着它们。

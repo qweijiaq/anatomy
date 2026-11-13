@@ -30,7 +30,7 @@
     "build:bundle": "node scripts/build-app-bundle.mjs",
     "clean": "rm -rf dist dist-renderer dist-electron out",
     "dev:desktop": "ANA_DEV_SERVER=http://127.0.0.1:5199 node run-electron.mjs",
-    "start:desktop": "node run-electron.mjs",
+    "start:desktop": "npm run build:desktop && node run-electron.mjs",
     "dev:renderer": "vite --config vite.config.ts --host 127.0.0.1"
   },
   "dependencies": {
