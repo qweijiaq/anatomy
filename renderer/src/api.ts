@@ -8,13 +8,18 @@
 
 export type ProviderId =
   | 'deepseek'
-  | 'zhipu'
   | 'anthropic'
   | 'openai'
-  | 'moonshot'
+  | 'google'
+  | 'xai'
+  | 'zhipu'
+  | 'moonshotai'
   | 'alibaba'
   | 'openrouter'
   | 'opencode'
+  | 'opencode-go'
+  | 'opendesign'
+  | 'opendesign-go'
   | 'ollama'
   | 'lmstudio'
   | 'custom'
@@ -23,7 +28,7 @@ export type SettingsView = {
   provider: ProviderId
   baseUrl: string
   model: string
-  protocol: 'openai' | 'anthropic'
+  protocol: 'openai' | 'anthropic' | 'xai'
   lang: 'zh' | 'en'
   topN: number
   apiKeyConfigured: boolean
@@ -35,7 +40,7 @@ export type SettingsPatch = Partial<{
   provider: ProviderId
   baseUrl: string
   model: string
-  protocol: 'openai' | 'anthropic'
+  protocol: 'openai' | 'anthropic' | 'xai'
   lang: 'zh' | 'en'
   topN: number
   apiKey: string | null

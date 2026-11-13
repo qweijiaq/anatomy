@@ -542,6 +542,16 @@
   margin-top: var(--space-2);
 }
 
+/* A label line above each group, so endpoints and models never read as one list. */
+.chips--endpoints::before,
+.chips--models::before {
+  content: attr(aria-label);
+  flex: 0 0 100%;
+  margin-bottom: 2px;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
 .chip {
   padding: 2px var(--space-2);
   border-radius: var(--radius-full);

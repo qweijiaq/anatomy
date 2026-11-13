@@ -50,8 +50,16 @@ export type ModelClientConfig = {
   timeoutMs?: number
 }
 
-/** The two wire protocols this client speaks. */
-export type Protocol = 'openai' | 'anthropic'
+/**
+ * The wire protocols this client speaks.
+ *
+ * `openai` and `anthropic` differ in endpoint, auth header and reply shape.
+ * `gemini` and `xai` are OpenAI-shaped in the parts that matter here — Google's
+ * `v1beta/openai` compatibility layer and xAI's API both take a bearer token and
+ * answer with `choices` — so they route through the same builder and only the
+ * default endpoint and the request headers differ.
+ */
+export type Protocol = 'openai' | 'anthropic' | 'xai'
 
 export const DEFAULT_MODEL = 'gpt-4o-mini'
 export const DEFAULT_BASE_URL = 'https://api.openai.com/v1'

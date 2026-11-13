@@ -38,7 +38,7 @@ export function SettingsPanel({ settings, onChange, onClose }: Props): React.JSX
   useEffect(() => {
     if (provider === settings.provider) return
     const next = providerOf(provider)
-    setBaseUrl(next.baseUrl)
+    setBaseUrl(next.endpoints?.[0]?.url ?? next.baseUrl)
     setModel(next.defaultModel)
     setApiKey('')
     setResult(null)
@@ -151,9 +151,25 @@ export function SettingsPanel({ settings, onChange, onClose }: Props): React.JSX
             value={baseUrl}
             onChange={(event) => setBaseUrl(event.target.value)}
           />
+          {preset.endpoints !== undefined && preset.endpoints.length > 0 && (
+            <div className="chips chips--endpoints" role="group" aria-label="端点">
+              {preset.endpoints.map((endpoint) => (
+                <button
+                  key={endpoint.url}
+                  type="button"
+                  className={`chip ${endpoint.url === baseUrl ? 'chip--on' : ''}`}
+                  onClick={() => setBaseUrl(endpoint.url)}
+                  title={endpoint.url}
+                >
+                  {endpoint.label}
+                </button>
+              ))}
+            </div>
+          )}
           <p className="field__hint">
             协议：{preset.protocol === 'anthropic' ? 'Anthropic Messages' : 'OpenAI Chat Completions'}
             {preset.protocol === 'anthropic' ? '（自动拼 /messages）' : '（自动拼 /chat/completions）'}
+            {preset.endpoints !== undefined && ' · 换了地域要选对应的端点，Key 与地域绑定。'}
           </p>
         </section>
 
@@ -176,7 +192,7 @@ export function SettingsPanel({ settings, onChange, onClose }: Props): React.JSX
             ))}
           </datalist>
           {preset.suggestedModels.length > 0 && (
-            <div className="chips">
+            <div className="chips chips--models" role="group" aria-label="常用模型">
               {preset.suggestedModels.map((item) => (
                 <button
                   key={item}

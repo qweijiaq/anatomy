@@ -1,27 +1,40 @@
 /**
  * Provider presets, as the settings screen shows them.
  *
- * A copy of `electron/providers.ts` rather than an import: the main process file
- * is bundled for Node and the renderer must not pull Node code. The list is data,
- * not logic, so the duplication is cheap and a mismatch is immediately visible
- * (a wrong base URL fails the "test connection" tick).
+ * A copy of `electron/providers.ts` rather than an import: the main process file is
+ * bundled for Node and the renderer must not pull Node code. The list is data, not
+ * logic, so the duplication is cheap and a mismatch is immediately visible — a
+ * wrong endpoint fails the "test connection" tick.
+ *
+ * Keep this file and `electron/providers.ts` in step; both are checked by the same
+ * vite build that would fail on a missing field.
  */
 
 import type { ProviderId } from './api.js'
 
+export type { ProviderId }
+
+export type Protocol = 'openai' | 'anthropic' | 'xai'
+
+export type EndpointOption = { label: string; url: string }
+
 export type ProviderPreset = {
   id: ProviderId
   label: string
+  /** Blank means "use the protocol's default endpoint". */
   baseUrl: string
   defaultModel: string
   suggestedModels: string[]
   keyUrl: string
   hint: string
-  protocol: 'openai' | 'anthropic'
+  protocol: Protocol
+  /** Regional or plan-specific endpoints; picking one swaps `baseUrl`. */
+  endpoints?: EndpointOption[]
+  /** Local servers need no key. */
   keyless?: boolean
 }
 
-export const PROVIDERS: ProviderPreset[] = [
+export const PROVIDER_PRESETS: ProviderPreset[] = [
   {
     id: 'deepseek',
     label: 'DeepSeek',
@@ -33,23 +46,13 @@ export const PROVIDERS: ProviderPreset[] = [
     protocol: 'openai',
   },
   {
-    id: 'zhipu',
-    label: '智谱 GLM',
-    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-    defaultModel: 'glm-4.6',
-    suggestedModels: ['glm-4.6', 'glm-4-plus', 'glm-4-flash'],
-    keyUrl: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys',
-    hint: 'Key 在 bigmodel.cn 的业务空间管理页创建。',
-    protocol: 'openai',
-  },
-  {
     id: 'anthropic',
     label: 'Anthropic Claude',
     baseUrl: 'https://api.anthropic.com/v1',
     defaultModel: 'claude-sonnet-4-20250514',
     suggestedModels: ['claude-sonnet-4-20250514', 'claude-opus-4-20250514', 'claude-3-5-haiku-20241022'],
-    keyUrl: 'https://platform.claude.com/settings/keys',
-    hint: '用原生 Messages 协议，不需要额外路径。',
+    keyUrl: 'https://console.anthropic.com/',
+    hint: '原生 Messages 协议，自动拼 /messages。',
     protocol: 'anthropic',
   },
   {
@@ -59,18 +62,56 @@ export const PROVIDERS: ProviderPreset[] = [
     defaultModel: 'gpt-4o-mini',
     suggestedModels: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1'],
     keyUrl: 'https://platform.openai.com/api-keys',
-    hint: '也可以填任何 OpenAI 兼容网关；模型 ID 以控制台为准。',
+    hint: '也可以填任何 OpenAI 兼容网关。',
     protocol: 'openai',
   },
   {
-    id: 'moonshot',
+    id: 'google',
+    label: 'Google Gemini',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    defaultModel: 'gemini-2.5-flash',
+    suggestedModels: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'],
+    keyUrl: 'https://aistudio.google.com/apikey',
+    hint: '走 Google 的 OpenAI 兼容层（/v1beta/openai），Bearer 鉴权。',
+    protocol: 'openai',
+  },
+  {
+    id: 'xai',
+    label: 'xAI Grok',
+    baseUrl: 'https://api.x.ai/v1',
+    defaultModel: 'grok-4',
+    suggestedModels: ['grok-4', 'grok-3', 'grok-3-mini'],
+    keyUrl: 'https://console.x.ai/',
+    hint: 'OpenAI 兼容端点。',
+    protocol: 'openai',
+  },
+  {
+    id: 'zhipu',
+    label: '智谱 GLM',
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    defaultModel: 'glm-4.6',
+    suggestedModels: ['glm-4.6', 'glm-4-plus', 'glm-4-flash'],
+    keyUrl: 'https://open.bigmodel.cn/usercenter/apikeys',
+    hint: '国内与国际站的 Key 互不通用，先选对你开通的那一个。',
+    protocol: 'openai',
+    endpoints: [
+      { label: '中国站 open.bigmodel.cn', url: 'https://open.bigmodel.cn/api/paas/v4' },
+      { label: '国际站 api.z.ai', url: 'https://api.z.ai/api/paas/v4' },
+    ],
+  },
+  {
+    id: 'moonshotai',
     label: 'Moonshot Kimi',
     baseUrl: 'https://api.moonshot.cn/v1',
     defaultModel: 'moonshot-v1-32k',
     suggestedModels: ['moonshot-v1-32k', 'moonshot-v1-128k', 'kimi-latest'],
     keyUrl: 'https://platform.moonshot.cn/console/api-keys',
-    hint: '中文长文友好；128k 版本适合大文件。',
+    hint: '国内站与海外站的 Key 互不通用。',
     protocol: 'openai',
+    endpoints: [
+      { label: '国内 api.moonshot.cn', url: 'https://api.moonshot.cn/v1' },
+      { label: '海外 api.moonshot.ai', url: 'https://api.moonshot.ai/v1' },
+    ],
   },
   {
     id: 'alibaba',
@@ -78,9 +119,14 @@ export const PROVIDERS: ProviderPreset[] = [
     baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     defaultModel: 'qwen-plus',
     suggestedModels: ['qwen-plus', 'qwen-max', 'qwen-turbo'],
-    keyUrl: 'https://bailian.console.aliyun.com/',
-    hint: '北京地域的兼容模式地址。',
+    keyUrl: 'https://dashscope.console.aliyun.com/apiKey',
+    hint: '按地域选端点；Key 与地域绑定。',
     protocol: 'openai',
+    endpoints: [
+      { label: '中国 dashscope.aliyuncs.com', url: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+      { label: '新加坡 dashscope-intl', url: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1' },
+      { label: '美国 dashscope-us', url: 'https://dashscope-us.aliyuncs.com/compatible-mode/v1' },
+    ],
   },
   {
     id: 'openrouter',
@@ -95,11 +141,41 @@ export const PROVIDERS: ProviderPreset[] = [
   {
     id: 'opencode',
     label: 'OpenCode Zen',
-    baseUrl: 'https://opencode.ai/inference/openai/v1',
-    defaultModel: 'qwen3.8-flash',
-    suggestedModels: ['qwen3.8-flash', 'gpt-6.1-sol', 'claude-opus-4-6'],
-    keyUrl: 'https://opencode.ai/auth',
-    hint: '按量计费网关。',
+    baseUrl: 'https://opencode.ai/zen/v1',
+    defaultModel: 'kimi-k3',
+    suggestedModels: ['kimi-k3', 'qwen3.8-max', 'deepseek-v4-pro', 'glm-5.3'],
+    keyUrl: 'https://opencode.ai/console',
+    hint: '按量计费的网关。',
+    protocol: 'openai',
+  },
+  {
+    id: 'opencode-go',
+    label: 'OpenCode Go',
+    baseUrl: 'https://opencode.ai/zen/go/v1',
+    defaultModel: 'kimi-k3',
+    suggestedModels: ['kimi-k3', 'claude-haiku-5.5', 'gemini-4-argon', 'gpt-6-luna'],
+    keyUrl: 'https://opencode.ai/console',
+    hint: '订阅制套餐，端点与 Zen 不同。',
+    protocol: 'openai',
+  },
+  {
+    id: 'opendesign',
+    label: 'OpenDesign',
+    baseUrl: 'https://amr-link.open-design.ai/v1',
+    defaultModel: 'deepseek-v4.1-flash',
+    suggestedModels: ['deepseek-v4.1-flash'],
+    keyUrl: 'https://open-design.ai/cloud/api-keys',
+    hint: '自有网关，模型 id 以控制台为准。',
+    protocol: 'openai',
+  },
+  {
+    id: 'opendesign-go',
+    label: 'OpenDesign Go',
+    baseUrl: 'https://amr-link.open-design.ai/v1',
+    defaultModel: 'deepseek-v4.1-flash',
+    suggestedModels: ['deepseek-v4.1-flash'],
+    keyUrl: 'https://open-design.ai/cloud/api-keys',
+    hint: 'OpenDesign 的订阅套餐；端点同为 amr-link。',
     protocol: 'openai',
   },
   {
@@ -136,6 +212,8 @@ export const PROVIDERS: ProviderPreset[] = [
   },
 ]
 
+export const PROVIDERS = PROVIDER_PRESETS
+
 export function providerOf(id: ProviderId): ProviderPreset {
-  return PROVIDERS.find((preset) => preset.id === id) ?? PROVIDERS[0]!
+  return PROVIDER_PRESETS.find((preset) => preset.id === id) ?? PROVIDER_PRESETS[0]!
 }
