@@ -31,6 +31,10 @@ npm run verify        # 末行应为 VERIFY: PASS
 **不要用 `npm run start:desktop` 或 `npm run dev:*` 来验证任何东西**——它们会开一个窗口
 然后一直不退出。
 
+`npm run verify:record` 跑同一道闸门，并把转录写进 `docs/superpowers/verify-output.txt`，
+头部带上提交、退出码和当时树的样子——所以一个**没法执行任何命令**的人，也能把记录里的数字
+钉到一个提交上。
+
 ## 桌面应用
 
 ```bash

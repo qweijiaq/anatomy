@@ -32,6 +32,11 @@ cleans up after itself. Nothing else needs to run to know the repository is soun
 Do not use `npm run start:desktop` or `npm run dev:*` to verify anything: they open
 a window and never exit.
 
+`npm run verify:record` runs the same gate and writes the transcript to
+`docs/superpowers/verify-output.txt` with the commit, the exit code and the tree's
+shape in its header — so someone who cannot execute anything can still tie the
+recorded numbers to a commit.
+
 ## Desktop app
 
 ```bash
