@@ -550,6 +550,10 @@ export async function runAnalyze(
       skipped: skipLines(skipped, cut.length, budget),
       candidates: scanned.candidates,
       structure: scanned.structure,
+      // The page written now and the page `ana report` writes later must agree.
+      // Without this the fresh `report.md` is Chinese while a re-render of the same
+      // run is English, because the re-render reads `manifest.lang` and this did not.
+      lang,
     }
 
     const reportPath = await persist(

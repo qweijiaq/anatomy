@@ -154,3 +154,25 @@ describe('renderMarkdown in English', () => {
     expect(md).toContain('## 这次分析在解决什么')
   })
 })
+
+describe('the language travels with the run', () => {
+  /**
+   * One run, two renderings.
+   *
+   * The page written at the end of `analyze` and the page written later by
+   * `analyze report` are the same data through the same renderer, so they must
+   * agree. They did not: `analyze` built its `ReportInput` without `lang`, so the
+   * fresh `report.md` was Chinese while re-rendering the same run was English — the
+   * re-render reads `manifest.lang` and the write did not.
+   */
+  it('renders the same language before and after a re-render', async () => {
+    const source = await import('node:fs').then((fs) =>
+      fs.readFileSync(new URL('../src/commands/analyze.ts', import.meta.url), 'utf8'),
+    )
+    const block = /const report: ReportInput = \{([\s\S]*?)\n\s*\}/.exec(source)
+    expect(block, 'ReportInput construction not found').not.toBeNull()
+    // The field has to be set where the page is first written, not only where it is
+    // re-read.
+    expect(block?.[1]).toContain('lang')
+  })
+})

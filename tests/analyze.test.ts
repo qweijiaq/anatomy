@@ -448,7 +448,7 @@ describe('runAnalyze', () => {
     expect(markdown).toContain(`${first.path}:${first.startLine}-${first.endLine}`)
   })
 
-  it('produces a report with lang en, switching only the prompts', async () => {
+  it('produces an English report with lang en, frame and prompts alike', async () => {
     const baseDir = temporaryDir('ana-analyze-out-')
     const repo = fixtureRepo()
     const client = fakeClient()
@@ -457,10 +457,13 @@ describe('runAnalyze', () => {
 
     const markdown = await readFile(result.reportPath, 'utf8')
     expect(markdown.startsWith(`# ${path.basename(repo)}\n`)).toBe(true)
-    expect(markdown).toContain(`- 来源：${repo}`)
+    // The frame follows the language too — it used to stay Chinese, which made
+    // `--lang en` an English body under Chinese headings.
+    expect(markdown).toContain(`- Source: ${repo}`)
+    expect(markdown).toContain('## What this analysis is about')
     expect(markdown.length).toBeGreaterThan(0)
 
-    // The switch is a prompt switch: the judge and the synthesiser asked in English.
+    // And the prompts asked in English: the judge and the synthesiser.
     expect(client.calls[0]?.system).toContain('You are the reader')
     expect(client.calls.some((call) => call.system.includes('synthesiser'))).toBe(true)
   })
