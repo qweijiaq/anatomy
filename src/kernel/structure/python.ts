@@ -41,7 +41,21 @@ const DEFAULT_TIMEOUT_MS = 30_000
 const EXIT_GRACE_MS = 1_000
 
 /** The sidecar script, resolved next to this module so an untranspiled checkout works. */
-const SIDECAR_SCRIPT = fileURLToPath(new URL('./python_index.py', import.meta.url))
+/**
+ * The sidecar script, resolved next to the calling module.
+ *
+ * `import.meta.url` points at this file in the source tree and at the bundle in
+ * `dist-electron/`, and every packaging step copies `python_index.py` beside its own
+ * copy of this module — so the relative lookup holds in both.
+ */
+const SIDECAR_SCRIPT =
+  typeof __filename === 'string'
+    ? path.join(path.dirname(__filename), 'python_index.py')
+    : fileURLToPath(new URL('./python_index.py', import.meta.url))
+
+// `__filename` exists only in a CJS bundle (the desktop app); the source build is
+// ESM and has none. Declared so the type checker agrees in both.
+declare const __filename: string | undefined
 
 /**
  * Where the child runs: beside the sidecar, never inside the tree being analysed.

@@ -35,6 +35,12 @@ export type ModelClientConfig = {
   model?: string
   apiKey?: string
   baseUrl?: string
+  /**
+   * Wire protocol. `openai` is chat completions; `anthropic` is the Messages API.
+   * The two differ in endpoint, auth header and reply shape, and a reader who
+   * supplies a Claude key should not have to discover that by reading an error.
+   */
+  protocol?: Protocol
   fetchImpl?: typeof fetch
   /** Retries after the first attempt. Defaults to 2; 0 disables retrying. */
   maxRetries?: number
@@ -43,6 +49,9 @@ export type ModelClientConfig = {
   /** Per-attempt request deadline. Defaults to 60s; tests pass a few ms. */
   timeoutMs?: number
 }
+
+/** The two wire protocols this client speaks. */
+export type Protocol = 'openai' | 'anthropic'
 
 export const DEFAULT_MODEL = 'gpt-4o-mini'
 export const DEFAULT_BASE_URL = 'https://api.openai.com/v1'
@@ -104,7 +113,17 @@ export class ModelReplyError extends Error {
   }
 }
 
-export type RequestConfig = { model: string; baseUrl: string; apiKey: string }
+export type RequestConfig = {
+  model: string
+  baseUrl: string
+  apiKey: string
+  protocol?: Protocol
+  /** DeepSeek's thinking mode eats the output budget and truncates JSON. */
+  disableThinking?: boolean
+}
+
+/** Anthropic's version header; without it the Messages API rejects the call. */
+const ANTHROPIC_VERSION = '2023-06-01'
 
 export type BuiltRequest = {
   url: string
@@ -130,6 +149,43 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  */
 export function buildRequest(req: ModelRequest, cfg: RequestConfig): BuiltRequest {
   const base = cfg.baseUrl.replace(/\/+$/, '')
+  if (cfg.protocol === 'anthropic') {
+    // The Messages API has no system role: the system prompt is a top-level field,
+    // the reply carries content blocks instead of choices, and there is no
+    // `response_format` — the prompt's schema is the whole contract.
+    return {
+      url: `${base}/messages`,
+      init: {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'anthropic-version': ANTHROPIC_VERSION,
+          'x-api-key': cfg.apiKey,
+        },
+        body: JSON.stringify({
+          model: cfg.model,
+          max_tokens: 8192,
+          temperature: 0,
+          system: req.system,
+          messages: [{ role: 'user', content: req.user }],
+        }),
+      },
+    }
+  }
+
+  const body: Record<string, unknown> = {
+    model: cfg.model,
+    messages: [
+      { role: 'system', content: req.system },
+      { role: 'user', content: req.user },
+    ],
+    response_format: { type: 'json_object' },
+    temperature: 0,
+  }
+  // DeepSeek V4 defaults to a thinking mode that spends the output budget on
+  // reasoning, which truncates JSON. Other providers ignore the field, but only
+  // DeepSeek is known to need it, so it is sent only there.
+  if (cfg.disableThinking === true) body['thinking'] = { type: 'disabled' }
   return {
     url: `${base}/chat/completions`,
     init: {
@@ -138,15 +194,7 @@ export function buildRequest(req: ModelRequest, cfg: RequestConfig): BuiltReques
         'content-type': 'application/json',
         authorization: `Bearer ${cfg.apiKey}`,
       },
-      body: JSON.stringify({
-        model: cfg.model,
-        messages: [
-          { role: 'system', content: req.system },
-          { role: 'user', content: req.user },
-        ],
-        response_format: { type: 'json_object' },
-        temperature: 0,
-      }),
+      body: JSON.stringify(body),
     },
   }
 }
@@ -205,6 +253,15 @@ function usageOf(payload: unknown): Usage {
 
 function contentOf(payload: unknown): string | null {
   if (!isRecord(payload)) return null
+  // Anthropic: `content: [{type: 'text', text: '…'}, …]`.
+  const blocks = payload['content']
+  if (Array.isArray(blocks)) {
+    const text = blocks
+      .filter((block): block is Record<string, unknown> => isRecord(block) && block['type'] === 'text')
+      .map((block) => (typeof block['text'] === 'string' ? block['text'] : ''))
+      .join('')
+    if (text !== '') return text
+  }
   const choices = payload['choices']
   if (!Array.isArray(choices) || choices.length === 0) return null
   const first = choices[0]
@@ -275,6 +332,11 @@ export function createModelClient(cfg: ModelClientConfig = {}): ModelClient {
 
       const model = pick(cfg.model, 'ANA_MODEL', DEFAULT_MODEL)
       const baseUrl = pick(cfg.baseUrl, 'ANA_BASE_URL', DEFAULT_BASE_URL)
+      const protocol: Protocol =
+        cfg.protocol ?? ((process.env['ANA_PROTOCOL'] as Protocol | undefined) || 'openai')
+      // Only DeepSeek has the thinking-mode truncation problem, and only that
+      // provider accepts the field.
+      const disableThinking = /deepseek/i.test(model)
       const fetchImpl = cfg.fetchImpl ?? globalThis.fetch
       if (typeof fetchImpl !== 'function') {
         throw new ModelRequestError('no fetch implementation is available', { retryable: false })
@@ -293,7 +355,13 @@ export function createModelClient(cfg: ModelClientConfig = {}): ModelClient {
           ? Math.floor(cfg.timeoutMs)
           : DEFAULT_TIMEOUT_MS
 
-      const { url, init } = buildRequest(req, { model, baseUrl, apiKey })
+      const { url, init } = buildRequest(req, {
+        model,
+        baseUrl,
+        apiKey,
+        protocol,
+        disableThinking,
+      })
       let lastError: ModelRequestError | null = null
 
       for (let attempt = 0; attempt <= maxRetries; attempt += 1) {

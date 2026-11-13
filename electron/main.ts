@@ -1,0 +1,198 @@
+/**
+ * The Electron main process: one window, three IPC surfaces.
+ *
+ * The renderer is not allowed to touch the network, the disk or a key. It sends
+ * an intent and receives a result:
+ *
+ * - `settings:*`  read, save, and "test connection";
+ * - `analysis:*`  run an analysis and stream its progress back;
+ * - `report:*`    read a stored run's markdown.
+ *
+ * Everything expensive — the kernel scan, the model calls, the run store — happens
+ * here, in the same process the CLI uses, so the two can never drift.
+ */
+
+import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+import { activeModelConfig, getSettingsView, readKey, rememberRepo, saveSettings } from './settings.js'
+import { createModelClient, MissingCredentialsError } from '../src/writing/client.js'
+import { runAnalyze } from '../src/commands/analyze.js'
+import { runReport } from '../src/commands/report.js'
+import type { Protocol } from './providers.js'
+
+/**
+ * Where the app's own files live.
+ *
+ * The main process is bundled to CJS, where `__filename` is defined and
+ * `import.meta.url` is rewritten to an empty object by esbuild. Falling back to the
+ * ESM form keeps `tsx electron/main.ts` working during development.
+ */
+declare const __filename: string | undefined
+const here =
+  typeof __filename === 'string' ? path.dirname(__filename) : path.dirname(fileURLToPath(import.meta.url))
+
+let window: BrowserWindow | null = null
+
+function createWindow(): void {
+  window = new BrowserWindow({
+    width: 1180,
+    height: 820,
+    minWidth: 900,
+    minHeight: 640,
+    title: 'anatomy',
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    backgroundColor: '#faf9f7',
+    webPreferences: {
+      preload: path.join(here, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  })
+
+  const devUrl = process.env['ANA_DEV_SERVER']
+  if (typeof devUrl === 'string' && devUrl !== '') {
+    void window.loadURL(devUrl)
+  } else {
+    void window.loadFile(path.join(here, '../dist-renderer/index.html'))
+  }
+
+  // Content Security Policy, applied from the main process rather than a meta tag:
+  // the dev server needs a websocket for hot reload, and a meta-tag policy would
+  // block it while the packaged app needs the strict form. One rule, two audiences.
+  const isDev = typeof devUrl === 'string' && devUrl !== ''
+  window.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    const policy = isDev
+      ? "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: http://localhost:*"
+      : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'"
+    callback({ responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': [policy] } })
+  })
+
+  // An external link opens in the user's browser, never inside the app: the
+  // renderer shows provider documentation and repository URLs.
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    void shell.openExternal(url)
+    return { action: 'deny' }
+  })
+}
+
+void app.whenReady().then(() => {
+  createWindow()
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  })
+})
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit()
+})
+
+// --- settings ---------------------------------------------------------------
+
+ipcMain.handle('settings:read', () => getSettingsView())
+
+ipcMain.handle('settings:save', (_event, patch: unknown) => {
+  if (typeof patch !== 'object' || patch === null) return getSettingsView()
+  return saveSettings(patch as Parameters<typeof saveSettings>[0])
+})
+
+/**
+ * One cheap round-trip that proves the key, the endpoint and the model name all
+ * agree. It asks for a tiny JSON object so a provider that ignores
+ * `response_format` is still caught.
+ */
+ipcMain.handle('settings:test', async () => {
+  const config = activeModelConfig()
+  if (config.apiKey === '') {
+    return { ok: false, message: '还没有配置 API Key。' }
+  }
+  const client = createModelClient({
+    model: config.model,
+    baseUrl: config.baseUrl,
+    apiKey: config.apiKey,
+    protocol: config.protocol as Protocol,
+    maxRetries: 0,
+    timeoutMs: 30_000,
+  })
+  try {
+    const started = Date.now()
+    const reply = await client.complete({
+      system: 'Reply with the JSON object {"ok": true} and nothing else.',
+      user: 'ping',
+      schema: { type: 'object' },
+    })
+    return {
+      ok: true,
+      message: `连接成功，用时 ${Date.now() - started} ms。`,
+      usage: reply.usage,
+    }
+  } catch (error) {
+    const message =
+      error instanceof MissingCredentialsError
+        ? '还没有配置 API Key。'
+        : error instanceof Error
+          ? error.message
+          : String(error)
+    return { ok: false, message }
+  }
+})
+
+// --- analysis ---------------------------------------------------------------
+
+type Progress = { phase: string; detail?: string }
+
+ipcMain.handle('analysis:run', async (event, payload: unknown) => {
+  const request = payload as { repo?: unknown; top?: unknown; lang?: unknown }
+  const repo = typeof request?.repo === 'string' ? request.repo.trim() : ''
+  if (repo === '') return { ok: false, message: '请先填一个仓库地址。' }
+
+  const config = activeModelConfig()
+  if (config.apiKey === '') return { ok: false, message: '还没有配置 API Key。' }
+  const settings = getSettingsView()
+  rememberRepo(repo)
+
+  const send = (progress: Progress): void => {
+    if (!event.sender.isDestroyed()) event.sender.send('analysis:progress', progress)
+  }
+
+  try {
+    send({ phase: 'acquire', detail: repo })
+    const client = createModelClient({
+      model: config.model,
+      baseUrl: config.baseUrl,
+      apiKey: config.apiKey,
+      protocol: config.protocol as Protocol,
+      maxRetries: 2,
+      timeoutMs: 120_000,
+    })
+    send({ phase: 'analyse' })
+    const result = await runAnalyze(repo, {
+      client,
+      top: typeof request?.top === 'number' ? request.top : settings.topN,
+      lang: request?.lang === 'en' ? 'en' : 'zh',
+    })
+    send({ phase: 'done' })
+    const markdown = await runReport(result.runId)
+    return { ok: true, runId: result.runId, reportPath: result.reportPath, markdown }
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+})
+
+ipcMain.handle('report:read', async (_event, runId: unknown) => {
+  if (typeof runId !== 'string' || runId === '') return { ok: false, message: '缺少 run id。' }
+  try {
+    return { ok: true, markdown: await runReport(runId) }
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+})
+
+// --- environment ------------------------------------------------------------
+
+ipcMain.handle('app:info', () => ({
+  version: app.getVersion(),
+  hasKey: readKey(getSettingsView().provider) !== null,
+}))
