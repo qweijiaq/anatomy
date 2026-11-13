@@ -90,6 +90,26 @@ process.stdout.write(first?.theirs.evidence[0].id ?? "")
 node dist/cli.js inspect "$evidence" > "$work/inspect.txt" 2>&1 || fail "inspect"
 grep -qE '^[^ ]+:[0-9]+-[0-9]+$' "$work/inspect.txt" || fail "inspect printed no range"
 
+echo "== mcp =="
+# The new surface gets gate coverage like everything else. `ana mcp` speaks
+# JSON-RPC on stdout, so this drives a real handshake and two tool calls against the
+# run this script just made, and checks the replies are answers rather than errors.
+# A server that only works when a human types at it is not shipped.
+mcp_out=$(printf '%s\n%s\n%s\n%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"verify","version":"0"}}}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+  "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"anatomy_report\",\"arguments\":{\"runId\":\"$run_id\"}}}" \
+  "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"anatomy_scan\",\"arguments\":{\"repo\":\"$target\",\"top\":2}}}" \
+  | node dist/cli.js mcp 2>/dev/null)
+printf '%s' "$mcp_out" | grep -q '"name":"anatomy"' || fail "mcp initialize returned no server name"
+printf '%s' "$mcp_out" | grep -q 'anatomy_scan' || fail "mcp tools/list listed no tools"
+printf '%s' "$mcp_out" | grep -q '"isError":true' && fail "mcp reported a tool error on the happy path"
+# The report is JSON-escaped inside the response, so the heading appears as
+# `"text":"# …` rather than at the start of a line — an earlier version of this
+# check looked for `^# ` and failed against a working server.
+printf '%s' "$mcp_out" | grep -q '"text":"# ' || fail "mcp anatomy_report returned no markdown"
+echo "  initialize + tools/list + report + scan ok"
+
 echo "== sample =="
 # Printed before the delete, because the delete is what this run ends with.
 sed -n '1,12p' "$report"
