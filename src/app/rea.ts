@@ -72,7 +72,27 @@ export type AppSurface = {
   semantics: string
 }
 
-export type AppModule = { id: string; kind: string; label: string; artifact: string }
+/**
+ * One node of REA's graph, with the names it carries.
+ *
+ * `identity.key` is a location (`main:ana:49:0-49:59`) and is useless as a label;
+ * the name a reader wants is in `observations[].label` — `models:list` for a
+ * channel, `ana` for a bridge. A bridge also carries `properties.members`, which is
+ * the list of `settings.read` / `report.list` paths it exposes. Both were being
+ * dropped, which left the view saying "10 operations" instead of naming the ten.
+ */
+export type AppModule = {
+  id: string
+  kind: string
+  label: string
+  artifact: string
+  /** Every `observations[].label` on this node, deduplicated. */
+  labels: string[]
+  /** For a `context-bridge-api`: the member paths it exposes. */
+  members: string[]
+  /** For an `ipc-channel`: `invoke` / `send` / `on`, when REA recorded one. */
+  operation: string
+}
 
 export type AppRelation = { from: string; to: string; relation: string }
 
@@ -280,12 +300,38 @@ async function readGraph(evidencePath: string): Promise<
   const nodes = Array.isArray(graph['nodes']) ? (graph['nodes'] as Record<string, unknown>[]) : []
   const edges = Array.isArray(graph['edges']) ? (graph['edges'] as Record<string, unknown>[]) : []
 
-  const modules: AppModule[] = nodes.map((node) => ({
-    id: typeof node['node_id'] === 'string' ? node['node_id'] : '',
-    kind: typeof node['kind'] === 'string' ? node['kind'] : 'unknown',
-    label: labelOf(node),
-    artifact: artifactOf(node),
-  }))
+  const modules: AppModule[] = nodes.map((node) => {
+    const observations = Array.isArray(node['observations'])
+      ? (node['observations'] as Record<string, unknown>[])
+      : []
+    const labels: string[] = []
+    const members: string[] = []
+    let operation = ''
+    for (const observation of observations) {
+      if (typeof observation['label'] === 'string' && observation['label'] !== '') {
+        if (!labels.includes(observation['label'])) labels.push(observation['label'])
+      }
+      const properties = (observation['properties'] ?? {}) as Record<string, unknown>
+      if (operation === '' && typeof properties['operation'] === 'string') {
+        operation = properties['operation']
+      }
+      const observed = properties['members']
+      if (Array.isArray(observed)) {
+        for (const member of observed) {
+          if (typeof member === 'string' && !members.includes(member)) members.push(member)
+        }
+      }
+    }
+    return {
+      id: typeof node['node_id'] === 'string' ? node['node_id'] : '',
+      kind: typeof node['kind'] === 'string' ? node['kind'] : 'unknown',
+      label: labels[0] ?? labelOf(node),
+      artifact: artifactOf(node),
+      labels,
+      members,
+      operation,
+    }
+  })
   const relations: AppRelation[] = edges
     .map((edge) => ({
       from: typeof edge['source_node_id'] === 'string' ? edge['source_node_id'] : '',

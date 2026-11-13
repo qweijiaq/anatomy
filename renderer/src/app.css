@@ -1127,3 +1127,49 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* contextBridge 的成员列表：这是渲染进程真正能碰到的东西，必须逐个列出来，
+   不能只给一个数字。 */
+.bridge + .bridge {
+  margin-top: var(--space-3);
+}
+
+.bridge__name {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.chips--members,
+.chips--channels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 通道 chip 用等宽，和代码里的写法一致；操作类型放在右侧小一号。 */
+.chip--channel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+/* 没找到接收端的发送：只在全局存在未配对时提示，不假装每个都能判定。 */
+.chip--unpaired {
+  border-color: var(--warn, #8a5a12);
+  color: var(--warn, #8a5a12);
+}
+
+.chip__op {
+  color: var(--text-faint);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}

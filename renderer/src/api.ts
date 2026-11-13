@@ -88,7 +88,15 @@ export type AppSurvey = {
     parseFailures: number
   }
   limitations: string[]
-  modules: Array<{ id: string; kind: string; label: string; artifact: string }>
+  modules: Array<{
+    id: string
+    kind: string
+    label: string
+    artifact: string
+    labels: string[]
+    members: string[]
+    operation: string
+  }>
   relations: Array<{ from: string; to: string; relation: string }>
   graphOmitted: string
   evidenceFile: string

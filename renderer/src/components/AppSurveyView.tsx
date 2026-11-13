@@ -55,6 +55,8 @@ function groupBy<T>(items: T[], key: (item: T) => string): Array<[string, number
 
 export function AppSurveyView({ survey }: { survey: AppSurvey }): React.JSX.Element {
   const partial = survey.surface.semantics !== 'partial' && survey.surface.semantics !== 'complete'
+  const bridges = survey.modules.filter((module) => module.kind === 'context-bridge-api')
+  const channels = survey.modules.filter((module) => module.kind === 'ipc-channel')
 
   return (
     <section className="survey">
@@ -92,6 +94,60 @@ export function AppSurveyView({ survey }: { survey: AppSurvey }): React.JSX.Elem
               )
             })}
           </dl>
+        </section>
+
+        <section className="survey__block">
+          <h2 className="survey__h2">contextBridge 暴露了什么</h2>
+          {bridges.length === 0 ? (
+            <p className="survey__note">这次分析没有读到 contextBridge。</p>
+          ) : (
+            bridges.map((bridge) => (
+              <div className="bridge" key={bridge.id}>
+                <p className="bridge__name">
+                  渲染进程拿到 <code className="inline-code">{bridge.label}</code>
+                  {bridge.members.length > 0 && ` ，可以调用 ${bridge.members.length} 个成员`}
+                </p>
+                <ul className="chips chips--members">
+                  {bridge.members.map((member) => (
+                    <li className="chip" key={member}>
+                      {member}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))
+          )}
+        </section>
+
+        <section className="survey__block survey__block--wide">
+          <h2 className="survey__h2">
+            IPC 通道
+            <span className="survey__count">{channels.length}</span>
+          </h2>
+          <p className="survey__note">
+            通道名是字面量，所以能读出来。标红的是 REA 没找到确定接收端的——
+            没有接收端不等于没被处理，也不等于安全。
+          </p>
+          {channels.length === 0 ? (
+            <p className="survey__note">这次分析没有读到 IPC 通道。</p>
+          ) : (
+            <ul className="chips chips--channels">
+              {channels.map((channel) => (
+                <li
+                  className={`chip chip--channel ${
+                    survey.surface.ambiguousTransmissions > 0 ? 'chip--unpaired' : ''
+                  }`}
+                  key={channel.id}
+                  title={channel.operation === '' ? channel.id : `${channel.operation}`}
+                >
+                  {channel.label}
+                  {channel.operation !== '' && (
+                    <span className="chip__op">{channel.operation}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
 
         <section className="survey__block">
