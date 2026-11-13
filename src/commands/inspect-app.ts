@@ -34,6 +34,16 @@ Options:
   --out <dir>     Where the survey and the evidence file go (default: .ana/apps/<digest>)
   --json          Print the survey instead of the summary`
 
+export const APP_REPORT_USAGE = `Usage: ana app-report <survey-dir>
+
+Re-render the facts report of a reconstructed application from its survey.json.
+The directory is what \`ana inspect-app\` leaves under .ana/apps/.`
+
+export const APP_DIFF_USAGE = `Usage: ana app-diff <before-dir> <after-dir>
+
+Compare two surveys: what appeared, what disappeared, and what changed pairing.
+Both directories are what \`ana inspect-app\` leaves under .ana/apps/.`
+
 export type InspectAppArgs =
   | { help: true }
   | { help: false; target: string; out?: string; paths: string[]; json: boolean }

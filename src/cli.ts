@@ -26,6 +26,8 @@ import {
 } from './commands/scan.js'
 import { FORGET_USAGE, forget, parseForgetArgs } from './commands/forget.js'
 import {
+  APP_DIFF_USAGE,
+  APP_REPORT_USAGE,
   INSPECT_APP_USAGE,
   parseInspectAppArgs,
   runAppDiff,
@@ -320,6 +322,10 @@ export async function runCli(
       }
     }
     case 'app-diff': {
+      if (argv[1] === '--help' || argv[1] === '-h') {
+        io.out.write(`${APP_DIFF_USAGE}\n`)
+        return 0
+      }
       const before = argv[1]
       const after = argv[2]
       if (before === undefined || after === undefined) {
@@ -330,6 +336,10 @@ export async function runCli(
       return process.exitCode === 1 ? 1 : 0
     }
     case 'app-report': {
+      if (argv[1] === '--help' || argv[1] === '-h') {
+        io.out.write(`${APP_REPORT_USAGE}\n`)
+        return 0
+      }
       const name = argv[1]
       if (name === undefined) {
         io.err.write('ana: app-report 需要一个 survey 目录名\n')

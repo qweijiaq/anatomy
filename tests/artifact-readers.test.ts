@@ -129,3 +129,52 @@ describe('sub-structures', () => {
     expect(source, 'scope.files is no longer surfaced').toContain('scope?.files')
   })
 })
+
+describe('the command surface', () => {
+  /**
+   * Every command answers `--help`.
+   *
+   * Six of the eight did; `app-report` and `app-diff` treated the flag as a path
+   * and tried to open `-`. A command that exists but cannot explain itself is the
+   * kind of gap that never breaks a test and always wastes a user's minute.
+   */
+  it('documents all eight commands', () => {
+    const source = readFileSync(path.join(ROOT, 'src/cli.ts'), 'utf8')
+    const usage = /const USAGE = `([\s\S]*?)`/.exec(source)?.[1] ?? ''
+    for (const command of [
+      'scan',
+      'analyze',
+      'report',
+      'inspect',
+      'inspect-app',
+      'app-report',
+      'app-diff',
+      'forget',
+    ]) {
+      expect(usage, `${command} missing from the top-level usage`).toContain(`${command} `)
+    }
+  })
+
+  it('has a usage string for every command', () => {
+    // Static on purpose: the shape of the dispatch is not the thing under test, and
+    // an earlier version of this test matched braces and got the wrong answer.
+    // Every file under src/ that could declare one, so a new command in a new module
+    // is covered without editing this list.
+    const joined = sources()
+      .filter((file) => file.includes(`src${path.sep}`))
+      .map((file) => readFileSync(file, 'utf8'))
+      .join('\n')
+    for (const command of [
+      'scan',
+      'analyze',
+      'report',
+      'inspect',
+      'inspect-app',
+      'app-report',
+      'app-diff',
+      'forget',
+    ]) {
+      expect(joined, `${command} has no usage string`).toContain(`Usage: ana ${command}`)
+    }
+  })
+})
