@@ -22,17 +22,21 @@ Statically reconstruct a JavaScript/Electron application with REA — no source 
 no model called.
 
 Options:
+  --path <file>   Analyse only this inventoried path, relative to <dir>. Repeatable.
+                  A 9.7 MB bundle exhausts REA's worker heap and yields zero Electron
+                  facts; naming the 2 KB preload yields all of them in about a second.
   --out <dir>     Where the survey and the evidence file go (default: .ana/apps/<digest>)
   --json          Print the survey instead of the summary`
 
 export type InspectAppArgs =
   | { help: true }
-  | { help: false; target: string; out?: string; json: boolean }
+  | { help: false; target: string; out?: string; paths: string[]; json: boolean }
 
 class InspectAppUsageError extends Error {}
 
 export function parseInspectAppArgs(argv: string[]): InspectAppArgs {
   const positional: string[] = []
+  const paths: string[] = []
   let out: string | undefined
   let json = false
 
@@ -41,6 +45,13 @@ export function parseInspectAppArgs(argv: string[]): InspectAppArgs {
     if (token === '--help' || token === '-h') return { help: true }
     if (token === '--json') {
       json = true
+      continue
+    }
+    if (token === '--path') {
+      const value = argv[index + 1]
+      if (value === undefined) throw new InspectAppUsageError('--path 需要一个相对路径')
+      paths.push(value)
+      index += 1
       continue
     }
     if (token === '--out') {
@@ -55,7 +66,13 @@ export function parseInspectAppArgs(argv: string[]): InspectAppArgs {
   }
 
   if (positional.length !== 1) throw new InspectAppUsageError('需要一个应用目录')
-  return { help: false, target: positional[0] as string, ...(out === undefined ? {} : { out }), json }
+  return {
+    help: false,
+    target: positional[0] as string,
+    ...(out === undefined ? {} : { out }),
+    paths,
+    json,
+  }
 }
 
 /** A filesystem-safe directory name for one analysis. */
@@ -67,7 +84,10 @@ function slugOf(target: string, digest: string): string {
 function lines(survey: AppSurvey): string[] {
   const s = survey.surface
   const out: string[] = []
-  out.push(`${survey.name}  ${survey.format}  ${survey.digest}`)
+  const scope = survey.limitations.some((item) => item.includes('selected'))
+    ? '（部分选择）'
+    : ''
+  out.push(`${survey.name}  ${survey.format}  ${survey.digest}${scope}`)
   out.push(
     `  ${survey.statistics.relevantFiles} 个文件 / 解析 ${survey.statistics.parsedJavaScriptFiles} 个 JS / ` +
       `${survey.statistics.findings} 条事实`,
@@ -120,6 +140,7 @@ export async function runInspectApp(args: InspectAppArgs): Promise<void> {
   try {
     survey = await surveyApplication(target, {
       outputDir: outDir ?? path.join(process.cwd(), '.ana', 'apps', 'staging'),
+      sourcePaths: args.paths,
     })
   } catch (error) {
     if (error instanceof ReaUnavailableError) {

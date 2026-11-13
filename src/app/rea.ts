@@ -44,6 +44,9 @@ const run = promisify(execFile)
  */
 const MAX_PARSE_BYTES = 24 * 1024 * 1024
 
+/** Ceiling for the evidence document itself. One measured run produced 144 MB. */
+const MAX_EVIDENCE_BYTES = 512 * 1024 * 1024
+
 /** REA only ships as an ESM script; it needs a Node the package's engines field allows. */
 const MIN_NODE = { major: 22, minor: 23 } as const
 
@@ -192,33 +195,22 @@ export function reaLocation(): Promise<ReaLocation> {
   return cached
 }
 
-async function reaJson(location: ReaLocation, args: string[], timeoutMs: number): Promise<unknown> {
-  const { stdout } = await run(location.node, [location.entry, ...args], {
-    timeout: timeoutMs,
-    maxBuffer: 8 * 1024 * 1024,
-  })
-  return JSON.parse(stdout) as unknown
-}
-
 /**
- * One view of an evidence file, without reading the file.
+ * Run REA and parse its one JSON document.
  *
- * REA projects a named view from the fact store it already wrote. `summary` is the
- * cheap one and the only one this module needs: it holds the Electron counters and
- * is independent of how large the store is.
+ * `maxBuffer` is large because the document is: REA holds the whole analysis in
+ * memory before printing it, so a bundle that produces 144 MB produces 144 MB of
+ * stdout. Refusing it here would not save the memory — it would only move the
+ * failure to a less informative place.
  */
-async function projectSummary(
+async function reaJson(
   location: ReaLocation,
-  evidencePath: string,
-  tempDir: string,
-): Promise<Record<string, unknown>> {
-  const requestPath = path.join(tempDir, 'view.json')
-  await writeFile(
-    requestPath,
-    JSON.stringify({ source: { kind: 'evidence-file', path: evidencePath }, view: { kind: 'summary' } }),
-  )
-  const projected = await reaJson(location, ['inspect-analysis-view', requestPath, '--format', 'json'], 120_000)
-  return projected as Record<string, unknown>
+  args: string[],
+  timeoutMs: number,
+  maxBuffer = 8 * 1024 * 1024,
+): Promise<unknown> {
+  const { stdout } = await run(location.node, [location.entry, ...args], { timeout: timeoutMs, maxBuffer })
+  return JSON.parse(stdout) as unknown
 }
 
 function numberAt(source: unknown, key: string): number {
@@ -226,7 +218,7 @@ function numberAt(source: unknown, key: string): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0
 }
 
-function surfaceFrom(summary: Record<string, unknown>): AppSurface {
+export function surfaceFrom(summary: Record<string, unknown>): AppSurface {
   const ipc = (summary['ipc'] ?? {}) as Record<string, unknown>
   return {
     browserWindows: numberAt(summary, 'browser_windows'),
@@ -307,6 +299,17 @@ async function readGraph(evidencePath: string): Promise<
 export type SurveyOptions = {
   /** Where the untouched evidence file goes. */
   outputDir: string
+  /**
+   * Exact inventoried paths to analyse instead of everything.
+   *
+   * This is the difference between a usable command and an unusable one. On a
+   * 9.7 MB bundled main process, analysing everything exhausts REA's 1 GiB worker
+   * heap after two minutes and returns zero Electron facts; naming the 2 KB preload
+   * returns all of them in 1.2 seconds. The default stays "everything" because that
+   * is the honest default — but a caller who knows where the surface is should not
+   * have to pay for the parts they do not need.
+   */
+  sourcePaths?: string[]
   /** REA analyses a large app for minutes; this is the ceiling before we give up. */
   timeoutMs?: number
 }
@@ -325,23 +328,26 @@ export async function surveyApplication(
   await mkdir(options.outputDir, { recursive: true })
   const evidencePath = path.join(options.outputDir, 'rea-evidence.json')
 
+  const selection = (options.sourcePaths ?? []).flatMap((item) => ['--source-path', item])
   const evidence = (await reaJson(
     location,
-    ['analyze-javascript-application', target, '--json'],
+    ['analyze-javascript-application', target, ...selection, '--json'],
     options.timeoutMs ?? 15 * 60_000,
+    MAX_EVIDENCE_BYTES,
   )) as Record<string, unknown>
 
   // Written before anything is read back: the file is the record, and a crash below
   // must not lose an analysis that took minutes.
   await writeFile(evidencePath, JSON.stringify(evidence))
 
-  const projected = await projectSummary(location, evidencePath, options.outputDir)
-  const normalized = (projected['normalized_result'] ?? {}) as Record<string, unknown>
-  const summary = (normalized['summary'] ?? {}) as Record<string, unknown>
-  const view = (normalized['view'] ?? {}) as Record<string, unknown>
-  const artifact = (view['artifact'] ?? normalized['artifact'] ?? {}) as Record<string, unknown>
-
+  // Read the small parts out of the document we already hold. An earlier version
+  // re-projected them through `inspect-analysis-view` to avoid touching the file,
+  // but the projection reports zeros for the Electron counters — the evidence says
+  // `context_bridge_apis: 1, exposed_api_members: 15` and the projection said 0/0 —
+  // and the parse it was avoiding had already happened, because stdout is the
+  // document. One source of truth beats two.
   const parent = (evidence['normalized_result'] ?? {}) as Record<string, unknown>
+  const summary = (parent['summary'] ?? {}) as Record<string, unknown>
   const statistics = (parent['statistics'] ?? {}) as Record<string, unknown>
 
   const graph = await readGraph(evidencePath)
