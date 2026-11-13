@@ -16,10 +16,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   api,
   bridgeAvailable,
+  type AppSurvey,
   type Progress,
   type ReportSummary,
   type SettingsView,
 } from './api.js'
+import { AppSurveyView } from './components/AppSurveyView.js'
 import { ReportView } from './components/ReportView.js'
 import { SettingsPanel } from './components/SettingsPanel.js'
 import { providerOf } from './providers.js'
@@ -118,6 +120,9 @@ export function App(): React.JSX.Element {
   const [error, setError] = useState('')
   // 历史报告：磁盘上已经跑完的 run。读盘比缓存可靠——刚跑完的那次必须立刻出现。
   const [history, setHistory] = useState<ReportSummary[]>([])
+  // 重建过的应用（走 CLI 的 inspect-app）。界面只读，不触发分析。
+  const [surveys, setSurveys] = useState<AppSurvey[]>([])
+  const [surveyOpen, setSurveyOpen] = useState(false)
 
   useEffect(() => {
     if (!bridgeAvailable()) return
@@ -150,6 +155,18 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     void refreshHistory()
   }, [refreshHistory])
+
+  useEffect(() => {
+    if (!bridgeAvailable()) return
+    void api()
+      .surveys.list()
+      .then((result) => {
+        if (result.ok && Array.isArray(result.surveys)) setSurveys(result.surveys)
+      })
+      .catch(() => {
+        // A missing directory is not an error: nothing has been reconstructed yet.
+      })
+  }, [])
 
   /** 打开一份旧报告：走和刚跑完完全相同的渲染路径。 */
   const openReport = useCallback(async (id: string): Promise<void> => {
@@ -224,6 +241,16 @@ export function App(): React.JSX.Element {
           <span className="topbar__tag">拆解一个项目，找出值得学的地方</span>
         </div>
         <div className="topbar__right">
+          {surveys.length > 0 && (
+            <button
+              className={`btn btn--ghost btn--sm ${surveyOpen ? 'btn--on' : ''}`}
+              type="button"
+              onClick={() => setSurveyOpen((current) => !current)}
+              title="REA 重建过的应用"
+            >
+              应用 · {surveys.length}
+            </button>
+          )}
           {settings !== null && (
             <button className="btn btn--ghost btn--sm" type="button" onClick={() => setSettingsOpen(true)}>
               {providerLabel} · {settings.model}
@@ -233,8 +260,14 @@ export function App(): React.JSX.Element {
         </div>
       </header>
 
-      <main className={markdown === '' ? 'main main--intro' : 'main main--report'}>
-        {markdown === '' ? (
+      <main
+        className={
+          surveyOpen ? 'main main--intro' : markdown === '' ? 'main main--intro' : 'main main--report'
+        }
+      >
+        {surveyOpen ? (
+          <AppSurveyView survey={surveys[0] as AppSurvey} />
+        ) : markdown === '' ? (
           <section className="intro">
             <h1 className="intro__title">
               给一个仓库地址，

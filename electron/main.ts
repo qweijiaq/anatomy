@@ -13,7 +13,7 @@
  */
 
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from 'electron'
-import { readdir } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -296,6 +296,36 @@ ipcMain.handle('report:read', async (_event, runId: unknown) => {
     }
     return { ok: false, message: error instanceof Error ? error.message : String(error) }
   }
+})
+
+// --- application surveys ----------------------------------------------------
+//
+// `ana inspect-app` does the slow part — minutes of REA work over a bundle — and
+// leaves a `survey.json` beside the evidence file. The window only reads those.
+// Rendering on demand instead of analysing here is deliberate: a six-minute
+// analysis behind a button needs cancellation, progress and a kill switch, and none
+// of that belongs in a viewer.
+
+ipcMain.handle('surveys:list', async () => {
+  const baseDir = path.resolve(process.cwd(), '.ana', 'apps')
+  let entries: string[]
+  try {
+    entries = await readdir(baseDir)
+  } catch {
+    return { ok: true, surveys: [] }
+  }
+
+  const surveys: unknown[] = []
+  for (const entry of entries) {
+    const file = path.join(baseDir, entry, 'survey.json')
+    try {
+      const parsed: unknown = JSON.parse(await readFile(file, 'utf8'))
+      if (typeof parsed === 'object' && parsed !== null) surveys.push(parsed)
+    } catch {
+      // A half-written survey is not a survey; skip it rather than fail the list.
+    }
+  }
+  return { ok: true, surveys }
 })
 
 // --- model discovery --------------------------------------------------------

@@ -42,6 +42,10 @@ const api = {
     // 问端点要它能提供的模型，比内置一份会过期的列表可靠。
     list: () => ipcRenderer.invoke('models:list'),
   },
+  surveys: {
+    // 已经重建过的应用。生成走 CLI 的 inspect-app，界面只负责看。
+    list: () => ipcRenderer.invoke('surveys:list'),
+  },
   app: {
     info: () => ipcRenderer.invoke('app:info'),
     // 目录选择：只回传路径，不让渲染进程接触文件系统本身。

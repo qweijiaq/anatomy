@@ -54,6 +54,46 @@ export type RunResult =
   | { ok: true; runId: string; reportPath: string; markdown: string }
   | { ok: false; message: string }
 
+/** One application reconstructed by REA — the shape `ana inspect-app` writes. */
+export type AppSurvey = {
+  evidenceId: string
+  confidence: string
+  authority: string
+  target: string
+  name: string
+  format: string
+  digest: string
+  surface: {
+    browserWindows: number
+    preloadEntrypoints: number
+    contextBridgeApis: number
+    exposedApiMembers: number
+    ipcOperations: number
+    ipcLiteralChannels: number
+    ipcMainHandlers: number
+    rendererTransmissions: number
+    rendererListeners: number
+    ambiguousTransmissions: number
+    senderValidationObservations: number
+    nativeAddonBindings: number
+    protocolRegistrations: number
+    semantics: string
+  }
+  statistics: {
+    relevantFiles: number
+    parsedJavaScriptFiles: number
+    visitedAstNodes: number
+    findings: number
+    textBytesRead: number
+    parseFailures: number
+  }
+  limitations: string[]
+  modules: Array<{ id: string; kind: string; label: string; artifact: string }>
+  relations: Array<{ from: string; to: string; relation: string }>
+  graphOmitted: string
+  evidenceFile: string
+}
+
 export type Progress = {
   phase: string
   detail?: string
@@ -87,6 +127,9 @@ type AnaBridge = {
   }
   models: {
     list(): Promise<{ ok: boolean; models?: Array<{ id: string; ownedBy?: string }>; message?: string }>
+  }
+  surveys: {
+    list(): Promise<{ ok: boolean; surveys?: AppSurvey[]; message?: string }>
   }
   app: {
     info(): Promise<{ version: string; hasKey: boolean }>
