@@ -1,7 +1,14 @@
-# SDD ledger — plan: /Users/weijia/Desktop/anatomy/docs/superpowers/plans/2026-11-12-anatomy-mvp.md
+# SDD ledger — plan: docs/superpowers/plans/2026-11-12-anatomy-mvp.md
+
+> **关于本目录的 27 个 per-task 文件。** 构建期间每个任务都有一份 `task-N-brief.md`
+> 与 `task-N-report.md`，共 165KB。它们是过程文档，不是产品文档——逐份内容彼此高度相似，
+> 读者从头看只会得到「这件事分成了 14 步」。已从仓库移除，内容由本文件逐条概括。
+> 需要原文时从 git 历史取：`git log --diff-filter=D -- 'docs/superpowers/sdd/task-*'`。
+
+
 
 Branch: mvp (base 36f5cac, docs only)
-Spec: /Users/weijia/Desktop/anatomy/docs/superpowers/specs/2026-11-12-anatomy-design.md (read, present)
+Spec: docs/superpowers/specs/2026-11-12-anatomy-design.md (read, present)
 
 ## Pre-flight scan
 
