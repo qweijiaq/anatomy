@@ -18,7 +18,7 @@
  * this file formats them and never recomputes them.
  */
 
-import type { ReportInput } from '../contracts/types.js'
+import type { ReportInput, SymbolRef } from '../contracts/types.js'
 import type { ReportDocument, ReportPoint } from './json.js'
 import { buildReport } from './json.js'
 
@@ -338,10 +338,34 @@ function tail(doc: ReportDocument): string {
  * So this appendix inverts the emphasis: the prose above is what the model gave
  * you, this is what the machine found. Neither is verification of the other.
  */
+/**
+ * The nearest declaration at or above a line, in the same file.
+ *
+ * `structure.symbols` was computed on every run and read by nothing: 180 entries
+ * written to disk and never opened. A line number is where a reader has to start
+ * scrolling; the name of the function it sits in is where they start reading. This
+ * is the whole value of that index, and it costs one lookup per candidate.
+ */
+function enclosingSymbol(
+  symbols: readonly SymbolRef[],
+  path: string,
+  line: number,
+): SymbolRef | null {
+  let best: SymbolRef | null = null
+  for (const symbol of symbols) {
+    if (symbol.path !== path) continue
+    if (symbol.line > line) continue
+    // The closest declaration above wins: a method beats its class.
+    if (best === null || symbol.line > best.line) best = symbol
+  }
+  return best
+}
+
 function appendix(input: ReportInput): string {
   const sections: string[] = []
   const candidates = Array.isArray(input.candidates) ? input.candidates : []
   const structure = input.structure
+  const symbols = Array.isArray(structure?.symbols) ? (structure?.symbols ?? []) : []
 
   if (candidates.length > 0) {
     const sorted = [...candidates].sort(
@@ -356,13 +380,22 @@ function appendix(input: ReportInput): string {
         '它只说明这里同时符合几条启发式，不说明这里一定值得学。',
     )
     sections.push('')
-    sections.push('| 位置 | 类型 | 分 | 命中的规则 |')
-    sections.push('| --- | --- | --- | --- |')
+    // The column only exists when the index did. Without symbols an empty column
+    // would suggest nothing is declared there, which is a different statement.
+    const withSymbol = symbols.length > 0
+    sections.push(
+      withSymbol ? '| 位置 | 所在声明 | 类型 | 分 | 命中的规则 |' : '| 位置 | 类型 | 分 | 命中的规则 |',
+    )
+    sections.push(withSymbol ? '| --- | --- | --- | --- | --- |' : '| --- | --- | --- | --- |')
     for (const candidate of shown) {
       const matched = candidate.matched.map((item) => prose(item)).join('、')
+      const location = inlineCode(`${candidate.path}:${candidate.line}`)
+      const symbol = withSymbol ? enclosingSymbol(symbols, candidate.path, candidate.line) : null
+      const where = symbol === null ? '—' : `${inlineCode(symbol.name)}（${prose(symbol.kind)}）`
       sections.push(
-        `| ${inlineCode(`${candidate.path}:${candidate.line}`)} | ${prose(candidate.kind)} | ` +
-          `${candidate.score} | ${matched} |`,
+        withSymbol
+          ? `| ${location} | ${where} | ${prose(candidate.kind)} | ${candidate.score} | ${matched} |`
+          : `| ${location} | ${prose(candidate.kind)} | ${candidate.score} | ${matched} |`,
       )
     }
     sections.push('')
@@ -426,11 +459,46 @@ function appendix(input: ReportInput): string {
     sections.push('')
   }
 
+  // `scope.files` holds every analysed file with its size and line count, and the
+  // report used to print the totals only — "26 个文件" with no way to ask which
+  // one was the biggest. Where the mass sits is the first thing a reader orienting
+  // in an unfamiliar repository wants.
+  const files = Array.isArray(input.scope?.files) ? input.scope.files : []
+  if (files.length > 1) {
+    const largest = [...files]
+      .sort((a, b) => b.lines - a.lines || a.path.localeCompare(b.path))
+      .slice(0, APPENDIX_FILES)
+    const share = (lines: number): string => {
+      const total = input.scope.totals.lines
+      return total > 0 ? `${Math.round((lines / total) * 100)}%` : '—'
+    }
+
+    sections.push('## 代码集中在哪')
+    sections.push('')
+    sections.push(`按行数排的前 ${largest.length} 个文件（共 ${files.length} 个）：`)
+    sections.push('')
+    sections.push('| 文件 | 行 | 字节 | 占全部行数 |')
+    sections.push('| --- | --- | --- | --- |')
+    for (const file of largest) {
+      sections.push(
+        `| ${inlineCode(file.path)} | ${file.lines} | ${file.bytes} | ${share(file.lines)} |`,
+      )
+    }
+    sections.push('')
+    sections.push(
+      '行数是文件的物理行数，包含空行和注释——它衡量的是「要翻多久」，不是「逻辑有多重」。',
+    )
+    sections.push('')
+  }
+
   return sections.join('\n')
 }
 
 /** How many candidates the appendix prints. Enough to browse, few enough to read. */
 const APPENDIX_CANDIDATES = 20
+
+/** How many files the size table prints. */
+const APPENDIX_FILES = 10
 
 export function renderMarkdown(input: ReportInput): string {
   const doc = buildReport(input)
