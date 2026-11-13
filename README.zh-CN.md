@@ -30,7 +30,11 @@ npm run verify        # 末行应为 VERIFY: PASS
 ## 桌面应用
 
 ```bash
-npm run build:desktop && npm run start:desktop
+npm run start:desktop          # 构建载荷并开窗口
+
+npm run build:desktop          # 只构建载荷（dist-electron + dist-renderer）
+npm run build:bundle           # 组装 out/anatomy.app（233MB 的运行时副本）
+npm run clean                 # 清掉全部构建产物
 ```
 
 窗口里填一个仓库地址就能跑分析，模型 Key 在应用内配置（加密存在本机，

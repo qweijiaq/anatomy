@@ -101,5 +101,6 @@ scripts/build-electron.mjs  esbuild 打包 main 与 preload，并复制 Python s
 
 - 窗口里不能直接跑 `ana scan`（命令行有）
 - 没有逐条证据的 `ana inspect` 交互
-- 没有打包成 .dmg 分发（`electron-builder` 未接入；本地用 `scripts/build-app-bundle.mjs`
-  组装 `out/anatomy.app`）
+- 没有打包成 .dmg 分发（`electron-builder` 未接入）。本地要一个能双击的 app 用
+  `npm run build:desktop && npm run build:bundle`，产物在 `out/anatomy.app`（约 233MB，
+  是 Electron 运行时的副本，已在 .gitignore 里）。`npm run clean` 可以清掉它。

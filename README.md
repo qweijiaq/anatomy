@@ -32,7 +32,11 @@ exit.
 ## Desktop app
 
 ```bash
-npm run build:desktop && npm run start:desktop
+npm run start:desktop          # build the payload and open the window
+
+npm run build:desktop          # payload only (dist-electron + dist-renderer)
+npm run build:bundle           # assemble out/anatomy.app, a 233 MB runtime copy
+npm run clean                 # remove every build artefact
 ```
 
 Paste a repository URL into the window and the analysis runs. The model key is configured inside the app and encrypted on the machine (the renderer never sees it). The provider presets are the same set as reading-notes, including Anthropic's native protocol. Details in [docs/desktop.md](docs/desktop.md).
