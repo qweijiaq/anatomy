@@ -129,14 +129,18 @@ describe('runScan', () => {
     expect(rows.some((row) => row.includes('vendor/'))).toBe(false)
   })
 
-  it('mints the same run id for the same tree', async () => {
+  it('mints a fresh run id for the same tree, so no report overwrites another', async () => {
     const out = await temporaryDir('ana-scan-')
     const cap = capture()
 
     const first = await runScan(fixtureRepo, { out, topK: 5 }, cap.io)
     const second = await runScan(fixtureRepo, { out, topK: 5 }, cap.io)
 
-    expect(second.runId).toBe(first.runId)
+    // A stable id meant the second scan reopened the first directory and erased
+    // its report; the tree digest is still in the manifest for anyone who needs
+    // to group runs of one commit.
+    expect(second.runId).not.toBe(first.runId)
+    expect(await readdir(out)).toHaveLength(2)
   })
 })
 
@@ -404,47 +408,22 @@ describe('scanRepo', () => {
     expect(existsSync(path.join(out, runId as string, 'tree'))).toBe(false)
   })
 
-  it('marks a re-scan failed when it overwrote only part of an earlier run', async () => {
+  it('leaves an earlier run untouched when a later scan of the same tree fails', async () => {
     const out = await temporaryDir('ana-scan-')
     const first = await scanRepo(fixtureRepo, { baseDir: out, topK: 5 })
     const completed = await artifact<RunManifest>(out, first.runId, 'manifest')
     expect(completed.status).toBe('complete')
 
-    // Occupy the candidates path with a directory: the second scan reopens the
-    // same run id, then fails on its last artifact — after scope, profile and
-    // structure were already replaced.
+    // With a per-invocation run id the second scan gets its own directory, so a
+    // failure there can no longer tear a hole in an earlier run. That is the
+    // property this test now guards: unique ids made the old partial-overwrite
+    // failure mode impossible, not merely better handled.
     const blocked = path.join(out, first.runId, 'candidates.json')
     await rm(blocked, { force: true })
     await mkdir(blocked)
 
-    // The stage error itself surfaces; the manifest is what reports the outcome.
-    await expect(scanRepo(fixtureRepo, { baseDir: out, topK: 5 })).rejects.toThrow(
-      /EISDIR|ENOTDIR|EEXIST/,
-    )
-
-    // scope/profile/structure are this scan's, candidates is the last good one:
-    // no single run describes that directory, so the manifest must not claim one.
-    const manifest = await artifact<RunManifest>(out, first.runId, 'manifest')
-    expect(manifest.status).toBe('failed')
-    expect(manifest.completedAt).toBeUndefined()
-    expect(manifest.startedAt >= completed.startedAt).toBe(true)
-  })
-
-  it('keeps an earlier complete run complete when a re-scan wrote nothing', async () => {
-    const out = await temporaryDir('ana-scan-')
-    const first = await scanRepo(fixtureRepo, { baseDir: out, topK: 5 })
-    const completed = await artifact<RunManifest>(out, first.runId, 'manifest')
-
-    // The first artifact write fails, so every file of the earlier run is still
-    // on disk and its manifest is still the truth about them.
-    const blocked = path.join(out, first.runId, 'scope.json')
-    await rm(blocked, { force: true })
-    await mkdir(blocked)
-
-    await expect(scanRepo(fixtureRepo, { baseDir: out, topK: 5 })).rejects.toThrow(
-      /earlier complete result/,
-    )
-
+    const second = await scanRepo(fixtureRepo, { baseDir: out, topK: 5 })
+    expect(second.runId).not.toBe(first.runId)
     expect(await artifact<RunManifest>(out, first.runId, 'manifest')).toStrictEqual(completed)
   })
 

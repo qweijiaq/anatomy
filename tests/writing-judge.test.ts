@@ -526,7 +526,8 @@ describe('judgeCandidates', () => {
 
     expect(client.calls).toHaveLength(1)
     expect(judged.points).toEqual([])
-    expect(judged.skipped[0]?.reason).toMatch(/no learning point/)
+    // The reason is reader-facing prose — it lands in the report's "没看的部分".
+    expect(judged.skipped[0]?.reason).toMatch(/没有找到可迁移的决策/)
   })
 
   it('accepts the repair after one bad shape', async () => {

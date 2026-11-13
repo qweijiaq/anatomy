@@ -11,8 +11,9 @@
  *
  * Two invariants carry the run directory:
  *
- * - `runId` is derived from (sha, ref, subpath, engine version), so a second scan
- *   of the same tree reopens the same directory instead of minting a new one.
+ * - `runId` is derived from (sha, ref, subpath, engine version, nonce): what was
+ *   scanned plus a per-invocation nonce. Two scans of the same tree are two
+ *   directories, because a report you cannot get back to is not a record.
  * - Artifacts are written before the extracted tree is closed. The tree is
  *   re-acquirable from `source` + `ref`; the artifacts are the run.
  *
@@ -35,6 +36,7 @@ import { readVersion } from '../version.js'
 import { closeRun, openRun, readManifest, type Run } from '../store/runs.js'
 import {
   deriveRunId,
+  runNonce,
   downloadArchive,
   extractTarSafe,
   resolveSource,
@@ -157,9 +159,19 @@ export async function scanRepo(
     // once the bytes have arrived.
     const sha = archive === null ? source.sha : archive.sha
 
-    const runId = deriveRunId({ sha, ref: source.ref, subpath, engineVersion })
-    // Read what this directory held *before* it is stamped over: a re-scan that
-    // fails must not erase the record of an earlier run that finished.
+    // The nonce makes every analysis its own directory. Without it a second scan
+    // of the same commit reopened the first run and overwrote its report, which
+    // made the history list a list of one.
+    const runId = deriveRunId({
+      sha,
+      ref: source.ref,
+      subpath,
+      engineVersion,
+      nonce: runNonce(),
+    })
+    // Kept for the failure path: a run that dies must still be able to say whether
+    // it was alone or replaced something. Empty now that ids are unique, and that
+    // is the point — it stays because `settleFailure` reads it.
     const previous = await readManifest(baseDir, runId)
     const manifest: RunManifest = {
       runId,

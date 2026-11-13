@@ -101,6 +101,15 @@ export type AnalyzeOptions = {
   apiKey?: string
   /** How many candidates the scan may produce. */
   top?: number
+  /**
+   * How many points the report's top list may hold. Defaults to five.
+   *
+   * Kept separate from `top`: the scan collects candidates to choose between, and
+   * this is how many of them the reader wants written up. One number cannot serve
+   * both — a scan of eight that may report only five is the shape that made a good
+   * candidate set look like a thin report.
+   */
+  reportPoints?: number
   /** Per-request token budget, before `clampBudget` narrows it to the model. */
   budget?: number
   /** Prompt language; `zh` is the shipped default. */
@@ -112,6 +121,11 @@ export type AnalyzeOptions = {
   /** Injected client, so tests (and a caller with its own gateway) skip the network. */
   client?: ModelClient
   /**
+   * Progress for a UI. Everything here is advisory: a stage that never fires it
+   * still produces the same report, so a dropped callback cannot change output.
+   */
+  onStage?: (stage: AnalyzeStage) => void
+  /**
    * Injected acquisition dependencies, so tests never touch the network.
    *
    * The task brief calls this `AcquisitionDeps`; the kernel exports it as
@@ -121,6 +135,19 @@ export type AnalyzeOptions = {
 }
 
 export type AnalyzeResult = { runId: string; reportPath: string }
+
+/**
+ * Where an analysis currently is.
+ *
+ * `done`/`total` are set on the two stages that take one model call per item, so
+ * a caller can show a bar rather than a spinner that never moves.
+ */
+export type AnalyzeStage = {
+  stage: 'acquire' | 'judge' | 'rank' | 'synthesise' | 'report'
+  detail?: string
+  done?: number
+  total?: number
+}
 
 /**
  * One thing the run did not look at, or looked at and could not use.
@@ -195,9 +222,22 @@ function locationOf(candidate: { path: string; line: number }): string {
   return `${candidate.path}:${candidate.line}`
 }
 
-/** What the synthesis stage actually did, in one line the reader can check. */
-function synthesisGap(synthesis: Synthesis, renderable: number): string {
-  return `synthesis chose ${synthesis.topFive.length} of ${renderable} rendered points`
+/**
+ * What the synthesis stage did, phrased for the reader rather than for a log.
+ *
+ * The count is diagnostic: it says how many of the verified points survived the
+ * ranking. What the reader can act on is *which* ones were left out, so the
+ * titles go in — those are the search keys they would use to find the code.
+ */
+function synthesisGap(synthesis: Synthesis, rendered: LearningPoint[]): string {
+  const shown = synthesis.topFive.length
+  const total = rendered.length
+  if (shown >= total) return `全部 ${total} 个已核实的点都写进了报告。`
+
+  const chosen = new Set(synthesis.topFive)
+  const left = rendered.map((point) => point.title).filter((title) => !chosen.has(title))
+  const head = `报告正文写了 ${shown} 个点，另有 ${left.length} 个已核实但没有写进正文`
+  return left.length === 0 ? `${head}。` : `${head}：${left.join('；')}。`
 }
 
 /** The gap recorded when the last stage fails after every judge call succeeded. */
@@ -362,6 +402,7 @@ export async function runAnalyze(
   // The two things the run cannot do without are settled before it acquires
   // anything: a caller with no key, or a model whose budget cannot be clamped,
   // learns it without paying for a download and an extraction first.
+  opts.onStage?.({ stage: 'acquire', detail: input })
   if (opts.client === undefined) requireApiKey(opts.apiKey)
   const client = opts.client ?? createModelClient({ model, apiKey: opts.apiKey })
   const budget = clampBudget(opts.budget ?? DEFAULT_BUDGET_TOKENS, model)
@@ -401,6 +442,7 @@ export async function runAnalyze(
     const affordable = new Set<Candidate>(fitted.kept)
     const cut = scanned.candidates.filter((candidate) => !affordable.has(candidate))
 
+    opts.onStage?.({ stage: 'judge', done: 0, total: fitted.kept.length })
     const judged = await judgeCandidates({
       client,
       root: scanned.root,
@@ -408,11 +450,13 @@ export async function runAnalyze(
       scope: scanned.scope,
       lang,
       runId: scanned.runId,
+      onCandidate: (done, total, path) => opts.onStage?.({ stage: 'judge', done, total, detail: path }),
       // The budget already decided how many candidates there are; the judge must
       // not add a second, invisible cut on top of it.
       limit: fitted.kept.length,
     })
 
+    opts.onStage?.({ stage: 'rank', detail: `${judged.points.length} 个点已取证` })
     // Ranked after validation, so a point whose evidence was thrown away cannot
     // take a top-five slot from a point that has some.
     const points = rankPoints(judged.points, fitted.kept)
@@ -450,6 +494,10 @@ export async function runAnalyze(
 
     let synthesis: Synthesis
     let synthesisFailure = ''
+    opts.onStage?.({
+      stage: 'synthesise',
+      detail: `${renderedPoints.length} 个点已核实，从中挑最值得学的`,
+    })
     try {
       synthesis = await synthesize({
         client,
@@ -457,6 +505,7 @@ export async function runAnalyze(
         structure: scanned.structure,
         titles: renderedPoints.map((point) => point.title),
         lang,
+        maxPoints: opts.reportPoints,
       })
     } catch (error) {
       // A transport failure here is not worth the run. What the model would have
@@ -477,7 +526,7 @@ export async function runAnalyze(
         line: 0,
         reason: redactReason(
           synthesisFailure === ''
-            ? synthesisGap(synthesis, renderedPoints.length)
+            ? synthesisGap(synthesis, renderedPoints)
             : synthesisFailure,
         ),
       },

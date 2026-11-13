@@ -141,7 +141,8 @@ ${JSON.stringify(POINT_SCHEMA)}
 3. 标记为 elided（已省略）的区间绝对不能引用，也不能当作证据。
 4. 代码永远保留原文；title、problem、mechanism、tradeoffs 等解释用简体中文。
 5. 证据支持到什么程度就写什么程度：只看到一两行就只引用一两行。证据不足时 confidence 用 medium 或 low，并把缺口写进 unknowns；不要为了显得确定而写 high。
-6. 不要复述整个文件，只讲这个候选点本身。`
+6. 不要复述整个文件，只讲这个候选点本身。
+7. unknowns 写的是「读者该去哪里看什么」，不是「我没看到」。每条都要给出可执行的下一步：具体到调用点、路由注册处、配置项或文件。"调用点未展示"不合格；"想看配额是否合理，去看 createRateLimiter 在哪里被调用、limit 传了什么"合格。不要用"切片未展示""未被展示""不在视野内"这类描述你自身输入状态的措辞——读者不关心你看到了什么，只关心他自己该看什么。`
 
 const SYSTEM_EN = `You are the reader for anatomy. The input is one candidate signal (path, line, signal kind) and a few code slices.
 Decide whether the code contains a transferable engineering decision, and if so write it as one LearningPoint.
@@ -157,7 +158,8 @@ Hard rules:
 3. Ranges marked elided are unreadable. Never cite them and never use them as evidence.
 4. Code stays in its original language; explanations are in English.
 5. Claim only what the evidence supports: cite one or two lines when that is all you saw. If evidence is thin, use medium or low confidence and say what is missing in unknowns; never write high to sound certain.
-6. Do not restate the whole file. Talk about this candidate only.`
+6. Do not restate the whole file. Talk about this candidate only.
+7. Each unknowns entry tells the reader where to look next — a call site, a route registration, a config key, a file. Give an actionable next step, not a report on your own input. "Call sites not shown" is unacceptable; "to judge whether the quota is sane, read where createRateLimiter is called and what limit it passes" is acceptable. Never write "not shown in the slice", "not visible", or similar phrases about your own visibility: the reader wants to know what to read, not what you were given.`
 
 export function systemPrompt(lang: Lang): string {
   return lang === 'en' ? SYSTEM_EN : SYSTEM_ZH

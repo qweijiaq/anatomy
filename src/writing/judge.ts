@@ -93,6 +93,14 @@ export type JudgeDeps = {
    * here would stamp every id in every report with a run that never happened.
    */
   runId: string
+  /**
+   * Called before each candidate is judged, with how far along the queue is.
+   *
+   * Judging is the long stage — one model call per candidate, minutes of wall
+   * clock — and without this the UI can only say "分析中", which is
+   * indistinguishable from a hang.
+   */
+  onCandidate?: (done: number, total: number, path: string) => void
 }
 
 // --- prompt ---------------------------------------------------------------
@@ -633,7 +641,10 @@ export async function judgeCandidates(deps: JudgeDeps): Promise<JudgeResult> {
 
   const ctx = await createContext(deps.root, deps.scope)
 
+  let judgedCount = 0
   for (const candidate of queue) {
+    deps.onCandidate?.(judgedCount, queue.length, candidate.path)
+    judgedCount += 1
     const relative = repoRelative(ctx.root, candidate.path)
     if (relative === null) {
       skipped.push({
@@ -722,7 +733,7 @@ export async function judgeCandidates(deps: JudgeDeps): Promise<JudgeResult> {
         continue
       }
       if (reply.value['skip'] === true) {
-        skipReason = 'model reported no learning point'
+        skipReason = '这段代码里没有找到可迁移的决策'
         break
       }
 

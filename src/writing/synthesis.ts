@@ -57,7 +57,16 @@ function isEmptyReply(error: ModelReplyError): boolean {
 
 /** Fewer surviving titles than this means the reply did not do the task. */
 const MIN_TOP_FIVE = 3
-const MAX_TOP_FIVE = 5
+/**
+ * The default cap on the report's top list.
+ *
+ * Five was a product decision made when the kernel produced one kind of candidate
+ * and most of them were long functions. Now that a scan can surface security rules,
+ * constraints and idioms, five is the number that makes a good scan look thin. The
+ * cap is a parameter; this is only what a caller gets when it does not care.
+ */
+const DEFAULT_MAX_POINTS = 5
+const MAX_MAX_POINTS = 12
 const MAX_REASON_CHARS = 200
 
 const SYNTHESIS_SCHEMA = {
@@ -79,6 +88,14 @@ export type SynthesisDeps = {
   titles: string[]
   /** Output language; `zh` is the shipped default. */
   lang?: Lang
+  /**
+   * How many points the top list may hold. Clamped to 1..12.
+   *
+   * The report is not allowed to be shorter than the reader asked for *nor* longer
+   * than the candidates can support: a caller that passes 10 with 6 verified points
+   * gets 6, because inventing four would be worse than a short list.
+   */
+  maxPoints?: number
 }
 
 export type StructureSummary = {
@@ -137,8 +154,8 @@ export function summarizeStructure(
 
 // --- prompt ---------------------------------------------------------------
 
-const SYSTEM_ZH = `你是 anatomy 的综述器。输入只有三样东西：仓库画像、模块图摘要、以及已经核对过的学习点标题。
-任务：用一段话说明这个仓库是做什么的、为什么它值得读；并从给定标题中挑出最值得学习的五条。
+const systemZh = (maxPoints: number): string => `你是 anatomy 的综述器。输入只有三样东西：仓库画像、模块图摘要、以及已经核对过的学习点标题。
+任务：用一段话说明这个仓库是做什么的、为什么它值得读；并从给定标题中挑出最值得学习的 ${maxPoints} 条。
 
 只输出一个 JSON 对象：不要 Markdown 代码围栏，不要任何解释文字。
 输出形状：{"problem": string, "topFive": string[]}
@@ -146,11 +163,16 @@ const SYSTEM_ZH = `你是 anatomy 的综述器。输入只有三样东西：仓�
 硬性规则：
 1. 输出语言必须是简体中文。
 2. topFive 的每一项必须从"学习点标题"里逐字复制：不得改写、不得翻译、不得截断、不得自己编造标题。
-3. topFive 最多五条，按"最值得学"排序。宁少勿滥：三条好过五条凑数。
-4. 你看不到代码，只有画像、摘要和标题。不要描述具体实现，不要引用代码，也不要在 problem 里写任何不出现在这些标题里的结论。`
+3. topFive 最多 ${maxPoints} 条，按"最值得学"排序。宁少勿滥：三条好过凑数。
+4. 你看不到代码，只有画像、摘要和标题。不要描述具体实现，不要引用代码，也不要在 problem 里写任何不出现在这些标题里的结论。
+5. problem 是给读者的开场，不是标签。只写一句"是什么"不合格，必须让读者读完就知道这个仓库解决了什么具体问题、它的工程难点落在哪。写 80–200 字，按这个顺序组织，不要分点、不要小标题，连成一段话：
+   - 它是什么：什么类型的项目、大概什么规模、用什么写的（依据画像和摘要里的数字，可以说"约 8000 行 mjs"这种，不要编造数字）；
+   - 难在哪：从给定的学习点标题反推出它真正吃力的地方——是并发、是内存回收、是外部输入不可信、是长期演进，挑一两个真实的矛盾说；
+   - 为什么值得读：这些难点的解法能迁移到读者自己的什么东西上。
+   禁止写"值得学习""设计精妙""很优雅""值得一看"这类空话；禁止把标题原样复述一遍充数；禁止介绍仓库历史、作者、Star 数这类画像里没有的东西。`
 
-const SYSTEM_EN = `You are the synthesiser for anatomy. The input is exactly three things: a repository profile, a module graph summary, and the titles of the learning points that already passed verification.
-Task: say in one paragraph what this repository is for and why it is worth reading, then pick the five most worth learning from the given titles.
+const systemEn = (maxPoints: number): string => `You are the synthesiser for anatomy. The input is exactly three things: a repository profile, a module graph summary, and the titles of the learning points that already passed verification.
+Task: say in one paragraph what this repository is for and why it is worth reading, then pick the ${maxPoints} most worth learning from the given titles.
 
 Output exactly one JSON object: no Markdown fences, no prose around it.
 Shape: {"problem": string, "topFive": string[]}
@@ -158,11 +180,25 @@ Shape: {"problem": string, "topFive": string[]}
 Hard rules:
 1. The output language must be English.
 2. Every item of topFive must be copied verbatim from the point titles: no rewriting, no translation, no truncation, no title of your own.
-3. topFive holds at most five items, ordered by what is most worth learning. Fewer and better beats five and padded.
-4. You cannot see code — only the profile, the summary and the titles. Do not describe an implementation, do not quote code, and do not put a claim in problem that these titles do not support.`
+3. topFive holds at most ${maxPoints} items, ordered by what is most worth learning. Fewer and better beats a padded list.
+4. You cannot see code — only the profile, the summary and the titles. Do not describe an implementation, do not quote code, and do not put a claim in problem that these titles do not support.
+5. problem is the reader's opening, not a label. One line saying what the project is does not pass: the reader must finish it knowing which concrete problem this repository solves and where its engineering difficulty sits. Write 80–200 characters, in this order, as one flowing paragraph — no bullets, no headings:
+   - what it is: the kind of project, roughly how large, in what language (use the numbers from the profile and summary — "about 8000 lines of mjs" is fine, invented numbers are not);
+   - where it hurts: infer from the given point titles what this codebase actually struggled with — concurrency, memory reclamation, untrusted input, long-term evolution — name one or two of the real tensions;
+   - why it is worth reading: what the reader could carry into their own work.
+   Never write filler such as "worth learning", "elegant design", "beautifully done", or "a must read". Never restate the titles as filler. Never mention history, authorship or stars — nothing the profile does not support.`
 
-function systemPrompt(lang: Lang): string {
-  return lang === 'en' ? SYSTEM_EN : SYSTEM_ZH
+/**
+ * The system prompt with the cap filled in.
+ *
+ * The number has to reach the prompt as data, not as prose someone remembered to
+ * edit. It used to be the literal word 五, while the caller silently truncated at
+ * five: ask for ten and the model would still answer with five, then the repair
+ * loop would reject the reply for being short. It appears twice below — the task
+ * line and the rule — because a model that reads only one of them still gets it.
+ */
+function systemPrompt(lang: Lang, maxPoints: number): string {
+  return lang === 'en' ? systemEn(maxPoints) : systemZh(maxPoints)
 }
 
 function listOrNone(lang: Lang, items: string[]): string {
@@ -250,15 +286,17 @@ export function buildSynthesisPrompt(input: {
   structure: StructureIndex
   titles: string[]
   lang?: Lang
+  maxPoints?: number
 }): { system: string; user: string; schema: object } {
   const lang: Lang = input.lang ?? 'zh'
+  const cap = resolveMaxPoints(input.maxPoints)
   const summary = summarizeStructure(input.structure)
   const user = [
     profileBlock(lang, input.profile),
     summaryBlock(lang, summary),
     titlesBlock(lang, input.titles),
   ].join('\n\n')
-  return { system: systemPrompt(lang), user, schema: SYNTHESIS_SCHEMA }
+  return { system: systemPrompt(lang, cap), user, schema: SYNTHESIS_SCHEMA }
 }
 
 // --- reply ----------------------------------------------------------------
@@ -277,6 +315,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * a returned title is the caller's own string and not our copy of it.
  */
 type TitleSet = { prompt: string[]; canonical: Map<string, string> }
+
+/** `maxPoints` as a usable count: absent means the default, out-of-range is clamped. */
+function resolveMaxPoints(requested: number | undefined): number {
+  if (requested === undefined || !Number.isFinite(requested)) return DEFAULT_MAX_POINTS
+  return Math.max(1, Math.min(MAX_MAX_POINTS, Math.floor(requested)))
+}
 
 function uniqueTitles(titles: unknown): TitleSet {
   const list = Array.isArray(titles) ? titles : []
@@ -299,7 +343,12 @@ function uniqueTitles(titles: unknown): TitleSet {
  * dropped rather than repaired: the surviving items are returned as they were
  * given, never as the model spelled them.
  */
-function parseReply(raw: unknown, titles: string[], canonical: Map<string, string>): Parsed {
+function parseReply(
+  raw: unknown,
+  titles: string[],
+  canonical: Map<string, string>,
+  maxPoints: number,
+): Parsed {
   let value = raw
   if (typeof value === 'string') {
     try {
@@ -330,7 +379,7 @@ function parseReply(raw: unknown, titles: string[], canonical: Map<string, strin
     if (!known.has(key) || picked.has(key)) continue
     picked.add(key)
     chosen.push(canonical.get(key) ?? key)
-    if (chosen.length === MAX_TOP_FIVE) break
+    if (chosen.length === maxPoints) break
   }
 
   return { ok: true, problem: problem.trim(), topFive: chosen }
@@ -380,9 +429,10 @@ export async function synthesize(deps: SynthesisDeps): Promise<Synthesis> {
   const { prompt: titles, canonical } = uniqueTitles(deps.titles)
   const summary = summarizeStructure(deps.structure)
   const original = (title: string): string => canonical.get(title) ?? title
+  const cap = resolveMaxPoints(deps.maxPoints)
   const fallback = (): Synthesis => ({
     problem: fallbackProblem(lang, deps.profile, summary),
-    topFive: titles.slice(0, MAX_TOP_FIVE).map(original),
+    topFive: titles.slice(0, cap).map(original),
   })
 
   // Nothing to rank: no call, no tokens, and a summary that is still true.
@@ -393,8 +443,9 @@ export async function synthesize(deps: SynthesisDeps): Promise<Synthesis> {
     structure: deps.structure,
     titles,
     lang,
+    maxPoints: cap,
   })
-  const required = Math.min(MIN_TOP_FIVE, titles.length)
+  const required = Math.min(Math.min(MIN_TOP_FIVE, cap), titles.length)
   let reason = ''
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
@@ -419,7 +470,7 @@ export async function synthesize(deps: SynthesisDeps): Promise<Synthesis> {
       continue
     }
 
-    const parsed = parseReply(raw, titles, canonical)
+    const parsed = parseReply(raw, titles, canonical, cap)
     if (!parsed.ok) {
       reason = parsed.reason
       continue

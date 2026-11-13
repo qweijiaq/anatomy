@@ -34,6 +34,7 @@ Options:
   --model <name>     Model name (default: $ANA_MODEL or the built-in default)
   --api-key <key>    Overrides $ANA_API_KEY
   --top <n>          How many candidate signals to collect
+  --points <n>       How many points the report may hold (default 5, max 12)
   --budget <n>       Token budget for the writing layer
   --lang <zh|en>     Report language (default: zh)
   --subpath <path>   Analyse only this subtree
@@ -50,6 +51,7 @@ const VALUED_FLAGS = [
   'model',
   'api-key',
   'top',
+  'points',
   'budget',
   'lang',
   'subpath',
@@ -124,6 +126,8 @@ export function parseAnalyzeArgs(argv: string[]): AnalyzeArgs {
   if (apiKey !== undefined) options.apiKey = apiKey
   const top = values.get('top')
   if (top !== undefined) options.top = positiveInteger('top', top)
+  const points = values.get('points')
+  if (points !== undefined) options.reportPoints = positiveInteger('points', points)
   const budget = values.get('budget')
   if (budget !== undefined) options.budget = positiveInteger('budget', budget)
   const subpath = values.get('subpath')

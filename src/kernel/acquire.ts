@@ -21,7 +21,7 @@
  * to make a later entry write somewhere else.
  */
 
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -357,7 +357,19 @@ function stableJson(value: unknown): string {
 }
 
 /**
- * Identity of an analysis: same commit, same subpath, same engine, same run.
+ * Identity of one analysis.
+ *
+ * The tree digest, ref, subpath and engine version say *what was analysed*; they
+ * are what makes two scans comparable. They are deliberately not the whole id:
+ * with only those, a second scan of the same commit reopened the first run's
+ * directory and overwrote its report, so a person who ran the same repository
+ * twice could not get back to what the model wrote the first time. That is the
+ * opposite of what a history list promises.
+ *
+ * So `nonce` — one per invocation — is part of the id. The cost is that `sha`
+ * alone no longer identifies a directory; the benefit is that every run is
+ * addressable. Callers who need "the latest run of this tree" filter the list by
+ * `sha`, which is recorded in the manifest anyway.
  *
  * `sha` must be the digest of the downloaded archive or of the local tree as
  * `hashTree` computes it — domain-tagged, so a tree whose every file was excluded
@@ -370,9 +382,23 @@ export function deriveRunId(input: {
   ref: string
   subpath: string
   engineVersion: string
+  /** Distinguishes two runs of the same tree. Omitted only by tests that want a stable id. */
+  nonce?: string
 }): string {
   if (input.sha === '') throw new Error('anatomy: run id needs the downloaded sha')
-  return sha256(stableJson(input)).slice(0, 12)
+  return sha256(stableJson({ ...input, nonce: input.nonce ?? '' })).slice(0, 12)
+}
+
+/**
+ * A sortable, collision-free nonce for one analysis.
+ *
+ * Time first so run ids group chronologically in a directory listing, then
+ * randomness because two analyses can start inside the same millisecond — a
+ * double-click on "开始拆解" must not reopen the first one.
+ */
+export function runNonce(now: Date = new Date()): string {
+  const stamp = now.toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)
+  return `${stamp}-${randomBytes(4).toString('hex')}`
 }
 
 // --- safe extraction ------------------------------------------------------
