@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   heapLimited,
+  surveyApplication,
   parseProgress,
   pickSmallSources,
   SMALL_SOURCE_MAX_BYTES,
@@ -151,5 +152,50 @@ describe('parseProgress', () => {
 
   it('ignores a progress object with no message, which says nothing to a reader', () => {
     expect(parseProgress('{"rea_progress":{"phase":"x","completed":0,"total":1}}')).toBeNull()
+  })
+})
+
+describe('the target pre-check', () => {
+  /**
+   * A wrong argument must cost a second, not two minutes.
+   *
+   * `analyze-javascript-application` has no guard of its own: pointed at a
+   * directory with no JavaScript it inventories the tree and returns nothing
+   * useful. The first attempt was a silent two-minute wait, which is a bad way to
+   * learn that a path is wrong.
+   */
+  it('refuses a directory with no JavaScript in reach', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'ana-precheck-'))
+    await writeFile(path.join(root, 'notes.txt'), 'x')
+    await expect(
+      surveyApplication(root, { outputDir: path.join(root, 'out') }),
+    ).rejects.toThrow(/没有任何 \.js/)
+  })
+
+  it('refuses a path that is not a directory', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'ana-precheck-'))
+    const file = path.join(root, 'main.js')
+    await writeFile(file, 'x')
+    await expect(surveyApplication(file, { outputDir: root })).rejects.toThrow(/不是目录/)
+  })
+
+  it('refuses a path that does not exist, before saying anything else', async () => {
+    await expect(
+      surveyApplication('/definitely/not/here', { outputDir: '/tmp' }),
+    ).rejects.toThrow(/目录不存在/)
+  })
+
+  it('does not announce a start when the target is rejected', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'ana-precheck-'))
+    let started = false
+    await surveyApplication(root, {
+      outputDir: path.join(root, 'out'),
+      onStart: () => {
+        started = true
+      },
+    }).catch(() => undefined)
+    // Announcing "analysing …" before validating the argument is how a wrong path
+    // looks like a running analysis.
+    expect(started).toBe(false)
   })
 })

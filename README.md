@@ -141,7 +141,7 @@ npm run eval:recall
 
 One unambiguous statement, so nothing is left pending a decision:
 
-- eight commands, all usable; `npm run verify` is the single gate (703 tests, three
+- eight commands, all usable; `npm run verify` is the single gate (709 tests, three
   tsconfigs, and the CLI end to end against a local stub model)
 - a repository **with** source: design notes where every claim cites a line and is
   checked against the bytes on disk; anything unverifiable never reaches the page

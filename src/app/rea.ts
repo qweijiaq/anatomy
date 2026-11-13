@@ -311,6 +311,56 @@ export type ReaProgress = {
   total: number | null
 }
 
+/**
+ * Refuse a target that cannot be an application, before spending minutes on it.
+ *
+ * `analyze-javascript-application` has no such guard of its own: pointed at a
+ * directory with no JavaScript it happily inventories the tree and returns nothing
+ * useful. Being wrong about the argument cost two minutes of silence the first time
+ * it was tried, which is a bad way to learn that a path is wrong. The walk is
+ * shallow and skips `node_modules`; an Electron payload always declares itself in
+ * the first levels.
+ */
+async function assertAnalysable(target: string): Promise<void> {
+  let info: Awaited<ReturnType<typeof stat>>
+  try {
+    info = await stat(target)
+  } catch {
+    throw new ReaUnavailableError(`目录不存在：${target}`)
+  }
+  if (!info.isDirectory()) {
+    throw new ReaUnavailableError(`${target} 不是目录。inspect-app 要的是一个应用目录或 .asar`)
+  }
+
+  const found = { js: false }
+  const walk = async (dir: string, depth: number): Promise<void> => {
+    if (found.js || depth > 3) return
+    let entries: Array<{ name: string; isDirectory(): boolean }>
+    try {
+      entries = await readdir(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (found.js) return
+      if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue
+      if (entry.isDirectory()) {
+        await walk(path.join(dir, entry.name), depth + 1)
+        continue
+      }
+      if (/\.(?:c|m)?js$/i.test(entry.name)) found.js = true
+    }
+  }
+  await walk(target, 0)
+
+  if (!found.js) {
+    throw new ReaUnavailableError(
+      `${target} 里三层内没有任何 .js / .cjs / .mjs 文件，REA 在这里没有可重建的东西。` +
+        '如果目标是一个 .app 包，请指向它内部的 app.asar 或已解包的 Resources 目录。',
+    )
+  }
+}
+
 /** A single line of REA's `{"rea_progress": …}` channel, or null for anything else. */
 export function parseProgress(line: string): ReaProgress | null {
   const trimmed = line.trim()
@@ -546,6 +596,14 @@ export type SurveyOptions = {
   timeoutMs?: number
   /** Called as REA reports progress. Never required: output is identical without it. */
   onProgress?: (progress: ReaProgress) => void
+  /**
+   * Called once the target has passed its pre-check, just before REA starts.
+   *
+   * Separate from `onProgress` because the pre-check can reject the target, and
+   * announcing "analysing …" before validating the argument is how a wrong path
+   * looks like a running analysis for several seconds.
+   */
+  onStart?: () => void
 }
 
 /**
@@ -558,6 +616,8 @@ export async function surveyApplication(
   target: string,
   options: SurveyOptions,
 ): Promise<AppSurvey> {
+  await assertAnalysable(target)
+  options.onStart?.()
   const location = await reaLocation()
   await mkdir(options.outputDir, { recursive: true })
   const evidencePath = path.join(options.outputDir, 'rea-evidence.json')

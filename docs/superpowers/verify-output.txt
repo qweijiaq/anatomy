@@ -1,6 +1,6 @@
 # verify.sh 输出 — 快照
 
-**这是一次运行的历史记录，不是实时数据。** 生成于 2026-11-14 02:32，退出码 0。
+**这是一次运行的历史记录，不是实时数据。** 生成于 2026-11-14 02:47，退出码 0。
 要当前输出就重新跑 `npm run verify`。
 
 ```
@@ -8,16 +8,16 @@
 > bash scripts/verify.sh
 
 == tests ==
-      Tests  703 passed (703)
-   Start at  02:31:55
-   Duration  3.69s (transform 1.30s, setup 0ms, collect 6.49s, tests 10.90s, environment 5ms, prepare 2.33s)
+      Tests  709 passed (709)
+   Start at  02:46:50
+   Duration  3.52s (transform 1.13s, setup 0ms, collect 6.73s, tests 9.51s, environment 6ms, prepare 2.15s)
 
 == typecheck ==
 
 == build ==
 == stub model ==
 == scan (github) ==
-run 99b9ec642560  13 files, 2606 lines  nothing excluded
+run f15cf9d20cec  13 files, 2606 lines  nothing excluded
 index.js:105  5  custom-infra
 index.js:120  5  custom-infra
 == analyze (github) ==
@@ -38,7 +38,7 @@ index.js:120  5  custom-infra
 
 
 == forget ==
-SUMMARY: Tests  703 passed | typecheck clean | build ok
+SUMMARY: Tests  709 passed | typecheck clean | build ok
 SUMMARY: scan+analyze+report+inspect+forget ok on https://github.com/sindresorhus/quick-lru
-VERIFY: PASS (github, run 29ec34ce573a, deleted)
+VERIFY: PASS (github, run 8b7b58a40fe6, deleted)
 ```

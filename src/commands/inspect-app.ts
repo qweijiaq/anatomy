@@ -225,10 +225,10 @@ export async function runInspectApp(args: InspectAppArgs): Promise<void> {
   let survey: AppSurvey
   try {
     const report = progressReporter(process.stderr)
-    process.stderr.write(`分析 ${target}\n`)
     survey = await surveyApplication(target, {
       outputDir: outDir ?? path.join(process.cwd(), '.ana', 'apps', 'staging'),
       sourcePaths: args.paths,
+      onStart: () => process.stderr.write(`分析 ${target}\n`),
       onProgress: report,
     })
     // Leave the progress line behind rather than let the result overwrite it.

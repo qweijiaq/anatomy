@@ -285,10 +285,9 @@ export async function runCli(
         await runReport(args.runId, { out: io.out })
         return 0
       } catch (error) {
-        if (error instanceof NoSuchRunError) {
-          io.err.write(`ana: ${error.message}\n`)
-          return 1
-        }
+        // No special case for `NoSuchRunError`: it used to print `error.message`
+        // directly, which skipped the prefix stripping and produced
+        // `ana: anatomy: no such run "x"`. Same exit code, same branch, one path.
         io.err.write(`ana: ${describeFailure(error)}\n`)
         return 1
       }

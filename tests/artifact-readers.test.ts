@@ -178,3 +178,25 @@ describe('the command surface', () => {
     }
   })
 })
+
+describe('the command surface — error output', () => {
+  /**
+   * One prefix, from the program that is speaking.
+   *
+   * Library errors identify themselves with `anatomy:`; the CLI speaks as `ana`.
+   * `describeFailure` strips the former so the reader sees `ana: …` and not
+   * `ana: anatomy: …`. `report` bypassed it with a special case for
+   * `NoSuchRunError`, which is the only command where the doubled prefix appeared.
+   */
+  it('lets every command use the same prefix-stripping path', () => {
+    const source = readFileSync(path.join(ROOT, 'src/cli.ts'), 'utf8')
+    // A branch that prints `error.message` directly skips the strip.
+    const direct = [...source.matchAll(/io\.err\.write\(`ana: \$\{error\.message\}`/g)]
+    expect(direct).toEqual([])
+  })
+
+  it('strips however many kernel prefixes were nested', () => {
+    const source = readFileSync(path.join(ROOT, 'src/cli.ts'), 'utf8')
+    expect(source).toContain('replace(/^(?:anatomy: )+/, ')
+  })
+})
