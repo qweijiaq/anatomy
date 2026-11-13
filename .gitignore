@@ -30,3 +30,11 @@ dist-electron/
 # The assembled .app bundle: a 234 MB copy of the Electron runtime, rebuilt by
 # `npm run build:bundle`. Nothing in it is written by hand.
 out/
+
+# Local scratch that must never be committed again: a debug harness and a shell
+# launcher for the agent environment, plus a second package manager's lockfile in a
+# project that uses npm. All four were tracked once; they are noise to every reader.
+dbg-launch.cjs
+launch-once.sh
+pnpm-lock.yaml
+pnpm-workspace.yaml
