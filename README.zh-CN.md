@@ -69,8 +69,8 @@ ana forget <id> [--app]          # 删掉一份存下来的分析
 ana mcp                          # 把确定性的一半以 MCP 挂在 stdio 上
 ```
 
-`ana mcp` 提供 `anatomy_scan`、`anatomy_report`、`anatomy_evidence` 三个工具——给的是事实，
-不是判断。不调模型、不读 Key，所以已经有模型的一方可以拿证据自己写。**故意不暴露
+`ana mcp` 提供 `anatomy_scan`、`anatomy_report`、`anatomy_evidence`、`anatomy_forget`
+四个工具——给的是事实，不是判断；加上删除工具，长时间会话才不至于把 `.ana/runs` 堆满。不调模型、不读 Key，所以已经有模型的一方可以拿证据自己写。**故意不暴露
 `analyze`**：一个会悄悄花掉调用方额度的 MCP 服务是坏客人。
 
 `inspect-app` 需要 Node ^22.23.4 || ^24.22.1 || >=26.12.1 和一个可用的 `rea`

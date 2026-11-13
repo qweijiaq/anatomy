@@ -19,6 +19,7 @@
 
 import { createInterface } from 'node:readline'
 
+import { forget } from './forget.js'
 import { runScan, type ScanOptions } from './scan.js'
 import { runReport } from './report.js'
 import { runInspect } from './inspect.js'
@@ -162,6 +163,40 @@ function tools(): Tool[] {
         try {
           await runInspect(evidenceId, { out: { write: (chunk: string) => captured.push(chunk) } })
           return text(captured.join(''))
+        } catch (error) {
+          return failure(error instanceof Error ? error.message : String(error))
+        }
+      },
+    },
+    {
+      // Without this the surface can create state it cannot remove: every
+      // `anatomy_scan` writes a run directory, and an agent in a long session
+      // would accumulate them with no way to clean up. The CLI has `forget`; a
+      // server that exposes the creating half and not the removing half is
+      // leaving litter in the caller's home directory.
+      name: 'anatomy_forget',
+      description:
+        'Delete one stored run directory. Same id safety as the CLI: an id, never a path, validated against the same rule the read path uses, so a typo cannot delete something else.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          runId: { type: 'string', description: 'Run id to delete.' },
+          kind: {
+            type: 'string',
+            enum: ['run', 'app'],
+            description:
+              'Which store to delete from: `run` for .ana/runs (default), `app` for .ana/apps.',
+          },
+        },
+        required: ['runId'],
+      },
+      run: async (args) => {
+        const runId = stringArg(args, 'runId')
+        if (runId === '') return failure('需要 runId 参数')
+        const kind = stringArg(args, 'kind') === 'app' ? 'app' : 'run'
+        try {
+          const result = await forget(runId, { target: kind })
+          return 'missing' in result ? failure(`没有 ${runId}，什么都没删`) : text(`已删除 ${result.removed}`)
         } catch (error) {
           return failure(error instanceof Error ? error.message : String(error))
         }

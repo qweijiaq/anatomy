@@ -68,8 +68,9 @@ ana forget <id> [--app]          # delete one stored analysis
 ana mcp                          # serve the deterministic half over MCP on stdio
 ```
 
-`ana mcp` exposes `anatomy_scan`, `anatomy_report` and `anatomy_evidence` as MCP
-tools — the facts, not the judgement. No model is called and no key is read, so an
+`ana mcp` exposes `anatomy_scan`, `anatomy_report`, `anatomy_evidence` and
+`anatomy_forget` as MCP tools — the facts, not the judgement, plus the delete that
+keeps a long session from littering `.ana/runs`. No model is called and no key is read, so an
 agent that already has a model can take the evidence and do the writing itself. It
 deliberately does **not** expose `analyze`: an MCP server that quietly bills the
 caller's provider is a bad guest.

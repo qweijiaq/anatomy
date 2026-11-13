@@ -58,6 +58,7 @@ describe('ana mcp', () => {
     const tools = (replies[1]?.result as { tools: Array<{ name: string }> }).tools
     expect(tools.map((tool) => tool.name).sort()).toEqual([
       'anatomy_evidence',
+      'anatomy_forget',
       'anatomy_report',
       'anatomy_scan',
     ])
@@ -79,6 +80,30 @@ describe('ana mcp', () => {
     const result = replies[1]?.result as { isError?: boolean; content: Array<{ text: string }> }
     expect(result.isError).toBe(true)
     expect(result.content[0]?.text).toMatch(/nosuchrun/)
+  })
+
+  it('can remove what it creates — a server that only writes is a litterer', async () => {
+    // Every anatomy_scan writes a run directory. Without a delete tool an agent in
+    // a long session accumulates them with no way out; this asserts the pair exists.
+    const replies = await exchange([init, JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'tools/list' })])
+    const tools = (replies[1]?.result as { tools: Array<{ name: string }> }).tools.map((t) => t.name)
+    expect(tools).toContain('anatomy_scan')
+    expect(tools).toContain('anatomy_forget')
+  })
+
+  it('refuses to delete through a path, the same rule the CLI applies', async () => {
+    const replies = await exchange([
+      init,
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: 8,
+        method: 'tools/call',
+        params: { name: 'anatomy_forget', arguments: { runId: '../etc' } },
+      }),
+    ])
+    const result = replies[1]?.result as { isError?: boolean; content: Array<{ text: string }> }
+    expect(result.isError).toBe(true)
+    expect(result.content[0]?.text).toMatch(/run id|路径分隔符|\.\./)
   })
 
   it('errors on an unknown method with -32601 rather than replying empty', async () => {
