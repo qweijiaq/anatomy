@@ -13,15 +13,91 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { api, bridgeAvailable, type Progress, type SettingsView } from './api.js'
+import {
+  api,
+  bridgeAvailable,
+  type Progress,
+  type ReportSummary,
+  type SettingsView,
+} from './api.js'
 import { ReportView } from './components/ReportView.js'
 import { SettingsPanel } from './components/SettingsPanel.js'
 import { providerOf } from './providers.js'
 
+/**
+ * What each stage is doing, in the reader's words.
+ *
+ * These are the stages `runAnalyze` actually reports, not a summary of them: the
+ * judge loop is one model call per candidate, so it is the slow one and the one
+ * that most needs a number attached.
+ */
 const PHASE_LABEL: Record<string, string> = {
-  acquire: '取回仓库…',
+  acquire: '取回仓库、建立索引',
+  judge: '逐个候选点问模型',
+  rank: '给已经取证的点排序',
+  synthesise: '写开篇、挑最值得学的几条',
+  report: '生成报告',
   analyse: '读代码、挑候选、让模型写分析…',
   done: '完成',
+}
+
+/**
+ * A run's start time as something a person reads, not an ISO string.
+ *
+ * Relative wording inside the last day, because "刚刚" and "3 小时前" answer the
+ * question the list is actually asked — which of these is the one I just ran.
+ */
+function whenText(iso: string): string {
+  const then = Date.parse(iso)
+  if (!Number.isFinite(then)) return iso
+  const minutes = Math.round((Date.now() - then) / 60_000)
+  if (minutes < 1) return '刚刚'
+  if (minutes < 60) return `${minutes} 分钟前`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours} 小时前`
+  const days = Math.round(hours / 24)
+  if (days < 30) return `${days} 天前`
+  return new Date(then).toLocaleDateString('zh-CN')
+}
+
+/**
+ * The running analysis, in detail.
+ *
+ * A single "分析中" is honest but useless: the judge stage spends minutes making
+ * one request per candidate, and a person watching a still spinner cannot tell
+ * work from a hang. So: which stage, what it is working on, and — for the stages
+ * that have a countable queue — a bar and an estimate of what is left.
+ */
+function ProgressLine({ progress }: { progress: Progress | null }): React.JSX.Element {
+  const phase = progress?.phase ?? 'acquire'
+  const label = PHASE_LABEL[phase] ?? '分析中…'
+  const done = typeof progress?.done === 'number' ? progress.done : null
+  const total = typeof progress?.total === 'number' && progress.total > 0 ? progress.total : null
+  const ratio = done !== null && total !== null ? Math.min(1, done / total) : null
+
+  return (
+    <div className="progress" role="status" aria-live="polite">
+      <div className="progress__row">
+        <span className="progress__dot" />
+        <span className="progress__label">{label}</span>
+        {done !== null && total !== null && (
+          <span className="progress__count">
+            {done} / {total}
+          </span>
+        )}
+      </div>
+      {ratio !== null && (
+        <div className="progress__track" aria-hidden="true">
+          <div className="progress__fill" style={{ width: `${Math.round(ratio * 100)}%` }} />
+        </div>
+      )}
+      {typeof progress?.detail === 'string' && progress.detail !== '' && (
+        <p className="progress__detail" title={progress.detail}>
+          {progress.detail}
+        </p>
+      )}
+    </div>
+  )
 }
 
 /** Pull the trust numbers out of the rendered markdown, for the rail. */
@@ -40,6 +116,8 @@ export function App(): React.JSX.Element {
   const [markdown, setMarkdown] = useState('')
   const [runId, setRunId] = useState('')
   const [error, setError] = useState('')
+  // 历史报告：磁盘上已经跑完的 run。读盘比缓存可靠——刚跑完的那次必须立刻出现。
+  const [history, setHistory] = useState<ReportSummary[]>([])
 
   useEffect(() => {
     if (!bridgeAvailable()) return
@@ -56,6 +134,38 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     if (!bridgeAvailable()) return
     return api().analysis.onProgress((next) => setProgress(next))
+  }, [])
+
+  /** 每次切回首页或跑完一次都重新读盘：历史不能靠启动时那一次快照。 */
+  const refreshHistory = useCallback(async (): Promise<void> => {
+    if (!bridgeAvailable()) return
+    try {
+      const result = await api().report.list()
+      if (result.ok) setHistory(result.runs)
+    } catch {
+      // 读不到历史不影响做分析，静默即可。
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshHistory()
+  }, [refreshHistory])
+
+  /** 打开一份旧报告：走和刚跑完完全相同的渲染路径。 */
+  const openReport = useCallback(async (id: string): Promise<void> => {
+    setError('')
+    try {
+      const result = await api().report.read(id)
+      if (result.ok && typeof result.markdown === 'string') {
+        setMarkdown(result.markdown)
+        setRunId(id)
+        setProgress(null)
+      } else {
+        setError(result.message ?? '这份报告读不出来。')
+      }
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure))
+    }
   }, [])
 
   const run = useCallback(async (): Promise<void> => {
@@ -79,8 +189,19 @@ export function App(): React.JSX.Element {
       setError(failure instanceof Error ? failure.message : String(failure))
     } finally {
       setRunning(false)
+      // 跑完立刻重读，新报告要马上出现在历史里。
+      void refreshHistory()
     }
-  }, [repo, settings])
+  }, [repo, settings, refreshHistory])
+
+  // 目录选择：系统文件面板返回绝对路径，直接填进输入框，人还可以继续手改。
+  const pickFolder = useCallback(async (): Promise<void> => {
+    const picked = await api().app.pickFolder()
+    if (picked.ok && typeof picked.path === 'string') {
+      setRepo(picked.path)
+      setError('')
+    }
+  }, [])
 
   const trust = useMemo(() => trustOf(markdown), [markdown])
   const providerLabel = settings === null ? '' : providerOf(settings.provider).label
@@ -137,17 +258,21 @@ export function App(): React.JSX.Element {
                   if (event.key === 'Enter' && !running) void run()
                 }}
               />
+              <button
+                className="btn btn--ghost btn--lg runbar__pick"
+                type="button"
+                disabled={running}
+                onClick={() => void pickFolder()}
+                title="选择一个本地文件夹"
+              >
+                选择文件夹
+              </button>
               <button className="btn btn--primary btn--lg" type="button" onClick={() => void run()} disabled={running}>
                 {running ? '分析中…' : '开始拆解'}
               </button>
             </div>
 
-            {running && (
-              <p className="progress" role="status">
-                <span className="progress__dot" />
-                {PHASE_LABEL[progress?.phase ?? 'acquire'] ?? '分析中…'}
-              </p>
-            )}
+            {running && <ProgressLine progress={progress} />}
 
             {error !== '' && <p className="notice notice--error">{error}</p>}
 
@@ -156,6 +281,34 @@ export function App(): React.JSX.Element {
               <li>分析一次大约 8 次模型请求，成本按你的模型价目表算。</li>
               <li>报告和证据都留在本机，不出设备。</li>
             </ul>
+
+            {history.length > 0 && (
+              <section className="history" aria-label="历史报告">
+                <h2 className="history__title">之前的报告</h2>
+                <p className="history__lede">
+                  每一次拆解都留在本机，点开就是当时生成的那一版，不会因为下次分析被覆盖。
+                </p>
+                <ul className="history__list">
+                  {history.map((item) => (
+                    <li key={item.runId}>
+                      <button
+                        type="button"
+                        className={`history__row ${item.runId === runId ? 'history__row--current' : ''}`}
+                        onClick={() => void openReport(item.runId)}
+                      >
+                        <span className="history__name">{item.title}</span>
+                        <span className="history__meta">
+                          {item.points} 个学习点 · {whenText(item.startedAt)}
+                        </span>
+                        <span className="history__open" aria-hidden="true">
+                          →
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
           </section>
         ) : (
           <>

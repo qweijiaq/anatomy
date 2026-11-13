@@ -103,6 +103,17 @@
   margin-bottom: var(--space-4);
 }
 
+/* 输入框吃掉剩余宽度，两个按钮各自保持内容宽度——路径可能很长，按钮不该被挤压。 */
+.runbar__pick {
+  flex: none;
+  white-space: nowrap;
+}
+
+.runbar .btn--primary {
+  flex: none;
+  white-space: nowrap;
+}
+
 .hints {
   margin: var(--space-6) 0 0;
   padding: 0;
@@ -128,13 +139,55 @@
   background: var(--border-strong);
 }
 
+/* 进度：阶段名 + 计数 + 进度条 + 当前正在处理的路径。
+   分析要跑几分钟，只有一个不动的转圈无法区分"在干活"和"卡死了"。 */
 .progress {
-  display: flex;
-  align-items: center;
+  display: grid;
   gap: var(--space-2);
   color: var(--text-muted);
   font-size: var(--text-sm);
   margin: var(--space-3) 0 0;
+}
+
+.progress__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.progress__label {
+  color: var(--text);
+}
+
+.progress__count {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+.progress__track {
+  height: 3px;
+  border-radius: var(--radius-full);
+  background: var(--bg-sunken);
+  overflow: hidden;
+}
+
+.progress__fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: var(--radius-full);
+  /* 不写 transition：每来一个候选点就跳一格，动画会让它看起来比实际慢。 */
+}
+
+.progress__detail {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .progress__dot {
@@ -587,5 +640,297 @@
 .boot__hint {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
+  color: var(--text-faint);
+}
+
+/* ── 自绘下拉框 ───────────────────────────────────────────────────────────────
+   原生 <select> 的弹出层由系统绘制，字体、行高、圆角、阴影都跟不上这里的 token，
+   所以整个控件自己画。下面只负责外观；键盘和 ARIA 在 Select.tsx 里。 */
+
+.select {
+  position: relative;
+}
+
+.select__button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 9px var(--space-3);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.select__button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+
+.select__button:focus-visible,
+.select__button--open {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.select__button:disabled {
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+
+.select__placeholder {
+  color: var(--text-faint);
+}
+
+/* 一个旋转 45° 的方块，用两条边当箭头——比字符 "▾" 更可控，不会被字体带偏基线。 */
+.select__chevron {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-right: 2px;
+  border-right: 1.5px solid var(--text-faint);
+  border-bottom: 1.5px solid var(--text-faint);
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 140ms ease;
+}
+
+.select__button--open .select__chevron {
+  transform: rotate(225deg) translateY(-2px);
+}
+
+.select__list {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 264px;
+  margin: 0;
+  padding: var(--space-1);
+  overflow-y: auto;
+  list-style: none;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.select__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 7px var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.select__option--active {
+  background: var(--bg-sunken);
+}
+
+.select__option--selected {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.select__option--selected.select__option--active {
+  background: var(--accent-soft);
+}
+
+.select__hint {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+/* ── 历史报告列表 ────────────────────────────────────────────────────────────
+   每一次拆解都留在本机，但以前界面上没有任何入口能回到旧的那份。这里不折叠、
+   不分页：一个人拆过的仓库量级是十几到几十，滚动比翻页快。 */
+
+.history {
+  margin-top: var(--space-7);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border);
+}
+
+.history__title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.history__lede {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.history__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.history__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto var(--space-5);
+  align-items: baseline;
+  gap: var(--space-3);
+  width: 100%;
+  padding: 10px var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.history__row:hover {
+  background: var(--bg-raised);
+  border-color: var(--border);
+}
+
+.history__row:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.history__name {
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history__meta {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.history__open {
+  color: var(--text-faint);
+  text-align: right;
+  transition: color 120ms ease, transform 120ms ease;
+}
+
+.history__row:hover .history__open {
+  color: var(--accent);
+  transform: translateX(2px);
+}
+
+/* 当前正在看的那一份：只用左边一条竖线标出来，不加背景色，避免和 hover 混淆。 */
+.history__row--current {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.history__row--current .history__name {
+  color: var(--accent);
+}
+
+/* ── 报告里的折叠块与原因行 ──────────────────────────────────────────────────
+   render/markdown.ts 会输出两个真实 HTML 标签（<details>/<summary>）包裹"要在
+   自己项目里用"，解析器以前不认识，页面上直接显示成字面标签。 */
+
+.report__details {
+  margin: var(--space-5) 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+}
+
+.report__summary {
+  padding: 10px var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  border-radius: var(--radius-md);
+}
+
+.report__summary:hover {
+  color: var(--accent);
+}
+
+.report__details[open] .report__summary {
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+
+.report__details-body {
+  padding: var(--space-4);
+}
+
+.report__details-body > :first-child {
+  margin-top: 0;
+}
+
+.report__details-body > :last-child {
+  margin-bottom: 0;
+}
+
+/* 丢弃/降级原因：标签、位置、解释三段分开，位置用等宽字体并允许换行——
+   路径可能很长，不能把解释挤到看不见。 */
+.report__reason {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  margin: var(--space-2) 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--border-strong);
+  background: var(--bg-sunken);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-size: var(--text-sm);
+}
+
+.report__reason-label {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.report__reason-where {
+  grid-column: 2;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--warn);
+  word-break: break-all;
+}
+
+.report__reason-why {
+  grid-column: 2;
+  color: var(--text-muted);
+}
+
+/* 模型发现：一个按钮 + 一句结果。列表拿到后输入框换成自绘下拉框。 */
+.model-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.model-actions__note {
+  font-size: var(--text-xs);
   color: var(--text-faint);
 }

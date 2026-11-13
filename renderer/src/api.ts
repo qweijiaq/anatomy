@@ -31,12 +31,14 @@ export type SettingsView = {
   protocol: 'openai' | 'anthropic' | 'xai'
   lang: 'zh' | 'en'
   topN: number
+  reportPoints: number
   apiKeyConfigured: boolean
   apiKeyHint: string
   keysNeedReentry: boolean
 }
 
 export type SettingsPatch = Partial<{
+  reportPoints: number
   provider: ProviderId
   baseUrl: string
   model: string
@@ -52,7 +54,22 @@ export type RunResult =
   | { ok: true; runId: string; reportPath: string; markdown: string }
   | { ok: false; message: string }
 
-export type Progress = { phase: string; detail?: string }
+export type Progress = {
+  phase: string
+  detail?: string
+  /** Set on the stages that take one model call per item. */
+  done?: number
+  total?: number
+}
+
+/** One finished run on disk, as the history rail shows it. */
+export type ReportSummary = {
+  runId: string
+  source: string
+  startedAt: string
+  points: number
+  title: string
+}
 
 type AnaBridge = {
   settings: {
@@ -64,8 +81,17 @@ type AnaBridge = {
     run(request: { repo: string; top?: number; lang?: 'zh' | 'en' }): Promise<RunResult>
     onProgress(listener: (progress: Progress) => void): () => void
   }
-  report: { read(runId: string): Promise<{ ok: boolean; markdown?: string; message?: string }> }
-  app: { info(): Promise<{ version: string; hasKey: boolean }> }
+  report: {
+    read(runId: string): Promise<{ ok: boolean; markdown?: string; message?: string }>
+    list(): Promise<{ ok: boolean; runs: ReportSummary[] }>
+  }
+  models: {
+    list(): Promise<{ ok: boolean; models?: Array<{ id: string; ownedBy?: string }>; message?: string }>
+  }
+  app: {
+    info(): Promise<{ version: string; hasKey: boolean }>
+    pickFolder(): Promise<{ ok: boolean; path?: string; canceled?: boolean }>
+  }
 }
 
 declare global {

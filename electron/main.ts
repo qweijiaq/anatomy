@@ -12,15 +12,19 @@
  * here, in the same process the CLI uses, so the two can never drift.
  */
 
-import { app, BrowserWindow, ipcMain, nativeImage, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from 'electron'
+import { readdir } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { activeModelConfig, getSettingsView, readKey, rememberRepo, saveSettings } from './settings.js'
 import { createModelClient, MissingCredentialsError } from '../src/writing/client.js'
 import { runAnalyze } from '../src/commands/analyze.js'
-import { runReport } from '../src/commands/report.js'
+import { NoSuchRunError, runReport } from '../src/commands/report.js'
+import { DEFAULT_RUNS_DIR } from '../src/kernel/pipeline.js'
+import { readRunArtifact } from '../src/store/runs.js'
 import type { Protocol } from './providers.js'
+import type { RunManifest } from '../src/contracts/types.js'
 
 /**
  * Where the app's own files live.
@@ -164,7 +168,7 @@ ipcMain.handle('settings:test', async () => {
 
 // --- analysis ---------------------------------------------------------------
 
-type Progress = { phase: string; detail?: string }
+type Progress = { phase: string; detail?: string; done?: number; total?: number }
 
 ipcMain.handle('analysis:run', async (event, payload: unknown) => {
   const request = payload as { repo?: unknown; top?: unknown; lang?: unknown }
@@ -194,7 +198,17 @@ ipcMain.handle('analysis:run', async (event, payload: unknown) => {
     const result = await runAnalyze(repo, {
       client,
       top: typeof request?.top === 'number' ? request.top : settings.topN,
+      reportPoints: settings.reportPoints,
       lang: request?.lang === 'en' ? 'en' : 'zh',
+      // Forward the fine-grained stages: judging alone is one model call per
+      // candidate, and a spinner that never moves is indistinguishable from a hang.
+      onStage: (stage) =>
+        send({
+          phase: stage.stage,
+          detail: stage.detail,
+          done: stage.done,
+          total: stage.total,
+        }),
     })
     send({ phase: 'done' })
     const markdown = await runReport(result.runId)
@@ -204,13 +218,163 @@ ipcMain.handle('analysis:run', async (event, payload: unknown) => {
   }
 })
 
+// --- report history ---------------------------------------------------------
+//
+// Every run leaves a directory behind, but until now nothing in the UI could reach
+// an older one: a report was visible exactly until the next run replaced it. The
+// list below is read off disk on every call rather than cached, because a run that
+// finished one second ago must appear without a restart.
+
+type ReportSummary = {
+  runId: string
+  source: string
+  startedAt: string
+  /** How many points the report's top list ended up with. */
+  points: number
+  title: string
+}
+
+ipcMain.handle('runs:list', async () => {
+  const baseDir = path.resolve(process.cwd(), DEFAULT_RUNS_DIR)
+  let entries: string[]
+  try {
+    entries = await readdir(baseDir)
+  } catch {
+    // No run has ever finished here; an empty history is not an error.
+    return { ok: true, runs: [] }
+  }
+
+  const runs: ReportSummary[] = []
+  for (const runId of entries) {
+    const manifest = await readRunArtifact<RunManifest>(baseDir, runId, 'manifest')
+    // `complete` is the only status that guarantees the artifacts below exist.
+    if (manifest === null || manifest.status !== 'complete') continue
+
+    // A `scan` run completes too — and has no report. Neither does an analysis that
+    // died after the scan stage. Listing either one offers a history entry that can
+    // only fail when opened, with an error about a missing artifact. The question
+    // this list asks is "can I read a report here", so that is the question it must
+    // actually check.
+    const synthesis = await readRunArtifact<{ problem?: string; topFive?: string[] }>(
+      baseDir,
+      runId,
+      'synthesis',
+    )
+    const validation = await readRunArtifact<{ kept?: unknown[] }>(baseDir, runId, 'validation')
+    if (synthesis === null || validation === null) continue
+    const topFive = Array.isArray(synthesis.topFive) ? synthesis.topFive : []
+    runs.push({
+      runId,
+      source: manifest.source,
+      startedAt: manifest.startedAt,
+      points: topFive.length,
+      // The best one-line label available without a network call: the repo's last
+      // path segment, falling back to the run id.
+      title: (() => {
+        const cleaned = manifest.source.replace(/[/\\]+$/, '')
+        const segment = cleaned.slice(cleaned.lastIndexOf('/') + 1)
+        return segment === '' ? runId : segment
+      })(),
+    })
+  }
+
+  // Newest first: the thing a person just ran belongs at the top.
+  runs.sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+  return { ok: true, runs }
+})
+
 ipcMain.handle('report:read', async (_event, runId: unknown) => {
   if (typeof runId !== 'string' || runId === '') return { ok: false, message: '缺少 run id。' }
   try {
     return { ok: true, markdown: await runReport(runId) }
   } catch (error) {
+    // `NoSuchRunError` says which artifact is missing, in the CLI's words. Here that
+    // reads as a stack-trace fragment, and the one case a person can hit — a scan
+    // record opened as a report — has a plain explanation.
+    if (error instanceof NoSuchRunError) {
+      return { ok: false, message: `这个目录里只有扫描结果，没有报告（${runId}）。` }
+    }
     return { ok: false, message: error instanceof Error ? error.message : String(error) }
   }
+})
+
+// --- model discovery --------------------------------------------------------
+//
+// Every OpenAI-shaped endpoint answers `GET /models`, and most Anthropic-compatible
+// gateways do too. Asking the provider beats a hard-coded list: the list in
+// `providers.ts` is a starting point, not the truth about what a key can reach,
+// and a person who just bought access to a new model should not have to type its
+// exact id from memory.
+//
+// Failures are returned, not thrown: an endpoint that does not implement /models
+// is common, and the field stays editable either way.
+
+type ModelChoice = { id: string; ownedBy?: string }
+
+ipcMain.handle('models:list', async () => {
+  const config = activeModelConfig()
+  if (config.apiKey === '') return { ok: false, message: '还没有配置 API Key。' }
+
+  const base = config.baseUrl.replace(/\/+$/, '')
+  // Anthropic's Messages API has its own listing route with its own shape; the
+  // gateways this app ships for speak OpenAI even when they take Messages bodies.
+  const url = `${base}/models`
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        authorization: `Bearer ${config.apiKey}`,
+        'x-api-key': config.apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      signal: AbortSignal.timeout(15_000),
+    })
+    if (!response.ok) {
+      return {
+        ok: false,
+        message: `这个端点没有返回模型列表（HTTP ${response.status}）。模型 ID 仍然可以手填。`,
+      }
+    }
+    const body: unknown = await response.json()
+    const raw = (body as { data?: unknown })?.data
+    const items = Array.isArray(raw) ? raw : Array.isArray(body) ? body : []
+    const models: ModelChoice[] = []
+    for (const item of items) {
+      const id = (item as { id?: unknown })?.id
+      if (typeof id === 'string' && id !== '') {
+        const ownedBy = (item as { owned_by?: unknown })?.owned_by
+        models.push(typeof ownedBy === 'string' && ownedBy !== '' ? { id, ownedBy } : { id })
+      }
+    }
+    models.sort((a, b) => a.id.localeCompare(b.id))
+    return { ok: true, models }
+  } catch (error) {
+    return {
+      ok: false,
+      message: `拿不到模型列表：${error instanceof Error ? error.message : String(error)}。模型 ID 仍然可以手填。`,
+    }
+  }
+})
+
+// --- folder picker ----------------------------------------------------------
+//
+// The run field accepts a path or a URL, and typing a path by hand is where people
+// mistype free text for a filesystem location. A native NSOpenPanel is the one
+// dialog that *should* stay native: it is a system file browser that people already
+// know, it has full disk-access and bookmark privileges, and no in-app list can
+// reproduce it. Everything else in this app is hand-drawn; this is the exception
+// because a reimplementation would be worse, not better.
+
+ipcMain.handle('dialog:pickFolder', async (event) => {
+  const window = BrowserWindow.fromWebContents(event.sender)
+  const options: Electron.OpenDialogOptions = {
+    title: '选择要拆解的仓库',
+    properties: ['openDirectory', 'createDirectory', 'showHiddenFiles'],
+    buttonLabel: '拆解',
+  }
+  const result = window === null ? await dialog.showOpenDialog(options) : await dialog.showOpenDialog(window, options)
+  if (result.canceled || result.filePaths.length === 0) return { ok: false, canceled: true }
+  return { ok: true, path: result.filePaths[0] }
 })
 
 // --- environment ------------------------------------------------------------

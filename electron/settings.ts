@@ -30,6 +30,8 @@ export type Settings = {
   protocol: Protocol
   lang: 'zh' | 'en'
   topN: number
+  /** How many verified points the report's top list may hold. */
+  reportPoints: number
   keys: Partial<Record<ProviderId, StoredKey>>
   lastRepos: string[]
 }
@@ -40,7 +42,11 @@ const DEFAULTS: Settings = {
   model: presetOf('deepseek').defaultModel,
   protocol: 'openai',
   lang: 'zh',
-  topN: 8,
+  // Twelve candidates, six reported. Eight and five was the old shape: the scan
+  // collected barely more than the report could show, so a good candidate set had
+  // nothing to cut and the report read as thin.
+  topN: 12,
+  reportPoints: 6,
   keys: {},
   lastRepos: [],
 }
@@ -53,6 +59,7 @@ export type SettingsView = {
   protocol: Protocol
   lang: 'zh' | 'en'
   topN: number
+  reportPoints: number
   apiKeyConfigured: boolean
   apiKeyHint: string
   keysNeedReentry: boolean
@@ -95,6 +102,14 @@ export function settings(): Settings {
     protocol: parsed['protocol'] === 'anthropic' ? 'anthropic' : preset.protocol,
     lang: parsed['lang'] === 'en' ? 'en' : 'zh',
     topN: typeof parsed['topN'] === 'number' && parsed['topN'] > 0 ? parsed['topN'] : DEFAULTS.topN,
+    // Clamped rather than rejected: a hand-edited file with 200 here would ask the
+    // model for a two-hundred-item list and then throw most of it away.
+    reportPoints:
+      typeof parsed['reportPoints'] === 'number' &&
+      parsed['reportPoints'] >= 1 &&
+      parsed['reportPoints'] <= 12
+        ? Math.floor(parsed['reportPoints'])
+        : DEFAULTS.reportPoints,
     keys: isRecord(parsed['keys']) ? (parsed['keys'] as Settings['keys']) : {},
     lastRepos: Array.isArray(parsed['lastRepos'])
       ? (parsed['lastRepos'] as unknown[]).filter((item): item is string => typeof item === 'string').slice(0, 8)
@@ -167,6 +182,7 @@ export function getSettingsView(): SettingsView {
     protocol: current.protocol,
     lang: current.lang,
     topN: current.topN,
+    reportPoints: current.reportPoints,
     apiKeyConfigured: configured,
     apiKeyHint: configured ? (stored?.hint ?? (preset.keyless === true ? '本地，无需 Key' : '')) : '',
     keysNeedReentry: anyKeyNeedsReentry(),
@@ -180,6 +196,7 @@ export type SettingsPatch = {
   protocol?: Protocol
   lang?: 'zh' | 'en'
   topN?: number
+  reportPoints?: number
   /** An empty string keeps the existing key; `null` clears it. */
   apiKey?: string | null
 }
@@ -202,6 +219,9 @@ export function saveSettings(patch: SettingsPatch): SettingsView {
   if (patch.lang !== undefined) current.lang = patch.lang === 'en' ? 'en' : 'zh'
   if (patch.topN !== undefined && Number.isFinite(patch.topN)) {
     current.topN = Math.max(1, Math.min(50, Math.floor(patch.topN)))
+  }
+  if (patch.reportPoints !== undefined && Number.isFinite(patch.reportPoints)) {
+    current.reportPoints = Math.max(1, Math.min(12, Math.floor(patch.reportPoints)))
   }
 
   if (patch.apiKey === null) {
