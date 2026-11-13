@@ -64,9 +64,9 @@ npm run dev:desktop       # 另一个终端：窗口连到上面那个地址
 ```
 electron/providers.ts   预设列表（id / endpoint / 协议 / 默认模型）
 electron/settings.ts    safeStorage 读写，渲染进程只能看到脱敏后的视图
-electron/main.ts        窗口 + 三个 IPC 面（settings / analysis / report）
+electron/main.ts        窗口 + 五个 IPC 面（settings / analysis / report / models / surveys）
 electron/preload.ts     contextBridge，固定 API，不暴露 ipcRenderer
-renderer/src/           React 界面：设置页、主页面、报告渲染
+renderer/src/           React 界面：设置页、主页面、报告渲染、应用重建视图
 scripts/build-electron.mjs  esbuild 打包 main 与 preload，并复制 Python sidecar
 ```
 
@@ -79,9 +79,27 @@ scripts/build-electron.mjs  esbuild 打包 main 与 preload，并复制 Python s
 纯 Node 进程：`require('electron')` 返回二进制路径字符串，`app` 是 `undefined`，窗口打不开。
 `run-electron.mjs` 启动前把它删掉。自己手动跑的话记得 `env -u ELECTRON_RUN_AS_NODE`。
 
+## 界面上有什么
+
+顶栏三个入口：
+
+```
+[对比]  [应用 · N]  [provider · model]
+```
+
+- **报告**：跑完一次分析后直接显示，和 `report.md` 逐字相同（同一份渲染器）。
+- **历史**：首页底部列出 `.ana/runs` 里所有跑完的 run，点开就是当时那一版；行尾的 `×`
+  两段确认后删除（`ana forget` 的图形版）。
+- **应用 · N**：`ana inspect-app` 重建过的应用。页头可切换看哪一份，`删除`同样两段确认。
+  内容分三块：Electron 暴露面、contextBridge 暴露的每个成员、IPC 通道按名字分级。
+- **对比**：挑两份 survey 算差异，吸顶选择条，改前/后不用滚回顶部。
+
+窗口**不做**耗时取证——那几分钟属于 CLI。界面只读磁盘上已有的结果，所以每一次点击
+都是即时的。
+
 ## 还没做
 
-- 只做完整分析，没有"先 scan 看看"那一步（命令行有：`ana scan`）
+- 窗口里不能直接跑 `ana scan`（命令行有）
 - 没有逐条证据的 `ana inspect` 交互
-- 没有历史 run 列表，关掉窗口后要重新跑
-- 没有打包成 .app / .dmg（`electron-builder` 未接入）
+- 没有打包成 .dmg 分发（`electron-builder` 未接入；本地用 `scripts/build-app-bundle.mjs`
+  组装 `out/anatomy.app`）
