@@ -1,45 +1,56 @@
-# anatomy
+<p align="center">
+  <img src="docs/assets/banner.svg" alt="anatomy — evidence-backed design notes for a repository" width="100%">
+</p>
 
-把一个仓库拆成一份**带行号证据的设计笔记**：值得学的决定、它们的代价、以及证据在哪一行。验证不过的说法不会出现在报告里。
+<h1 align="center">anatomy</h1>
 
-源代码是公开的，稀缺的不是代码，是判断力——从二十万行里挑出二十个真正值得学的决定。
+<p align="center">
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-2f7d5d"></a>
+  <a href="package.json"><img alt="node" src="https://img.shields.io/badge/node-%E2%89%A522.14-17191d"></a>
+</p>
+
+<p align="center">
+  <strong>English</strong> · <a href="README.zh-CN.md">简体中文</a> · <a href="docs/desktop.md">Desktop app</a>
+</p>
+
+Takes an open-source repository apart into **design notes backed by line-level evidence**: the decisions worth learning, what they cost, and the exact line to read. A claim that fails verification never appears in the report.
+
+Source code is public; the scarce thing is judgement — picking the twenty decisions worth studying out of two hundred thousand lines.
 
 ```bash
 npm install
-npm run verify        # 末行应为 VERIFY: PASS
+npm run verify        # the last line should read VERIFY: PASS
 ```
 
-## 桌面应用
+## Desktop app
 
 ```bash
 npm run build:desktop && npm run start:desktop
 ```
 
-窗口里填一个仓库地址就能跑分析，模型 Key 在应用内配置（加密存在本机，
-渲染进程拿不到）。provider 预设与 reading-notes 同一套，含 Anthropic 原生协议。
-细节见 [docs/desktop.md](docs/desktop.md)。
+Paste a repository URL into the window and the analysis runs. The model key is configured inside the app and encrypted on the machine (the renderer never sees it). The provider presets are the same set as reading-notes, including Anthropic's native protocol. Details in [docs/desktop.md](docs/desktop.md).
 
-## 四条命令
+## Four commands
 
 ```bash
-ana scan <repo>                  # 零模型调用：告诉你哪里最值得看
-ana analyze <repo> [--top 8]     # 完整分析，产出报告
-ana report <runId>               # 用已存产物重渲染（分析树已删也能出）
-ana inspect <evidenceId>         # 打印某条证据的文件与原文片段
+ana scan <repo>                  # zero model calls: tells you where to look
+ana analyze <repo> [--top 8]     # full analysis, writes a report
+ana report <runId>               # re-render from stored artefacts (works after the tree is deleted)
+ana inspect <evidenceId>         # print one piece of evidence: file and verbatim snippet
 ```
 
-`<repo>` 可以是 GitHub 地址、任意 tarball 地址，或本地目录。默认分析最新 release tag，`--ref` 覆盖，`--subpath` 限定 monorepo 的某棵子树。
+`<repo>` is a GitHub URL, any tarball URL, or a local directory. It analyses the latest release tag by default; `--ref` overrides it, `--subpath` narrows a monorepo to one subtree.
 
-真机运行需要模型凭据：
+A real run needs model credentials:
 
 ```bash
 export ANA_MODEL=gpt-4o-mini  ANA_API_KEY=sk-...
 node dist/cli.js analyze https://github.com/sindresorhus/quick-lru --top 8
 ```
 
-## 报告长什么样
+## What a report looks like
 
-真实运行（`sindresorhus/quick-lru`）的开头：
+The opening of a real run (`sindresorhus/quick-lru`), report body in Chinese:
 
 ```markdown
 # quick-lru
@@ -64,40 +75,39 @@ node dist/cli.js analyze https://github.com/sindresorhus/quick-lru --top 8
 - 规模：13 个文件 / 62687 字节 / 2606 行
 ```
 
-正文里每个点都带 `index.js:1-1` 这样的定位和逐字片段；末尾必有「没看的部分」，列出不支持的语言、被预算裁掉的候选、以及被 withheld 的点。
+Every point in the body carries a locator such as `index.js:1-1` and a verbatim snippet. The report always ends with "what I did not read", listing unsupported languages, candidates dropped by the budget, and withheld points.
 
-## 两条不变量
+## Two invariants
 
-产品的全部价值压在这两条上，代码里也按这两条组织：
+The whole value of the product rests on these two, and the code is organised around them:
 
-1. **不编造。** 模型写的一切都是待验证的主张。`src/kernel/evidence.ts` 拿片段去比对磁盘上的字节，`src/writing/judge.ts` 还会拒绝引用它从未展示给模型的行号——两者都过，才会出现在页面上。
-2. **不执行被分析仓库的代码。** 不 `git clone`、不装依赖、不跑脚本；Python 用 `ast` 解析，sidecar 以 `-I` 启动并清洗环境，避免被分析仓库的 `ast.py` 之类顶替标准库。
+1. **No fabrication.** Everything the model writes is a claim pending verification. `src/kernel/evidence.ts` compares the snippet against the bytes on disk, and `src/writing/judge.ts` rejects any line number the model was never shown. Only what passes both reaches the page.
+2. **The analysed repository is never executed.** No `git clone`, no dependency install, no scripts. Python is parsed with `ast`; the sidecar starts with `-I` and a sanitised environment so a repository cannot shadow the standard library with its own `ast.py`.
 
-## 结构
+## Structure
 
 ```
-src/kernel/     无 LLM 的取证内核：取仓库、口径、结构图、信号、证据校验、预算
-src/writing/    唯一花 token 的一层：提示、judge、排序、综述
-src/render/     一层数据两种渲染：叙述 + 可折叠配方、以及 JSON
+src/kernel/     LLM-free forensic kernel: acquire, profile, structure map, signals, evidence check, budget
+src/writing/    the only layer that spends tokens: prompts, judge, ranking, synthesis
+src/render/     one dataset, two renderings: narrative + collapsible recipe, and JSON
 src/commands/   scan / analyze / report / inspect
-eval/           gold 集与召回率脚本（npm run eval）
+eval/           gold set and recall scripts (npm run eval)
 ```
 
-## 知道自己会看漏
+## Known blind spots
 
-29 个 gold 仓库、90 个标注点，当前候选召回率 **60%**。
+29 gold repositories, 90 annotated points, current candidate recall **60%**.
 
-也就是说四成的标注点连候选都没进，模型再强也写不出来。这个数字留在仓库里，比藏起来有用：
+Which means four annotated points in ten never become candidates at all, and no model can write about a line it was never shown. The number stays in the repository because that is more useful than hiding it:
 
 ```bash
 npm run eval:recall
 ```
 
-## 未做
+## Not built yet
 
-- MCP server、`ana publish`。
-- 其他语言的结构分析：目前只认 TS/JS 与 Python。
-- **报告的英文骨架**。`--lang en` 只切换模型写的正文，标题与栏位仍固定中文——
-  `src/render/markdown.ts` 里没有英文分支。想要一份全英文报告，现在只做到一半。
+- MCP server, `ana publish`.
+- Structure analysis for languages other than TypeScript/JavaScript and Python.
+- **An English report skeleton.** `--lang en` only switches the prose the model writes; headings and field names stay Chinese — `src/render/markdown.ts` has no English branch. A fully English report is currently half done.
 
-设计、计划与执行记录见 `docs/superpowers/PROGRESS.md`。
+Design, plan and execution records live in `docs/superpowers/PROGRESS.md`.
