@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   heapLimited,
+  parseProgress,
   pickSmallSources,
   SMALL_SOURCE_MAX_BYTES,
   surfaceFrom,
@@ -122,5 +123,33 @@ describe('pickSmallSources', () => {
     const root = await mkdtemp(path.join(tmpdir(), 'ana-small-'))
     await writeFile(path.join(root, 'main.js'), 'x'.repeat(SMALL_SOURCE_MAX_BYTES + 1))
     expect(await pickSmallSources(root)).toEqual([])
+  })
+})
+
+describe('parseProgress', () => {
+  it('reads the counts out of the sentence REA puts them in', () => {
+    const progress = parseProgress(
+      '{"rea_progress":{"phase":"parse_javascript_source","completed":0,"total":1,"message":"Parsing and projecting server/auth-store.js (12/73)","sequence":4}}',
+    )
+    expect(progress).toMatchObject({ phase: 'parse_javascript_source', done: 12, total: 73 })
+  })
+
+  it('accepts a line without counts', () => {
+    const progress = parseProgress(
+      '{"rea_progress":{"phase":"read_javascript_artifacts","message":"Reading inventoried sources"}}',
+    )
+    expect(progress).toMatchObject({ done: null, total: null })
+  })
+
+  it('ignores everything that is not a progress line', () => {
+    // stderr carries real errors too, and printing them as progress would hide them.
+    expect(parseProgress('Error: something went wrong')).toBeNull()
+    expect(parseProgress('{"error":"boom"}')).toBeNull()
+    expect(parseProgress('{not json')).toBeNull()
+    expect(parseProgress('')).toBeNull()
+  })
+
+  it('ignores a progress object with no message, which says nothing to a reader', () => {
+    expect(parseProgress('{"rea_progress":{"phase":"x","completed":0,"total":1}}')).toBeNull()
   })
 })

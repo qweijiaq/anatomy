@@ -302,14 +302,121 @@ export function reaLocation(): Promise<ReaLocation> {
  * stdout. Refusing it here would not save the memory — it would only move the
  * failure to a less informative place.
  */
+/** One progress line as REA emits it on stderr. */
+export type ReaProgress = {
+  phase: string
+  message: string
+  /** `n/m` when REA is walking a list, otherwise null. */
+  done: number | null
+  total: number | null
+}
+
+/** A single line of REA's `{"rea_progress": …}` channel, or null for anything else. */
+export function parseProgress(line: string): ReaProgress | null {
+  const trimmed = line.trim()
+  if (!trimmed.startsWith('{')) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(trimmed)
+  } catch {
+    return null
+  }
+  const progress = (parsed as { rea_progress?: unknown }).rea_progress
+  if (typeof progress !== 'object' || progress === null) return null
+  const record = progress as Record<string, unknown>
+  const message = typeof record['message'] === 'string' ? record['message'] : ''
+  if (message === '') return null
+  // `Parsing and projecting server/auth-store.js (1/73)` — the counts are in the
+  // sentence, and they are the only reason a reader can tell 5% from 95%.
+  const counts = /\((\d+)\/(\d+)\)\s*$/.exec(message)
+  return {
+    phase: typeof record['phase'] === 'string' ? record['phase'] : '',
+    message,
+    done: counts === null ? null : Number(counts[1]),
+    total: counts === null ? null : Number(counts[2]),
+  }
+}
+
+/**
+ * Run REA and parse its one JSON document, reporting progress while it works.
+ *
+ * `execFile` was fine when this only had to produce a value: it buffers stderr and
+ * hands back nothing until the process exits. But an application with a large
+ * bundle takes two and a half minutes, and REA is emitting a progress line to
+ * stderr the whole time — discarding them means the command looks hung. So this
+ * spawns and reads stderr as it arrives.
+ *
+ * stdout is still accumulated whole, because the document is the document; the
+ * difference is only that the silence is no longer total.
+ */
 async function reaJson(
   location: ReaLocation,
   args: string[],
   timeoutMs: number,
   maxBuffer = 8 * 1024 * 1024,
+  onProgress?: (progress: ReaProgress) => void,
 ): Promise<unknown> {
-  const { stdout } = await run(location.node, [location.entry, ...args], { timeout: timeoutMs, maxBuffer })
-  return JSON.parse(stdout) as unknown
+  if (onProgress === undefined) {
+    const { stdout } = await run(location.node, [location.entry, ...args], {
+      timeout: timeoutMs,
+      maxBuffer,
+    })
+    return JSON.parse(stdout) as unknown
+  }
+
+  const { spawn } = await import('node:child_process')
+  return new Promise<unknown>((resolve, reject) => {
+    const child = spawn(location.node, [location.entry, ...args], { stdio: ['ignore', 'pipe', 'pipe'] })
+    const chunks: Buffer[] = []
+    let bytes = 0
+    let stderrTail = ''
+
+    const timer = setTimeout(() => {
+      child.kill('SIGTERM')
+      reject(new Error(`REA 超时（${Math.round(timeoutMs / 60_000)} 分钟）`))
+    }, timeoutMs)
+
+    child.stdout.on('data', (chunk: Buffer) => {
+      bytes += chunk.length
+      if (bytes > maxBuffer) {
+        child.kill('SIGTERM')
+        reject(new Error(`REA 的输出超过 ${Math.round(maxBuffer / 1048576)} MB`))
+        return
+      }
+      chunks.push(chunk)
+    })
+
+    // stderr is a line channel; a chunk boundary is not a line boundary, so the
+    // tail of the last incomplete line is carried over.
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderrTail += chunk.toString('utf8')
+      let index = stderrTail.indexOf('\n')
+      while (index !== -1) {
+        const line = stderrTail.slice(0, index)
+        stderrTail = stderrTail.slice(index + 1)
+        const progress = parseProgress(line)
+        if (progress !== null) onProgress(progress)
+        index = stderrTail.indexOf('\n')
+      }
+    })
+
+    child.on('error', (error) => {
+      clearTimeout(timer)
+      reject(error)
+    })
+    child.on('close', (code) => {
+      clearTimeout(timer)
+      if (code !== 0) {
+        reject(new Error(`REA 退出码 ${String(code)}`))
+        return
+      }
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown)
+      } catch {
+        reject(new Error('REA 的输出不是 JSON'))
+      }
+    })
+  })
 }
 
 function numberAt(source: unknown, key: string): number {
@@ -437,6 +544,8 @@ export type SurveyOptions = {
   sourcePaths?: string[]
   /** REA analyses a large app for minutes; this is the ceiling before we give up. */
   timeoutMs?: number
+  /** Called as REA reports progress. Never required: output is identical without it. */
+  onProgress?: (progress: ReaProgress) => void
 }
 
 /**
@@ -461,6 +570,7 @@ export async function surveyApplication(
       ['analyze-javascript-application', target, ...selection, '--json'],
       timeout,
       MAX_EVIDENCE_BYTES,
+      options.onProgress,
     )) as Record<string, unknown>
   }
 

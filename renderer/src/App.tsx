@@ -173,6 +173,8 @@ export function App(): React.JSX.Element {
   // 重建过的应用（走 CLI 的 inspect-app）。界面只读，不触发分析。
   const [surveys, setSurveys] = useState<AppSurvey[]>([])
   const [surveyOpen, setSurveyOpen] = useState(false)
+  // 单份视图看的是哪一份。默认第一份，人可以在页头换。
+  const [surveyDir, setSurveyDir] = useState('')
   // 对比：打开时固定两份，人自己挑，不靠「最新的两份」猜。
   const [diffOpen, setDiffOpen] = useState(false)
   const [diffBefore, setDiffBefore] = useState('')
@@ -378,7 +380,13 @@ export function App(): React.JSX.Element {
         }
       >
         {surveyOpen ? (
-          <AppSurveyView survey={surveys[0] as AppSurvey} />
+          <AppSurveyView
+            survey={
+              (surveys.find((item) => item.dirName === surveyDir) ?? surveys[0]) as AppSurvey
+            }
+            surveys={surveys}
+            onSelect={setSurveyDir}
+          />
         ) : markdown === '' ? (
           <section className="intro">
             <h1 className="intro__title">

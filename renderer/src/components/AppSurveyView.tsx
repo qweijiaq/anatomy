@@ -9,6 +9,7 @@
  */
 
 import type { AppSurvey } from '../api.js'
+import { Select } from './Select.js'
 
 /** The Electron surface, as four groups. Zeros are shown, never hidden. */
 const SURFACE_ROWS: ReadonlyArray<{
@@ -66,7 +67,16 @@ const GROUPS: ReadonlyArray<{ key: 'privileged' | 'write' | 'read' | 'event' | '
   { key: 'other', label: '看不出', hint: '名字里没有可用动词' },
 ]
 
-export function AppSurveyView({ survey }: { survey: AppSurvey }): React.JSX.Element {
+export function AppSurveyView({
+  survey,
+  surveys,
+  onSelect,
+}: {
+  survey: AppSurvey
+  /** Every survey on disk; rendered as a picker when there is more than one. */
+  surveys: AppSurvey[]
+  onSelect: (dirName: string) => void
+}): React.JSX.Element {
   const partial = survey.surface.semantics !== 'partial' && survey.surface.semantics !== 'complete'
   const bridges = survey.modules.filter((module) => module.kind === 'context-bridge-api')
   const channels = survey.modules.filter((module) => module.kind === 'ipc-channel')
@@ -75,7 +85,23 @@ export function AppSurveyView({ survey }: { survey: AppSurvey }): React.JSX.Elem
     <section className="survey">
       <header className="survey__head">
         <div>
-          <h1 className="survey__title">{survey.name}</h1>
+          {surveys.length > 1 ? (
+            // Hand-drawn like every other select here: the native popup ignores the
+            // tokens, and this one sits inside a header with its own type.
+            <div className="survey__picker">
+              <Select
+                value={survey.dirName ?? ''}
+                onChange={onSelect}
+                options={surveys.map((item) => ({
+                  value: item.dirName ?? '',
+                  label: `${item.name} · ${item.digest}`,
+                  hint: `${item.surface.ipcOperations} 通道`,
+                }))}
+              />
+            </div>
+          ) : (
+            <h1 className="survey__title">{survey.name}</h1>
+          )}
           <p className="survey__meta">
             {survey.format} · {survey.digest} · 证据 <code className="inline-code">{survey.evidenceId.slice(0, 14)}</code>
           </p>

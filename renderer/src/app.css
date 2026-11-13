@@ -1271,3 +1271,9 @@
   flex: none;
   margin-left: auto;
 }
+
+/* 页头的 survey 选择器。占满半行，因为选项是 `名字 · digest`，截断就看不出区别。 */
+.survey__picker {
+  max-width: 420px;
+  margin-bottom: var(--space-2);
+}

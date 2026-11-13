@@ -14,7 +14,12 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
-import { ReaUnavailableError, surveyApplication, type AppSurvey } from '../app/rea.js'
+import {
+  ReaUnavailableError,
+  surveyApplication,
+  type AppSurvey,
+  type ReaProgress,
+} from '../app/rea.js'
 import { renderAppReport } from '../render/app-report.js'
 
 export const INSPECT_APP_USAGE = `Usage: ana inspect-app <dir> [options]
@@ -151,6 +156,53 @@ function lines(survey: AppSurvey): string[] {
   return out
 }
 
+/**
+ * The phase names REA uses, said in the reader's words.
+ *
+ * Only the phases that take real time are worth naming; the worker sub-phases are
+ * four internal steps of one file and would quadruple the line count for nothing.
+ */
+const PHASE_LABEL: Record<string, string> = {
+  analyze_javascript_application: '建立清单',
+  read_javascript_artifacts: '读取文件',
+  parse_javascript_sources: '解析',
+  parse_javascript_source: '解析',
+  process_javascript_artifact_metadata: '读元数据',
+  javascript_worker_parse: '解析',
+  javascript_worker_static: '静态分析',
+  javascript_worker_semantic: '语义分析',
+  javascript_worker_projection: '投影',
+  javascript_worker_transfer: '传输',
+}
+
+/**
+ * A progress reporter for the terminal.
+ *
+ * REA emits about five lines per file — 365 for a 73-file application — so they
+ * cannot all be printed. On a TTY the latest line is overwritten in place, which
+ * costs one line of scrollback and shows the counter moving. Redirected, `\r` is
+ * noise in a log file, so it prints nothing: a file that ends up in a CI log should
+ * not contain 365 carriage returns.
+ */
+function progressReporter(stream: NodeJS.WriteStream): (progress: ReaProgress) => void {
+  const interactive = stream.isTTY === true
+  let lastAt = 0
+  return (progress) => {
+    if (!interactive) return
+    const now = Date.now()
+    // Four updates a second is enough to look alive and few enough to stay cheap.
+    if (now - lastAt < 250) return
+    lastAt = now
+    const label = PHASE_LABEL[progress.phase] ?? progress.phase
+    const counts =
+      progress.done !== null && progress.total !== null
+        ? ` ${progress.done}/${progress.total}`
+        : ''
+    const line = `  ${label}${counts}`
+    stream.write(`\r${line.padEnd(48).slice(0, 48)}`)
+  }
+}
+
 export async function runInspectApp(args: InspectAppArgs): Promise<void> {
   if (args.help) {
     process.stdout.write(`${INSPECT_APP_USAGE}\n`)
@@ -162,10 +214,15 @@ export async function runInspectApp(args: InspectAppArgs): Promise<void> {
 
   let survey: AppSurvey
   try {
+    const report = progressReporter(process.stderr)
+    process.stderr.write(`分析 ${target}\n`)
     survey = await surveyApplication(target, {
       outputDir: outDir ?? path.join(process.cwd(), '.ana', 'apps', 'staging'),
       sourcePaths: args.paths,
+      onProgress: report,
     })
+    // Leave the progress line behind rather than let the result overwrite it.
+    if (process.stderr.isTTY === true) process.stderr.write('\r' + ' '.repeat(48) + '\r')
   } catch (error) {
     if (error instanceof ReaUnavailableError) {
       process.stderr.write(`ana: ${error.message}\n`)
