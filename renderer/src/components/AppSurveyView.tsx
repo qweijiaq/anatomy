@@ -53,6 +53,19 @@ function groupBy<T>(items: T[], key: (item: T) => string): Array<[string, number
   return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
 }
 
+/**
+ * The order these are shown in, worst first, with the wording that stops them
+ * reading as verdicts. `privileged` says "suggests", because that is all a name
+ * can do — the handler behind it may be a stub.
+ */
+const GROUPS: ReadonlyArray<{ key: 'privileged' | 'write' | 'read' | 'event' | 'other'; label: string; hint: string }> = [
+  { key: 'privileged', label: '能碰到系统', hint: '名字指向文件、进程、对话框或一次完整运行' },
+  { key: 'write', label: '会改东西', hint: '名字里是写动作' },
+  { key: 'read', label: '只读', hint: '名字里是读动作' },
+  { key: 'event', label: '事件', hint: '监听而不是调用' },
+  { key: 'other', label: '看不出', hint: '名字里没有可用动词' },
+]
+
 export function AppSurveyView({ survey }: { survey: AppSurvey }): React.JSX.Element {
   const partial = survey.surface.semantics !== 'partial' && survey.surface.semantics !== 'complete'
   const bridges = survey.modules.filter((module) => module.kind === 'context-bridge-api')
@@ -111,13 +124,30 @@ export function AppSurveyView({ survey }: { survey: AppSurvey }): React.JSX.Elem
                   渲染进程拿到 <code className="inline-code">{bridge.label}</code>
                   {bridge.members.length > 0 && ` ，可以调用 ${bridge.members.length} 个成员`}
                 </p>
-                <ul className="chips chips--members">
-                  {bridge.members.map((member) => (
-                    <li className="chip" key={member}>
-                      {member}
-                    </li>
-                  ))}
-                </ul>
+                {GROUPS.map((group) => {
+                  const names = survey.groups.members[group.key].filter(
+                    (name) => bridge.members.includes(name),
+                  )
+                  if (names.length === 0) return null
+                  return (
+                    <div className="group" key={group.key}>
+                      <h3 className="survey__h3">
+                        {group.label}
+                        <span className="survey__count">{names.length}</span>
+                      </h3>
+                      <ul className="chips chips--members">
+                        {names.map((member) => (
+                          <li
+                            className={`chip ${group.key === 'privileged' ? 'chip--privileged' : ''}`}
+                            key={member}
+                          >
+                            {member}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )
+                })}
               </div>
             ))
           )}
@@ -129,28 +159,41 @@ export function AppSurveyView({ survey }: { survey: AppSurvey }): React.JSX.Elem
             <span className="survey__count">{channels.length}</span>
           </h2>
           <p className="survey__note">
-            通道名是字面量，所以能读出来。标红的是 REA 没找到确定接收端的——
-            没有接收端不等于没被处理，也不等于安全。
+            通道名是字面量，所以能读出来。分组只看名字，不是安全判定：
+            <code className="inline-code">analysis:run</code> 和{' '}
+            <code className="inline-code">app:info</code> 都是一条通道，但一个能跑完整分析，
+            一个只回几个数字。
           </p>
           {channels.length === 0 ? (
             <p className="survey__note">这次分析没有读到 IPC 通道。</p>
           ) : (
-            <ul className="chips chips--channels">
-              {channels.map((channel) => (
-                <li
-                  className={`chip chip--channel ${
-                    survey.surface.ambiguousTransmissions > 0 ? 'chip--unpaired' : ''
-                  }`}
-                  key={channel.id}
-                  title={channel.operation === '' ? channel.id : `${channel.operation}`}
-                >
-                  {channel.label}
-                  {channel.operation !== '' && (
-                    <span className="chip__op">{channel.operation}</span>
-                  )}
-                </li>
-              ))}
-            </ul>
+            GROUPS.map((group) => {
+              const names = survey.groups.channels[group.key]
+              if (names.length === 0) return null
+              return (
+                <div className="group" key={group.key}>
+                  <h3 className="survey__h3">
+                    {group.label}
+                    <span className="survey__count">{names.length}</span>
+                    <span className="group__hint">{group.hint}</span>
+                  </h3>
+                  <ul className="chips chips--channels">
+                    {names.map((name) => (
+                      <li
+                        className={`chip chip--channel ${
+                          group.key === 'privileged' ? 'chip--privileged' : ''
+                        } ${
+                          group.key === 'event' ? '' : survey.surface.ambiguousTransmissions > 0 ? 'chip--unpaired' : ''
+                        }`}
+                        key={name}
+                      >
+                        {name}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )
+            })
           )}
         </section>
 

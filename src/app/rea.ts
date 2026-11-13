@@ -33,6 +33,8 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 
+import { groupNames, type GroupedNames } from './classify.js'
+
 const run = promisify(execFile)
 
 /**
@@ -120,6 +122,14 @@ export type AppSurvey = {
   limitations: string[]
   modules: AppModule[]
   relations: AppRelation[]
+  /**
+   * Channels and exposed members grouped by what their names suggest they do.
+   *
+   * A flat list of ten channels is a catalogue; `privileged` is the reading. Kept
+   * in the survey rather than derived in the view so the CLI prints the same
+   * grouping the window shows.
+   */
+  groups: { channels: GroupedNames; members: GroupedNames }
   /** Why the graph is missing, when it is. Empty when it is present. */
   graphOmitted: string
   /** True when the first pass hit REA's worker heap and a narrower pass was run. */
@@ -497,6 +507,15 @@ export async function surveyApplication(
   const statistics = (parent['statistics'] ?? {}) as Record<string, unknown>
 
   const graph = await readGraph(evidencePath)
+  const modules = 'omitted' in graph ? [] : graph.modules
+  const groups = {
+    channels: groupNames(modules.filter((m) => m.kind === 'ipc-channel').map((m) => m.label)),
+    members: groupNames([
+      ...new Set(
+        modules.filter((m) => m.kind === 'context-bridge-api').flatMap((m) => m.members),
+      ),
+    ]),
+  }
   const subject = (evidence['subject'] ?? {}) as Record<string, unknown>
   const digest = (subject['digest'] ?? {}) as Record<string, unknown>
 
@@ -525,7 +544,8 @@ export async function surveyApplication(
     limitations: Array.isArray(parent['limitations'])
       ? (parent['limitations'] as unknown[]).filter((item): item is string => typeof item === 'string')
       : [],
-    modules: 'omitted' in graph ? [] : graph.modules,
+    groups,
+    modules,
     relations: 'omitted' in graph ? [] : graph.relations,
     graphOmitted: 'omitted' in graph ? graph.omitted : '',
     retried,

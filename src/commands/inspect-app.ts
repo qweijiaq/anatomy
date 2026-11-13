@@ -101,6 +101,22 @@ function lines(survey: AppSurvey): string[] {
   out.push(`  语义覆盖 ${s.semantics}`)
   out.push('')
 
+  const surfaceGroups: Array<[string, string[]]> = [
+    ['能碰到系统', survey.groups.channels.privileged],
+    ['会改东西', survey.groups.channels.write],
+    ['只读', survey.groups.channels.read],
+    ['事件', survey.groups.channels.event],
+    ['看不出', survey.groups.channels.other],
+  ]
+  const anyChannel = surfaceGroups.some(([, names]) => names.length > 0)
+  if (anyChannel) {
+    out.push('IPC 通道（按名字分组，不是安全判定）')
+    for (const [label, names] of surfaceGroups) {
+      if (names.length > 0) out.push(`  ${label}：${names.join('、')}`)
+    }
+    out.push('')
+  }
+
   if (survey.modules.length > 0) {
     const byKind = new Map<string, number>()
     for (const module of survey.modules) byKind.set(module.kind, (byKind.get(module.kind) ?? 0) + 1)
@@ -161,7 +177,11 @@ export async function runInspectApp(args: InspectAppArgs): Promise<void> {
   const finalDir = outDir ?? path.join(process.cwd(), '.ana', 'apps', slugOf(target, survey.digest))
   if (outDir === null) {
     await mkdir(path.dirname(finalDir), { recursive: true })
-    const { rename } = await import('node:fs/promises')
+    const { rename, rm } = await import('node:fs/promises')
+    // The directory name is the digest, so an existing one describes the same
+    // application and this run supersedes it. `rename` refuses a non-empty target,
+    // and the first re-analysis of anything hits that.
+    await rm(finalDir, { recursive: true, force: true })
     await rename(path.join(process.cwd(), '.ana', 'apps', 'staging'), finalDir)
     survey = {
       ...survey,

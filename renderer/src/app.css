@@ -1185,3 +1185,22 @@
   margin: 0 0 var(--space-4);
   line-height: 1.6;
 }
+
+/* 暴露面分级。privileged 用 warn 色：不是说它危险，是说它值得先看。 */
+.group + .group {
+  margin-top: var(--space-2);
+}
+
+.group__hint {
+  margin-left: auto;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-faint);
+}
+
+.chip--privileged {
+  border-color: var(--warn);
+  color: var(--warn);
+  background: var(--warn-soft);
+}

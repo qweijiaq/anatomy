@@ -98,6 +98,10 @@ export type AppSurvey = {
     operation: string
   }>
   relations: Array<{ from: string; to: string; relation: string }>
+  groups: {
+    channels: Record<'privileged' | 'write' | 'read' | 'event' | 'other', string[]>
+    members: Record<'privileged' | 'write' | 'read' | 'event' | 'other', string[]>
+  }
   graphOmitted: string
   retried: boolean
   retryNote: string
