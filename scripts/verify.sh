@@ -77,8 +77,24 @@ node dist/cli.js inspect "$evidence" > "$work/inspect.txt" 2>&1 || fail "inspect
 grep -qE '^[^ ]+:[0-9]+-[0-9]+$' "$work/inspect.txt" || fail "inspect printed no range"
 
 echo "== sample =="
+# Printed before the delete, because the delete is what this run ends with.
 sed -n '1,12p' "$report"
 echo
+
+echo "== forget =="
+# The one command that deletes. It runs on the run this script just made, and the
+# refusals are checked first because a delete that accepts a path is the failure
+# that matters — not a delete that fails to delete.
+if node dist/cli.js forget ../etc > "$work/forget-bad.txt" 2>&1; then
+  fail "forget accepted a path instead of an id"
+fi
+node dist/cli.js forget "$run_id" > "$work/forget.txt" 2>&1 || fail "forget: $(cat "$work/forget.txt")"
+[ -d "$run_dir" ] && fail "forget left the run directory behind"
+# Deleting it twice is not an error to a script; it says so and exits 1.
+if node dist/cli.js forget "$run_id" > /dev/null 2>&1; then
+  fail "forget reported success for a run that was already gone"
+fi
+
 echo "SUMMARY: ${counts:-tests passed} | typecheck clean | build ok"
-echo "SUMMARY: scan+analyze+report+inspect ok on $target"
-echo "VERIFY: PASS ($kind, run $run_id)"
+echo "SUMMARY: scan+analyze+report+inspect+forget ok on $target"
+echo "VERIFY: PASS ($kind, run $run_id, deleted)"

@@ -30,14 +30,30 @@ npm run build:desktop && npm run start:desktop
 
 Paste a repository URL into the window and the analysis runs. The model key is configured inside the app and encrypted on the machine (the renderer never sees it). The provider presets are the same set as reading-notes, including Anthropic's native protocol. Details in [docs/desktop.md](docs/desktop.md).
 
-## Four commands
+## Commands
+
+Four that need source:
 
 ```bash
 ana scan <repo>                  # zero model calls: tells you where to look
-ana analyze <repo> [--top 8]     # full analysis, writes a report
+ana analyze <repo> [--top 12]    # full analysis, writes a report
 ana report <runId>               # re-render from stored artefacts (works after the tree is deleted)
 ana inspect <evidenceId>         # print one piece of evidence: file and verbatim snippet
 ```
+
+Four that do not, via [REA](https://github.com/morluto/rea) — no model called at all:
+
+```bash
+ana inspect-app <dir>            # reconstruct from shipped artefacts: modules, IPC, contextBridge, storage
+ana app-report <name>            # the facts report for one application
+ana app-diff <a> <b>             # what changed on the boundary between two builds
+ana forget <id> [--app]          # delete one stored analysis
+```
+
+`inspect-app` needs Node ^22.23.4 || ^24.22.1 || >=26.12.1 and a `rea` it can run
+(`npx rea-agents setup`, or point `ANA_REA` at its `scripts/rea.mjs`). A whole
+application takes minutes; `--path preload.cjs` analyses only the small files that
+declare the boundary, usually in a second or two.
 
 `<repo>` is a GitHub URL, any tarball URL, or a local directory. It analyses the latest release tag by default; `--ref` overrides it, `--subpath` narrows a monorepo to one subtree.
 
@@ -90,7 +106,8 @@ The whole value of the product rests on these two, and the code is organised aro
 src/kernel/     LLM-free forensic kernel: acquire, profile, structure map, signals, evidence check, budget
 src/writing/    the only layer that spends tokens: prompts, judge, ranking, synthesis
 src/render/     one dataset, two renderings: narrative + collapsible recipe, and JSON
-src/commands/   scan / analyze / report / inspect
+src/app/        REA adapter: the call, its progress, fact grouping, diffs
+src/commands/   scan / analyze / report / inspect / inspect-app / app-report / app-diff / forget
 eval/           gold set and recall scripts (npm run eval)
 ```
 
@@ -108,6 +125,9 @@ npm run eval:recall
 
 - MCP server, `ana publish`.
 - Structure analysis for languages other than TypeScript/JavaScript and Python.
-- **An English report skeleton.** `--lang en` only switches the prose the model writes; headings and field names stay Chinese — `src/render/markdown.ts` has no English branch. A fully English report is currently half done.
+- **A judgement report for an application without source.** REA reconstructs what
+  the code does; inferring why it was designed that way needs a second verifier
+  (against `evidence_id` rather than bytes on disk), and until that exists the
+  honest output is the facts report.
 
 Design, plan and execution records live in `docs/superpowers/PROGRESS.md`.

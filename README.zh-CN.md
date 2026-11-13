@@ -32,14 +32,30 @@ npm run build:desktop && npm run start:desktop
 渲染进程拿不到）。provider 预设与 reading-notes 同一套，含 Anthropic 原生协议。
 细节见 [docs/desktop.md](docs/desktop.md)。
 
-## 四条命令
+## 命令
+
+需要有源码的四条：
 
 ```bash
 ana scan <repo>                  # 零模型调用：告诉你哪里最值得看
-ana analyze <repo> [--top 8]     # 完整分析，产出报告
+ana analyze <repo> [--top 12]    # 完整分析，产出报告
 ana report <runId>               # 用已存产物重渲染（分析树已删也能出）
 ana inspect <evidenceId>         # 打印某条证据的文件与原文片段
 ```
+
+没有源码也行的四条（走 [REA](https://github.com/morluto/rea) 取证，全程不调模型）：
+
+```bash
+ana inspect-app <dir>            # 从打包产物重建：模块、IPC、contextBridge、存储关系
+ana app-report <name>            # 单份事实报告
+ana app-diff <a> <b>             # 两份的差异：暴露面变了什么
+ana forget <id> [--app]          # 删掉一份存下来的分析
+```
+
+`inspect-app` 需要 Node ^22.23.4 || ^24.22.1 || >=26.12.1 和一个可用的 `rea`
+（`npx rea-agents setup`，或用 `ANA_REA` 指向它的 `scripts/rea.mjs`）。
+整个应用跑一次要几分钟，用 `--path preload.cjs` 只分析声明了边界的那几个小文件，
+通常一两秒。
 
 `<repo>` 可以是 GitHub 地址、任意 tarball 地址，或本地目录。默认分析最新 release tag，`--ref` 覆盖，`--subpath` 限定 monorepo 的某棵子树。
 
@@ -92,7 +108,8 @@ node dist/cli.js analyze https://github.com/sindresorhus/quick-lru --top 8
 src/kernel/     无 LLM 的取证内核：取仓库、口径、结构图、信号、证据校验、预算
 src/writing/    唯一花 token 的一层：提示、judge、排序、综述
 src/render/     一层数据两种渲染：叙述 + 可折叠配方、以及 JSON
-src/commands/   scan / analyze / report / inspect
+src/app/        REA 适配：调用、进度、事实归类、两份对比
+src/commands/   scan / analyze / report / inspect / inspect-app / app-report / app-diff / forget
 eval/           gold 集与召回率脚本（npm run eval）
 ```
 
@@ -110,7 +127,7 @@ npm run eval:recall
 
 - MCP server、`ana publish`。
 - 其他语言的结构分析：目前只认 TS/JS 与 Python。
-- **报告的英文骨架**。`--lang en` 只切换模型写的正文，标题与栏位仍固定中文——
-  `src/render/markdown.ts` 里没有英文分支。想要一份全英文报告，现在只做到一半。
+- 无源码应用只能出**事实报告**，还没有判断版：从重建图推「为什么这么设计」需要第二个
+  校验器（对 `evidence_id` 而不是磁盘字节），没做之前宁可不写。
 
 设计、计划与执行记录见 `docs/superpowers/PROGRESS.md`。
