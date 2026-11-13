@@ -3,6 +3,13 @@
   "version": "0.0.1",
   "type": "module",
   "description": "Dissect a repository into evidence-backed design notes: every claim cites file:line and is checked against the bytes on disk",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/qweijiaq/anatomy.git"
+  },
+  "homepage": "https://github.com/qweijiaq/anatomy#readme",
+  "bugs": "https://github.com/qweijiaq/anatomy/issues",
   "bin": {
     "ana": "./dist/cli.js"
   },
