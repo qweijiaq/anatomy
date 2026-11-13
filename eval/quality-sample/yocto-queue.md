@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/sindresorhus/yocto-queue
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/8a2af437b409/tree/yocto-queue-72a8fa96a9d389765cdf2bb9c6daba8302fc375d
+- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/bd9ae3e53020/tree/yocto-queue-72a8fa96a9d389765cdf2bb9c6daba8302fc375d
 - 规模：13 个文件 / 10855 字节 / 431 行
 - 语言：js 2、ts 2
 - 排除：没有文件被排除
@@ -55,7 +55,7 @@
 
 **分析口径之外**
 
-- 跳过：synthesis chose 1 of 1 rendered points
+- 跳过：全部 1 个已核实的点都写进了报告。
 
 **没进正文的判断**
 

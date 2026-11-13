@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/lukeed/totalist
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/deb88b44b114/tree/totalist-4b071d3e54d466a4059de89006c752da782c8b02
+- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/c48d12c83059/tree/totalist-4b071d3e54d466a4059de89006c752da782c8b02
 - 规模：18 个文件 / 11091 字节 / 401 行
 - 语言：js 7、ts 2
 - 排除：没有文件被排除
@@ -142,7 +142,7 @@ export function totalist(dir, callback, pre='') {
 
 **分析口径之外**
 
-- 跳过：synthesis chose 1 of 4 rendered points
+- 跳过：报告正文写了 1 个点，另有 0 个已核实但没有写进正文。
 - 备注：could not resolve package.json entry "dist/index.js": outside the analysed scope
 
 **没进正文的判断**

@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/jshttp/etag
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/67b8d4ef31e7/tree/etag-5df2cfdd46d310ccf51638d5b702375cbd99da44
+- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/a453fcb6a5e5/tree/etag-5df2cfdd46d310ccf51638d5b702375cbd99da44
 - 规模：21 个文件 / 36859 字节 / 1439 行
 - 语言：js 9
 - 排除：没有文件被排除
@@ -167,11 +167,40 @@ global.string = getbuffer(100 * 1000).toString()
 
 - 待模型补全 —— 待模型补全
 
+## 6. 从引用代码看：这里有一个具体的设计决定
+
+- 类型：数据模型
+- 置信度：高
+
+**约束**：待模型补全（待模型补全）
+
+**常见做法与代价**
+
+- 待模型补全 —— 待模型补全
+
+**他们怎么做**
+
+待模型补全
+
+`index.js:83-83`
+
+```
+    throw new TypeError('argument entity must be string, Buffer, or fs.Stats')
+```
+
+**为什么有效**
+
+待模型补全
+
+**代价**
+
+- 待模型补全 —— 待模型补全
+
 ## 没看的部分
 
 **分析口径之外**
 
-- 跳过：synthesis chose 1 of 5 rendered points
+- 跳过：报告正文写了 1 个点，另有 0 个已核实但没有写进正文。
 
 **没进正文的判断**
 

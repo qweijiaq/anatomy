@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/sindresorhus/quick-lru
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/18fca25cda86/tree/quick-lru-a2190ebdf8e455b95a7138803d274ff5ed57ebcd
+- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/576a57997482/tree/quick-lru-a2190ebdf8e455b95a7138803d274ff5ed57ebcd
 - 规模：13 个文件 / 62688 字节 / 2608 行
 - 语言：js 2、ts 2
 - 排除：没有文件被排除
@@ -55,7 +55,7 @@
 
 **分析口径之外**
 
-- 跳过：synthesis chose 1 of 1 rendered points
+- 跳过：全部 1 个已核实的点都写进了报告。
 
 **没进正文的判断**
 

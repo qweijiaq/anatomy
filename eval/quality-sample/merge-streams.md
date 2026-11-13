@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/sindresorhus/merge-streams
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/a2aec8488ce8/tree/merge-streams-948560b5183a67cdff03a3aaebd78c69bd194904
+- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/9372e5b7167c/tree/merge-streams-948560b5183a67cdff03a3aaebd78c69bd194904
 - 规模：13 个文件 / 39084 字节 / 1257 行
 - 语言：js 2、ts 2
 - 排除：没有文件被排除
@@ -84,7 +84,7 @@ import {PassThrough as PassThroughStream, getDefaultHighWaterMark} from 'node:st
 
 **分析口径之外**
 
-- 跳过：synthesis chose 1 of 2 rendered points
+- 跳过：报告正文写了 1 个点，另有 0 个已核实但没有写进正文。
 
 **没进正文的判断**
 

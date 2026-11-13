@@ -17,12 +17,41 @@
 ## 分析口径
 
 - 来源：https://github.com/lukeed/klona
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/3c81e9eefab5/tree/klona-e563341d88f433e74a9b4c3c0372d4ba55d2f79e
+- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/fbf0eb30a86c/tree/klona-e563341d88f433e74a9b4c3c0372d4ba55d2f79e
 - 规模：45 个文件 / 54184 字节 / 2373 行
 - 语言：js 36、ts 1
 - 排除：binary 1
 
 ## 1. 从引用代码看：这里有一个具体的设计决定
+
+- 类型：数据模型
+- 置信度：高
+
+**约束**：待模型补全（待模型补全）
+
+**常见做法与代价**
+
+- 待模型补全 —— 待模型补全
+
+**他们怎么做**
+
+待模型补全
+
+`src/json.js:6-6`
+
+```
+		while (k--) out[k] = (tmp=val[k]) && typeof tmp === 'object' ? klona(tmp) : tmp;
+```
+
+**为什么有效**
+
+待模型补全
+
+**代价**
+
+- 待模型补全 —— 待模型补全
+
+## 2. 从引用代码看：这里有一个具体的设计决定
 
 - 类型：数据模型
 - 置信度：高
@@ -51,7 +80,7 @@
 
 - 待模型补全 —— 待模型补全
 
-## 2. 从引用代码看：这里有一个具体的设计决定
+## 3. 从引用代码看：这里有一个具体的设计决定
 
 - 类型：数据模型
 - 置信度：高
@@ -80,7 +109,7 @@
 
 - 待模型补全 —— 待模型补全
 
-## 3. 从引用代码看：这里有一个具体的设计决定
+## 4. 从引用代码看：这里有一个具体的设计决定
 
 - 类型：数据模型
 - 置信度：高
@@ -109,7 +138,7 @@ Object.defineProperty(item, 'hidden1', {
 
 - 待模型补全 —— 待模型补全
 
-## 4. 从引用代码看：这里有一个具体的设计决定
+## 5. 从引用代码看：这里有一个具体的设计决定
 
 - 类型：数据模型
 - 置信度：高
@@ -138,7 +167,7 @@ Object.defineProperty(item, 'hidden1', {
 
 - 待模型补全 —— 待模型补全
 
-## 5. 从引用代码看：这里有一个具体的设计决定
+## 6. 从引用代码看：这里有一个具体的设计决定
 
 - 类型：数据模型
 - 置信度：高
@@ -167,40 +196,11 @@ Object.defineProperty(item, 'hidden1', {
 
 - 待模型补全 —— 待模型补全
 
-## 6. 从引用代码看：这里有一个具体的设计决定
-
-- 类型：数据模型
-- 置信度：高
-
-**约束**：待模型补全（待模型补全）
-
-**常见做法与代价**
-
-- 待模型补全 —— 待模型补全
-
-**他们怎么做**
-
-待模型补全
-
-`src/full.js:3-3`
-
-```
-	if (!val.enumerable || val.get || val.set || !val.configurable || !val.writable || key === '__proto__') {
-```
-
-**为什么有效**
-
-待模型补全
-
-**代价**
-
-- 待模型补全 —— 待模型补全
-
 ## 没看的部分
 
 **分析口径之外**
 
-- 跳过：synthesis chose 1 of 6 rendered points
+- 跳过：报告正文写了 1 个点，另有 0 个已核实但没有写进正文。
 - 备注：could not resolve package.json entry "dist/index.js": outside the analysed scope
 
 **没进正文的判断**

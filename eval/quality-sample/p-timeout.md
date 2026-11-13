@@ -10,14 +10,14 @@
 
 ## 这次分析的可信度
 
-- 已取证点占比：40.0%
+- 已取证点占比：37.5%
 - 被丢弃证据数：0
-- 每点平均证据数：0.4
+- 每点平均证据数：0.38
 
 ## 分析口径
 
 - 来源：https://github.com/sindresorhus/p-timeout
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/e0a1d8298eba/tree/p-timeout-4a2445f4e9b7cc5b1902cbc54ef55e210acafd45
+- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/c907348428ae/tree/p-timeout-4a2445f4e9b7cc5b1902cbc54ef55e210acafd45
 - 规模：13 个文件 / 58287 字节 / 1656 行
 - 语言：js 2、ts 2
 - 排除：没有文件被排除
@@ -55,13 +55,15 @@
 
 **分析口径之外**
 
-- 跳过：synthesis chose 1 of 1 rendered points
+- 跳过：全部 1 个已核实的点都写进了报告。
 
 **没进正文的判断**
 
-- 没有可核对证据的点：3 个
-- 被降级的点：3 个
+- 没有可核对证据的点：5 个
+- 被降级的点：5 个
 - 被丢弃的点：0 个
+- 降级原因：sample —— no verifiable evidence
+- 降级原因：sample —— no verifiable evidence
 - 降级原因：sample —— no verifiable evidence
 - 降级原因：sample —— no verifiable evidence
 - 降级原因：sample —— no verifiable evidence

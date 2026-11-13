@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/sindresorhus/p-debounce
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/ef46666759fb/tree/p-debounce-7fd1617e1ee9dac490fb659f59bd1e9f04d92c47
+- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/8190df80d2ea/tree/p-debounce-7fd1617e1ee9dac490fb659f59bd1e9f04d92c47
 - 规模：12 个文件 / 73175 字节 / 2626 行
 - 语言：js 2、ts 2
 - 排除：没有文件被排除
@@ -55,7 +55,7 @@
 
 **分析口径之外**
 
-- 跳过：synthesis chose 1 of 1 rendered points
+- 跳过：全部 1 个已核实的点都写进了报告。
 
 **没进正文的判断**
 

@@ -1,7 +1,5 @@
 # anatomy
 
-> 仓库位置：`/Users/weijia/Desktop/anatomy`（会话工作区另有符号链接 `~/.x-code/workspace/anatomy`）。
-
 把一个开源仓库拆成一份**带行号证据的中文拆解报告**：它做了哪些值得学的设计决定，每个决定面对什么约束、常见做法是什么、他们怎么干、为什么有效、代价是什么，以及证据在哪一行。
 
 源代码是公开的，稀缺的不是代码，是判断力——从二十万行里挑出二十个真正值得学的决定。
@@ -85,8 +83,18 @@ src/commands/   scan / analyze / report / inspect
 eval/           gold 集与召回率脚本（npm run eval）
 ```
 
+## 知道自己会看漏
+
+29 个 gold 仓库、90 个标注点，当前候选召回率 **60%**。
+
+也就是说四成的标注点连候选都没进，模型再强也写不出来。这个数字留在仓库里，比藏起来有用：
+
+```bash
+npm run eval:recall
+```
+
 ## 未做
 
-MCP server、`ana publish`、其他语言的结构分析（目前只认 TS/JS 与 Python）。分支 `mvp` 尚未合并。
+MCP server、`ana publish`、其他语言的结构分析（目前只认 TS/JS 与 Python）。
 
 设计、计划与执行记录见 `docs/superpowers/PROGRESS.md`。

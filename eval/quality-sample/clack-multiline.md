@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/natemoo-re/clack
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/beb14c1b350e/tree/clack-5f274603f0a4c15633d46b1060eb1d4eb69609f2
+- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/ea8ae11a76c6/tree/clack-5f274603f0a4c15633d46b1060eb1d4eb69609f2
 - 规模：161 个文件 / 958278 字节 / 33488 行
 - 语言：ts 100、cjs 1
 - 排除：lockfile 1、binary 2
@@ -229,7 +229,7 @@ import { S_BAR, S_ERROR, S_INFO, S_STEP_SUBMIT, S_SUCCESS, S_WARN } from './comm
 
 **分析口径之外**
 
-- 跳过：synthesis chose 1 of 7 rendered points
+- 跳过：报告正文写了 1 个点，另有 0 个已核实但没有写进正文。
 
 **没进正文的判断**
 

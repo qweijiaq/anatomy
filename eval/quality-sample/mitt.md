@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/developit/mitt
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/2f6859f89d97/tree/mitt-6b41670516ed8e8b738612f60491995470aa63b3
+- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/caa815981add/tree/mitt-6b41670516ed8e8b738612f60491995470aa63b3
 - 规模：13 个文件 / 23251 字节 / 866 行
 - 语言：ts 3
 - 排除：没有文件被排除
@@ -84,7 +84,7 @@
 
 **分析口径之外**
 
-- 跳过：synthesis chose 1 of 2 rendered points
+- 跳过：报告正文写了 1 个点，另有 0 个已核实但没有写进正文。
 - 备注：could not resolve package.json entry "dist/mitt.js": outside the analysed scope
 
 **没进正文的判断**

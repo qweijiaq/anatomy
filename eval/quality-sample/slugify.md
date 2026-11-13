@@ -10,14 +10,14 @@
 
 ## 这次分析的可信度
 
-- 已取证点占比：66.7%
+- 已取证点占比：71.4%
 - 被丢弃证据数：0
-- 每点平均证据数：0.67
+- 每点平均证据数：0.71
 
 ## 分析口径
 
 - 来源：https://github.com/sindresorhus/slugify
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/a8cdda10c51c/tree/slugify-99b35c2b0d6ccfad2b96ba9ce6997c6365b9a4b7
+- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/f04f63f2be45/tree/slugify-99b35c2b0d6ccfad2b96ba9ce6997c6365b9a4b7
 - 规模：13 个文件 / 55844 字节 / 1665 行
 - 语言：js 3、ts 1
 - 排除：没有文件被排除
@@ -55,7 +55,7 @@
 
 **分析口径之外**
 
-- 跳过：synthesis chose 1 of 1 rendered points
+- 跳过：全部 1 个已核实的点都写进了报告。
 
 **没进正文的判断**
 

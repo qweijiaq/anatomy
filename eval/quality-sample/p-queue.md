@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/sindresorhus/p-queue
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/78b112ed6748/tree/p-queue-7f272ab5ff2254c0dc2537b7977e88ede1cd55e8
+- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/8459a35d3062/tree/p-queue-7f272ab5ff2254c0dc2537b7977e88ede1cd55e8
 - 规模：27 个文件 / 315700 字节 / 10732 行
 - 语言：ts 17
 - 排除：没有文件被排除
@@ -37,10 +37,10 @@
 
 待模型补全
 
-`source/index.ts:35-35`
+`source/index.ts:670-670`
 
 ```
-// Binds a function to the async context of the caller. A task can start later from another task, a timer, or `.start()`, and it must still see the `AsyncLocalStorage` values of its `.add()` call, not those of the code that started it. Not `AsyncResource.bind()`, which is about 15 times slower.
+					// The task gets one signal that aborts on the user's signal or on the timeout. Not `AbortSignal.timeout()`, because its timer does not keep the process alive (by design: https://github.com/nodejs/node/issues/46417), so the process could exit before a hanging task times out. Not `AbortSignal.any()`, because Node.js then keeps some memory for each task for as long as the user's signal lives, which grows without limit with a long-lived signal.
 ```
 
 **为什么有效**
@@ -84,7 +84,7 @@
 
 **分析口径之外**
 
-- 跳过：synthesis chose 1 of 2 rendered points
+- 跳过：报告正文写了 1 个点，另有 0 个已核实但没有写进正文。
 
 **没进正文的判断**
 

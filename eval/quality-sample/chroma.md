@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/alecthomas/chroma
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/2dc02d2b6fcf/tree/chroma-08dd759d11a8f31603634ecbeb6b35bca6810ffb
+- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/5c9560834e1e/tree/chroma-08dd759d11a8f31603634ecbeb6b35bca6810ffb
 - 规模：1566 个文件 / 11100788 字节 / 287655 行
 - 语言：go 74、js 3、py 3
 - 排除：binary 2
@@ -153,10 +153,10 @@ func (d *delegatingLexer) Tokenise(options *TokeniseOptions, text string) (iter.
 
 待模型补全
 
-`style.go:22-22`
+`lexers/raku.go:50-50`
 
 ```
-// Mode indicates whether a style is intended for a light or dark background.
+		colonPairPattern         = `(?<!:)(?<colon>:)(?<key>\w[\w'-]*)(?<opening_delimiters>` + colonPairOpeningBrackets + `)`
 ```
 
 **为什么有效**
@@ -171,7 +171,7 @@ func (d *delegatingLexer) Tokenise(options *TokeniseOptions, text string) (iter.
 
 **分析口径之外**
 
-- 跳过：synthesis chose 1 of 5 rendered points
+- 跳过：报告正文写了 1 个点，另有 0 个已核实但没有写进正文。
 - 备注：unanalysed language: other (actual) (68%)
 
 **没进正文的判断**

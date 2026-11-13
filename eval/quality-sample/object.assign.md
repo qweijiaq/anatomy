@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/ljharb/object.assign
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/612850d0c112/tree/object.assign-7f6aa5ae8a297c4e227648a52fd6e03a564b0f8a
+- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/0f1f405d1d5a/tree/object.assign-7f6aa5ae8a297c4e227648a52fd6e03a564b0f8a
 - 规模：30 个文件 / 39012 字节 / 1266 行
 - 语言：js 13
 - 排除：没有文件被排除
@@ -37,10 +37,10 @@
 
 待模型补全
 
-`hasSymbols.js:30-30`
+`implementation.js:24-24`
 
 ```
-	if (typeof Object.getOwnPropertyNames === 'function' && Object.getOwnPropertyNames(obj).length !== 0) { return false; }
+		var getSymbols = hasSymbols && ($Object.getOwnPropertySymbols || originalGetSymbols);
 ```
 
 **为什么有效**
@@ -66,10 +66,10 @@
 
 待模型补全
 
-`implementation.js:24-24`
+`hasSymbols.js:30-30`
 
 ```
-		var getSymbols = hasSymbols && ($Object.getOwnPropertySymbols || originalGetSymbols);
+	if (typeof Object.getOwnPropertyNames === 'function' && Object.getOwnPropertyNames(obj).length !== 0) { return false; }
 ```
 
 **为什么有效**
@@ -113,7 +113,7 @@
 
 **分析口径之外**
 
-- 跳过：synthesis chose 1 of 3 rendered points
+- 跳过：报告正文写了 1 个点，另有 0 个已核实但没有写进正文。
 
 **没进正文的判断**
 

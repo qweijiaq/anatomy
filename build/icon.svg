@@ -1,7 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <rect width="1024" height="1024" rx="228" fill="#faf9f7"/>
-  <circle cx="512" cy="392" r="132" fill="#b4532a"/>
-  <rect x="248" y="596" width="528" height="26" rx="13" fill="#1f1c18"/>
-  <rect x="248" y="668" width="392" height="26" rx="13" fill="#d3cec3"/>
-  <rect x="248" y="740" width="300" height="26" rx="13" fill="#e4e0d8"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" preserveAspectRatio="xMidYMid meet"
+     style="display:block;width:1024px;height:1024px">
+  <style>html,body{margin:0;padding:0;background:transparent}svg{display:block}</style>
+  <!-- the tile: a rounded square, inset so the Dock can draw its shadow -->
+  <rect x="100" y="100" width="824" height="824" rx="186" ry="186" fill="#faf9f7"/>
+  <!-- a hairline just inside the edge, the way macOS tiles catch light -->
+  <rect x="102" y="102" width="820" height="820" rx="184" ry="184"
+        fill="none" stroke="#e4e0d8" stroke-width="2"/>
+  <circle cx="512" cy="416" r="104" fill="#b4532a"/>
+  <rect x="298" y="590" width="428" height="21" rx="10" fill="#1f1c18"/>
+  <rect x="298" y="648" width="318" height="21" rx="10" fill="#d3cec3"/>
+  <rect x="298" y="706" width="242" height="21" rx="10" fill="#e4e0d8"/>
 </svg>

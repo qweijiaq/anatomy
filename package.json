@@ -2,7 +2,7 @@
   "name": "anatomy",
   "version": "0.0.1",
   "type": "module",
-  "description": "Anatomy: extract transferable engineering decisions from a codebase",
+  "description": "Dissect a repository into evidence-backed design notes: every claim cites file:line and is checked against the bytes on disk",
   "bin": {
     "ana": "./dist/cli.js"
   },

@@ -26,6 +26,15 @@ const { scanRepo } = await import('../src/kernel/pipeline.js')
 const { closeRun } = await import('../src/store/runs.js')
 
 const goldDir = path.join(here, 'gold')
+/**
+ * Scans go to their own directory, not to `.ana/runs`.
+ *
+ * Each of the 29 gold repositories mints a run, and `eval:recall` is run on every
+ * rule change. Pointed at the default location it buried the person's real reports
+ * under hundreds of scan records — and a scan record has no report, so the history
+ * list showed entries that could only fail when opened.
+ */
+const runsDir = path.join(here, 'recall-sample', '.runs')
 const requested = process.argv.slice(2)
 const files =
   requested.length > 0
@@ -48,7 +57,7 @@ for (const file of files) {
 
   // A large `topK` on purpose: this measures what the rules *could* find, not
   // what the model budget would have kept.
-  const scanned = await scanRepo(gold.repo, { ref: gold.sha, topK: 500 })
+  const scanned = await scanRepo(gold.repo, { ref: gold.sha, topK: 500, baseDir: runsDir })
   await closeRun(scanned.run)
 
   const produced = scanned.candidates.map((candidate) => ({

@@ -1,54 +1,81 @@
 /**
  * Generate the app icon.
  *
- * Electron's default icon is the generic "no icon" placeholder, which is why the
- * Dock shows nothing recognisable. Rendering one here instead of committing a
- * binary keeps the source readable: the mark is a circle and a rule, drawn from
- * the same tokens the window uses, and `sips` turns the 1024px master into the
- * `.icns` macOS wants.
+ * macOS does **not** round the corners of an .icns: whatever the PNG contains is
+ * what the Dock draws. A full-bleed square therefore reads as a raw bitmap next to
+ * every other app's rounded tile. So the master is drawn the way Apple's own icons
+ * are: an 824px rounded square centred on a 1024 canvas — the "squircle" grid where
+ * the tile occupies about 80% and the transparent margin gives the shadow room.
+ *
+ * The mark itself is two shapes, because at 16px in the Dock only two survive: a
+ * filled dot and a rule.
  *
  *   node scripts/build-icon.mjs
  */
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 
 const out = path.join(process.cwd(), 'build')
 mkdirSync(out, { recursive: true })
 
-/**
- * The mark: a filled dot for the accent, a hairline for the page.
- *
- * At 16px in the Dock only the dot and the ring survive, so the shape has to read
- * as two things at that size: a circle and a horizontal line. No text — a two-letter
- * wordmark turns to mud below 32px.
- */
-const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <rect width="1024" height="1024" rx="228" fill="#faf9f7"/>
-  <circle cx="512" cy="392" r="132" fill="#b4532a"/>
-  <rect x="248" y="596" width="528" height="26" rx="13" fill="#1f1c18"/>
-  <rect x="248" y="668" width="392" height="26" rx="13" fill="#d3cec3"/>
-  <rect x="248" y="740" width="300" height="26" rx="13" fill="#e4e0d8"/>
+/** Apple's icon grid: 1024 canvas, 824 tile, 100px margins, corner radius ~180. */
+const CANVAS = 1024
+const TILE = 824
+const INSET = (CANVAS - TILE) / 2
+const RADIUS = 186
+
+const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${CANVAS}" height="${CANVAS}" viewBox="0 0 ${CANVAS} ${CANVAS}" preserveAspectRatio="xMidYMid meet"
+     style="display:block;width:${CANVAS}px;height:${CANVAS}px">
+  <style>html,body{margin:0;padding:0;background:transparent}svg{display:block}</style>
+  <!-- the tile: a rounded square, inset so the Dock can draw its shadow -->
+  <rect x="${INSET}" y="${INSET}" width="${TILE}" height="${TILE}" rx="${RADIUS}" ry="${RADIUS}" fill="#faf9f7"/>
+  <!-- a hairline just inside the edge, the way macOS tiles catch light -->
+  <rect x="${INSET + 2}" y="${INSET + 2}" width="${TILE - 4}" height="${TILE - 4}" rx="${RADIUS - 2}" ry="${RADIUS - 2}"
+        fill="none" stroke="#e4e0d8" stroke-width="2"/>
+  <circle cx="${CANVAS / 2}" cy="${CANVAS / 2 - 96}" r="104" fill="#b4532a"/>
+  <rect x="${CANVAS / 2 - 214}" y="${CANVAS / 2 + 78}" width="428" height="21" rx="10" fill="#1f1c18"/>
+  <rect x="${CANVAS / 2 - 214}" y="${CANVAS / 2 + 136}" width="318" height="21" rx="10" fill="#d3cec3"/>
+  <rect x="${CANVAS / 2 - 214}" y="${CANVAS / 2 + 194}" width="242" height="21" rx="10" fill="#e4e0d8"/>
 </svg>`
 
 const svgPath = path.join(out, 'icon.svg')
 writeFileSync(svgPath, svg)
 
-// `sips` cannot read SVG; `qlmanage` can rasterise it through Quick Look.
+// `sips` cannot read SVG, and `qlmanage` renders only the strokes — the filled tile
+// comes out fully transparent, which made the Dock icon invisible. Headless Chrome
+// rasterises SVG with its alpha intact, and it is already on this machine.
 const iconset = path.join(out, 'icon.iconset')
 rmSync(iconset, { recursive: true, force: true })
 mkdirSync(iconset, { recursive: true })
 
 const master = path.join(out, 'icon-1024.png')
-execFileSync('/usr/bin/qlmanage', ['-t', '-s', '1024', '-o', out, svgPath], { stdio: 'ignore' })
-const rendered = path.join(out, 'icon.svg.png')
-execFileSync('/bin/mv', [rendered, master])
+const chrome = [
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  '/Applications/Chromium.app/Contents/MacOS/Chromium',
+].find((candidate) => existsSync(candidate))
+if (chrome === undefined) {
+  process.stderr.write('need Chrome or Chromium to rasterise the icon\n')
+  process.exit(1)
+}
+execFileSync(
+  chrome,
+  [
+    '--headless',
+    '--disable-gpu',
+    '--hide-scrollbars',
+    `--screenshot=${master}`,
+    `--window-size=${CANVAS},${CANVAS}`,
+    '--default-background-color=00000000',
+    `file://${svgPath}`,
+  ],
+  { stdio: 'ignore' },
+)
 
-const sizes = [16, 32, 64, 128, 256, 512, 1024]
-for (const size of sizes) {
+// Every size macOS asks for; missing entries make the Dock fall back to a blurry one.
+for (const size of [16, 32, 128, 256, 512]) {
   for (const scale of [1, 2]) {
     const px = size * scale
-    if (px > 1024) continue
     const name = `icon_${size}x${size}${scale === 2 ? '@2x' : ''}.png`
     execFileSync('/usr/bin/sips', ['-z', String(px), String(px), master, '--out', path.join(iconset, name)], {
       stdio: 'ignore',
@@ -59,4 +86,4 @@ for (const size of sizes) {
 execFileSync('/usr/bin/iconutil', ['-c', 'icns', iconset, '-o', path.join(out, 'icon.icns')])
 rmSync(iconset, { recursive: true, force: true })
 
-process.stdout.write('wrote build/icon.icns\n')
+process.stdout.write(`wrote build/icon.icns (tile ${TILE}px on a ${CANVAS}px canvas, radius ${RADIUS})\n`)

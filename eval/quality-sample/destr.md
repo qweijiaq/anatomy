@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/unjs/destr
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/0b43b6ec36da/tree/destr-541b6f9aeada9fc30de9c5a7e086dbfc1c6fcdc7
+- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/6b56e9f1c24c/tree/destr-541b6f9aeada9fc30de9c5a7e086dbfc1c6fcdc7
 - 规模：19 个文件 / 30892 字节 / 1046 行
 - 语言：ts 3、mjs 2、cjs 1
 - 排除：lockfile 1
@@ -55,7 +55,7 @@
 
 **分析口径之外**
 
-- 跳过：synthesis chose 1 of 1 rendered points
+- 跳过：全部 1 个已核实的点都写进了报告。
 
 **没进正文的判断**
 

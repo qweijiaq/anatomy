@@ -17,41 +17,12 @@
 ## 分析口径
 
 - 来源：https://github.com/spf13/cast
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/75aa0f34bb0a/tree/cast-d8e892d16caba3fc13f781dcf4b3f4dd8976999c
+- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/4953856cb850/tree/cast-d8e892d16caba3fc13f781dcf4b3f4dd8976999c
 - 规模：39 个文件 / 112119 字节 / 4358 行
 - 语言：go 21
 - 排除：没有文件被排除
 
 ## 1. 从引用代码看：这里有一个具体的设计决定
-
-- 类型：数据模型
-- 置信度：高
-
-**约束**：待模型补全（待模型补全）
-
-**常见做法与代价**
-
-- 待模型补全 —— 待模型补全
-
-**他们怎么做**
-
-待模型补全
-
-`slice.go:3-3`
-
-```
-// Use of this source code is governed by an MIT-style
-```
-
-**为什么有效**
-
-待模型补全
-
-**代价**
-
-- 待模型补全 —— 待模型补全
-
-## 2. 从引用代码看：这里有一个具体的设计决定
 
 - 类型：数据模型
 - 置信度：高
@@ -80,7 +51,7 @@
 
 - 待模型补全 —— 待模型补全
 
-## 3. 从引用代码看：这里有一个具体的设计决定
+## 2. 从引用代码看：这里有一个具体的设计决定
 
 - 类型：数据模型
 - 置信度：高
@@ -99,6 +70,35 @@
 
 ```
 func toMapE[K comparable, V any](i any, keyFn func(any) K, valFn func(any) V) (map[K]V, error) {
+```
+
+**为什么有效**
+
+待模型补全
+
+**代价**
+
+- 待模型补全 —— 待模型补全
+
+## 3. 从引用代码看：这里有一个具体的设计决定
+
+- 类型：数据模型
+- 置信度：高
+
+**约束**：待模型补全（待模型补全）
+
+**常见做法与代价**
+
+- 待模型补全 —— 待模型补全
+
+**他们怎么做**
+
+待模型补全
+
+`slice.go:3-3`
+
+```
+// Use of this source code is governed by an MIT-style
 ```
 
 **为什么有效**
@@ -138,69 +138,11 @@ func toMapE[K comparable, V any](i any, keyFn func(any) K, valFn func(any) V) (m
 
 - 待模型补全 —— 待模型补全
 
-## 5. 从引用代码看：这里有一个具体的设计决定
-
-- 类型：数据模型
-- 置信度：高
-
-**约束**：待模型补全（待模型补全）
-
-**常见做法与代价**
-
-- 待模型补全 —— 待模型补全
-
-**他们怎么做**
-
-待模型补全
-
-`alias_test.go:3-3`
-
-```
-// Use of this source code is governed by an MIT-style
-```
-
-**为什么有效**
-
-待模型补全
-
-**代价**
-
-- 待模型补全 —— 待模型补全
-
-## 6. 从引用代码看：这里有一个具体的设计决定
-
-- 类型：数据模型
-- 置信度：高
-
-**约束**：待模型补全（待模型补全）
-
-**常见做法与代价**
-
-- 待模型补全 —— 待模型补全
-
-**他们怎么做**
-
-待模型补全
-
-`basic_test.go:3-3`
-
-```
-// Use of this source code is governed by an MIT-style
-```
-
-**为什么有效**
-
-待模型补全
-
-**代价**
-
-- 待模型补全 —— 待模型补全
-
 ## 没看的部分
 
 **分析口径之外**
 
-- 跳过：synthesis chose 1 of 6 rendered points
+- 跳过：报告正文写了 1 个点，另有 0 个已核实但没有写进正文。
 
 **没进正文的判断**
 

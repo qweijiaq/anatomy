@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/dbrgn/tealdeer
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/2a6c0c1d08a2/tree/tealdeer-993a8e0232ef42c4d9935ff5598796b6e98bf213
+- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/06f6eae32300/tree/tealdeer-993a8e0232ef42c4d9935ff5598796b6e98bf213
 - 规模：69 个文件 / 1142369 字节 / 9645 行
 - 语言：rust 11
 - 排除：binary 4
@@ -37,10 +37,10 @@
 
 待模型补全
 
-`src/cache.rs:287-287`
+`src/cache.rs:211-211`
 
 ```
-            .with_context(|| format!("Could not open page file at {}", self.page_path.display()))?;
+    /// available (for example, `en_US` instead of `en`), an iterator yielding all languages which
 ```
 
 **为什么有效**
@@ -138,40 +138,11 @@
 
 - 待模型补全 —— 待模型补全
 
-## 5. 从引用代码看：这里有一个具体的设计决定
-
-- 类型：数据模型
-- 置信度：高
-
-**约束**：待模型补全（待模型补全）
-
-**常见做法与代价**
-
-- 待模型补全 —— 待模型补全
-
-**他们怎么做**
-
-待模型补全
-
-`src/main.rs:27-27`
-
-```
-    "at least one of the features \"native-tls\", \"rustls-with-webpki-roots\" or \"rustls-with-native-roots\" must be enabled"
-```
-
-**为什么有效**
-
-待模型补全
-
-**代价**
-
-- 待模型补全 —— 待模型补全
-
 ## 没看的部分
 
 **分析口径之外**
 
-- 跳过：synthesis chose 1 of 5 rendered points
+- 跳过：报告正文写了 1 个点，另有 0 个已核实但没有写进正文。
 - 备注：unanalysed language: other (expected) (16%)
 
 **没进正文的判断**

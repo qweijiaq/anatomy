@@ -2,38 +2,60 @@
 
 ## 这次分析在解决什么
 
-这是一个以 js 为主、共 6 个模块的仓库。下面五条是其中最值得学习的方向。
+该仓库的设计决策如下。
 
-## 最值得学的点
+## 最值得学的 1 件事
 
-- 这次没有选出最值得学的条目。
+1. 从引用代码看：这里有一个具体的设计决定
 
 ## 这次分析的可信度
 
-- 已取证点占比：0.0%
+- 已取证点占比：100.0%
 - 被丢弃证据数：0
-- 每点平均证据数：0
+- 每点平均证据数：1
 
 ## 分析口径
 
 - 来源：https://github.com/jorgebucaran/colorette
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/2f52078614cc/tree/colorette-fdfab65a93faa31f4335eb0bb945a306a732f023
+- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/7d4e360d6829/tree/colorette-fdfab65a93faa31f4335eb0bb945a306a732f023
 - 规模：15 个文件 / 18824 字节 / 667 行
 - 语言：js 6、ts 1
 - 排除：gitignore 1
 
-## 没找到值得学的点
+## 1. 从引用代码看：这里有一个具体的设计决定
 
-这次没有找到既能核对到具体代码、又值得学习的点。原因如下：
+- 类型：数据模型
+- 置信度：高
 
-- 备注：could not resolve package.json entry "index.cjs": outside the analysed scope
-- 跳过：synthesis chose 0 of 0 rendered points
+**约束**：待模型补全（待模型补全）
+
+**常见做法与代价**
+
+- 待模型补全 —— 待模型补全
+
+**他们怎么做**
+
+待模型补全
+
+`index.js:23-23`
+
+```
+  (isForced || (isWindows && !isDumbTerminal) || isCompatibleTerminal || isCI)
+```
+
+**为什么有效**
+
+待模型补全
+
+**代价**
+
+- 待模型补全 —— 待模型补全
 
 ## 没看的部分
 
 **分析口径之外**
 
-- 跳过：synthesis chose 0 of 0 rendered points
+- 跳过：全部 1 个已核实的点都写进了报告。
 - 备注：could not resolve package.json entry "index.cjs": outside the analysed scope
 
 **没进正文的判断**

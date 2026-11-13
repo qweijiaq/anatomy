@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/sindresorhus/delay
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/f198262b3bf7/tree/delay-6fce5d9d1c1789b1627c14f1293950004beea57c
+- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/ca7f12b9bf94/tree/delay-6fce5d9d1c1789b1627c14f1293950004beea57c
 - 规模：13 个文件 / 15173 字节 / 584 行
 - 语言：js 2、ts 2
 - 排除：没有文件被排除
@@ -55,7 +55,7 @@ import {setTimeout as safeSetTimeout, clearTimeout as safeClearTimeout} from 'un
 
 **分析口径之外**
 
-- 跳过：synthesis chose 1 of 1 rendered points
+- 跳过：全部 1 个已核实的点都写进了报告。
 
 **没进正文的判断**
 
