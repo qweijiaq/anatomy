@@ -227,3 +227,38 @@ export async function runAppReport(name: string, io: { out: { write(chunk: strin
   const survey = JSON.parse(raw) as AppSurvey
   io.out.write(renderAppReport(survey))
 }
+
+/**
+ * `ana app-diff <before> <after>` — what changed on the boundary between two builds.
+ *
+ * Takes two survey directories. Both are read from disk and rendered with the
+ * current renderer, so a pair analysed weeks apart is still comparable.
+ */
+export async function runAppDiff(
+  beforeDir: string,
+  afterDir: string,
+  io: { out: { write(chunk: string): unknown } },
+): Promise<void> {
+  const load = async (dir: string): Promise<AppSurvey | null> => {
+    try {
+      return JSON.parse(await readFile(path.join(path.resolve(dir), 'survey.json'), 'utf8')) as AppSurvey
+    } catch {
+      process.stderr.write(`ana: ${path.resolve(dir)} 里没有可读的 survey.json。\n`)
+      return null
+    }
+  }
+  const before = await load(beforeDir)
+  const after = await load(afterDir)
+  if (before === null || after === null) {
+    process.exitCode = 1
+    return
+  }
+  const { diffSurveys, isEmptyDiff } = await import('../app/diff.js')
+  const { renderAppDiff } = await import('../render/app-diff.js')
+  const diff = diffSurveys(before, after)
+  if (isEmptyDiff(diff) && diff.comparable) {
+    io.out.write('两次分析的暴露面没有差异。\n')
+    return
+  }
+  io.out.write(renderAppDiff(diff))
+}

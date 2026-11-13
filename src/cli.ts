@@ -27,6 +27,7 @@ import {
 import {
   INSPECT_APP_USAGE,
   parseInspectAppArgs,
+  runAppDiff,
   runAppReport,
   runInspectApp,
 } from './commands/inspect-app.js'
@@ -165,6 +166,7 @@ Commands:
   inspect <evId>     Print the source behind one evidence id
   inspect-app <dir>  Reconstruct a JS/Electron app from shipped artifacts, via REA
   app-report <name>  Re-render the facts report of a reconstructed application
+  app-diff <a> <b>   Compare two surveys: what changed on the boundary
 
 Options:
   --version          Print the version
@@ -286,6 +288,16 @@ export async function runCli(
         io.err.write(`ana: ${describeFailure(error)}\n`)
         return 1
       }
+    }
+    case 'app-diff': {
+      const before = argv[1]
+      const after = argv[2]
+      if (before === undefined || after === undefined) {
+        io.err.write('ana: app-diff 需要两个 survey 目录\n')
+        return 2
+      }
+      await runAppDiff(before, after, io)
+      return process.exitCode === 1 ? 1 : 0
     }
     case 'app-report': {
       const name = argv[1]
