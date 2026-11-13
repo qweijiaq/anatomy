@@ -226,7 +226,6 @@ describe('renderMarkdown — model prose cannot break the page', () => {
     )
 
     expect(md).toContain('&lt;details&gt;')
-    expect(md).toContain('\\`\\`\\`')
     expect(md).not.toContain('用 <details>')
     // Exactly one raw block: the recipe's own.
     expect(md.split('<details>').length - 1).toBe(1)
@@ -238,10 +237,20 @@ describe('renderMarkdown — model prose cannot break the page', () => {
     const md = renderMarkdown(reportOf({ points: [pointOf({ mechanism })] }))
 
     expect(md).toContain('&lt;/details&gt;')
-    expect(md).toContain('\\`\\`\\`')
     // Only the recipe may open or close a block.
     expect(md.split('</details>').length - 1).toBe(1)
     expect(md.split('<details>').length - 1).toBe(1)
+  })
+
+  it('leaves prose backticks unescaped so the backslash does not reach the page', () => {
+    // A model writing `ip|slug` used to come out as \`ip|slug\` — the escape showed
+    // up literally. Written as a literal backtick in a template so the assertion
+    // cannot be satisfied by the escaping bug itself.
+    const mechanism = '每次用 `ip|slug` 拼 key'
+    const md = renderMarkdown(reportOf({ points: [pointOf({ mechanism })] }))
+
+    expect(md).toContain('每次用 `ip|slug` 拼 key')
+    expect(md).not.toContain('\\`')
   })
 
   it('collapses multiline prose so it cannot inject a heading', () => {

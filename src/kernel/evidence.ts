@@ -452,15 +452,15 @@ function checkShape(raw: unknown): Shape {
   if (!isRecord(raw)) return { reason: 'point is not an object' }
 
   const id = raw['id']
-  if (typeof id !== 'string' || id === '') return { reason: 'point has no id' }
+  if (typeof id !== 'string' || id === '') return { reason: '这个点没有 id' }
 
   if (typeof raw['title'] !== 'string' || raw['title'].trim() === '') {
-    return { reason: `point ${id} has no title` }
+    return { reason: `点 ${id} 的 title 字段缺失` }
   }
 
   const kind = raw['kind']
   if (typeof kind !== 'string' || !KINDS.includes(kind)) {
-    return { reason: `point ${id} has kind ${String(kind)}, not one of ${KINDS.join('|')}` }
+    return { reason: `点 ${id} 的 kind 是 ${String(kind)}，不在 ${KINDS.join('|')} 之内` }
   }
 
   const problem = raw['problem']
@@ -469,42 +469,42 @@ function checkShape(raw: unknown): Shape {
     typeof problem['constraint'] !== 'string' ||
     typeof problem['stakes'] !== 'string'
   ) {
-    return { reason: `point ${id} has no usable problem { constraint, stakes }` }
+    return { reason: `点 ${id} 的 problem 字段不可用：没写清约束和后果` }
   }
 
   if (!everyRecordWithStrings(raw['alternatives'], ['approach', 'cost'])) {
-    return { reason: `point ${id} has no usable alternatives { approach, cost }[]` }
+    return { reason: `点 ${id} 的 alternatives 字段不可用：缺替代做法或它们的代价` }
   }
 
   const theirs = raw['theirs']
-  if (!isRecord(theirs)) return { reason: `point ${id} has no theirs` }
+  if (!isRecord(theirs)) return { reason: `点 ${id} 缺少 theirs` }
   if (typeof theirs['summary'] !== 'string') {
-    return { reason: `point ${id} has no theirs.summary` }
+    return { reason: `点 ${id} 的 theirs.summary 不可用` }
   }
   // A missing evidence array is a shape error; an empty one is a claim this
   // module downgrades rather than drops, so the two must stay apart.
   if (!Array.isArray(theirs['evidence'])) {
-    return { reason: `point ${id} has no evidence array` }
+    return { reason: `点 ${id} 缺少 evidence 列表` }
   }
 
   if (typeof raw['mechanism'] !== 'string') {
-    return { reason: `point ${id} has no mechanism` }
+    return { reason: `点 ${id} 缺少 mechanism（为什么有效）` }
   }
 
   if (!everyRecordWithStrings(raw['tradeoffs'], ['cost', 'whenItHurts'])) {
-    return { reason: `point ${id} has no usable tradeoffs { cost, whenItHurts }[]` }
+    return { reason: `点 ${id} 的 tradeoffs 字段不可用：缺代价或什么情况下会伤到自己` }
   }
 
   const confidence = raw['confidence']
   const normalized = typeof confidence === 'string' ? confidence.trim().toLowerCase() : ''
   if (typeof confidence !== 'string' || !CONFIDENCES.includes(normalized)) {
     return {
-      reason: `point ${id} has confidence ${String(confidence)}, not high|medium|low`,
+      reason: `点 ${id} 的 confidence 是 ${String(confidence)}，不在 high|medium|low 之内`,
     }
   }
 
   if (!isStringArray(raw['unknowns'])) {
-    return { reason: `point ${id} has no unknowns string[]` }
+    return { reason: `点 ${id} 的 unknowns 字段不可用` }
   }
 
   const recipe = raw['recipe']
@@ -517,7 +517,7 @@ function checkShape(raw: unknown): Shape {
       isStringArray(recipe['avoidWhen'])
     )
   ) {
-    return { reason: `point ${id} has no usable recipe { prereqs, minimalForm, avoidWhen }` }
+    return { reason: `点 ${id} 的 recipe 字段不可用：缺前置条件、最小形态或不该用的情况` }
   }
 
   // The point is kept with the confidence this module understood, not with the

@@ -21,9 +21,32 @@ type Block =
   | { kind: 'code'; text: string }
   | { kind: 'cite'; path: string; lines: string }
   | { kind: 'quote'; text: string }
+  /** An open `<details>` block: its summary, then the blocks it wraps. */
+  | { kind: 'details'; summary: string; body: Block[] }
+  /** `丢弃原因：path:line:kind —— why`, kept as three fields so it can be laid out. */
+  | { kind: 'reason'; label: string; where: string; why: string }
 
 const CITE = /^`([^`]+:\d+-\d+)`$/
 const FENCE = /^```/
+/**
+ * The two HTML tags `render/markdown.ts` emits on purpose — the recipe block.
+ *
+ * Everything else stays escaped by that renderer, so recognising exactly these
+ * two is not an XSS door: a model-authored `<details>` arrives as
+ * `&lt;details&gt;` and is rendered as text. Without this, the recipe showed up
+ * as three lines of literal tag names between the prose.
+ */
+const DETAILS_OPEN = /^<details>$/
+const DETAILS_CLOSE = /^<\/details>$/
+const SUMMARY = /^<summary>(.*)<\/summary>$/
+/**
+ * `丢弃原因：<path>:<line>:<kind> —— <why>` and its 降级 twin.
+ *
+ * The location can itself contain a colon on Windows paths and the kind is our
+ * own vocabulary, so the split anchors on the em dash: everything before it is
+ * the location, everything after is the explanation.
+ */
+const REASON = /^[-*]\s+(丢弃原因|降级原因|跳过|备注)：(.+?)\s+——\s+(.*)$/
 
 /** A line-oriented pass. Anything it does not recognise stays a paragraph. */
 export function parseMarkdown(markdown: string): Block[] {
@@ -31,13 +54,20 @@ export function parseMarkdown(markdown: string): Block[] {
   const blocks: Block[] = []
   let inFence = false
   let fence: string[] = []
+  // Open `<details>` blocks, innermost last. The recipe is one level deep today;
+  // a stack costs nothing and keeps nested blocks from merging into the outer one.
+  const open: Array<{ summary: string; body: Block[] }> = []
+  const push = (block: Block): void => {
+    const target = open.length > 0 ? (open[open.length - 1] as { body: Block[] }).body : blocks
+    target.push(block)
+  }
 
   for (const raw of lines) {
     const line = raw.replace(/\s+$/, '')
 
     if (FENCE.test(line)) {
       if (inFence) {
-        blocks.push({ kind: 'code', text: fence.join('\n') })
+        push({ kind: 'code', text: fence.join('\n') })
         fence = []
         inFence = false
       } else {
@@ -51,47 +81,80 @@ export function parseMarkdown(markdown: string): Block[] {
     }
 
     if (line.trim() === '') continue
+
+    if (DETAILS_OPEN.test(line.trim())) {
+      open.push({ summary: '展开', body: [] })
+      continue
+    }
+    if (DETAILS_CLOSE.test(line.trim())) {
+      const closedBlock = open.pop()
+      if (closedBlock !== undefined) {
+        blocks.push({ kind: 'details', summary: closedBlock.summary, body: closedBlock.body })
+      }
+      continue
+    }
+    const summary = SUMMARY.exec(line.trim())
+    if (summary !== null && open.length > 0) {
+      ;(open[open.length - 1] as { summary: string }).summary = summary[1] as string
+      continue
+    }
+
     if (line.startsWith('# ')) {
-      blocks.push({ kind: 'h1', text: line.slice(2) })
+      push({ kind: 'h1', text: line.slice(2) })
       continue
     }
     if (line.startsWith('## ')) {
-      blocks.push({ kind: 'h2', text: line.slice(3) })
+      push({ kind: 'h2', text: line.slice(3) })
       continue
     }
     if (line.startsWith('### ')) {
-      blocks.push({ kind: 'h3', text: line.slice(4) })
+      push({ kind: 'h3', text: line.slice(4) })
       continue
     }
     const cite = CITE.exec(line.trim())
     if (cite !== null) {
       const whole = cite[1] as string
       const split = whole.lastIndexOf(':')
-      blocks.push({
+      push({
         kind: 'cite',
         path: whole.slice(0, split),
         lines: whole.slice(split + 1),
       })
       continue
     }
+    // `丢弃原因：public/admin.js:283:complexity —— <why>`: a location, a kind and an
+    // explanation crammed into one bullet. As plain text the three blur together
+    // and the reader has to re-parse the line themselves.
+    const reason = REASON.exec(line)
+    if (reason !== null) {
+      push({ kind: 'reason', label: reason[1] as string, where: reason[2] as string, why: (reason[3] as string).trim() })
+      continue
+    }
     const bullet = /^[-*]\s+(.*)$/.exec(line)
     if (bullet !== null) {
-      blocks.push({ kind: 'li', text: bullet[1] as string, ordered: false })
+      push({ kind: 'li', text: bullet[1] as string, ordered: false })
       continue
     }
     const numbered = /^\d+\.\s+(.*)$/.exec(line)
     if (numbered !== null) {
-      blocks.push({ kind: 'li', text: numbered[1] as string, ordered: true })
+      push({ kind: 'li', text: numbered[1] as string, ordered: true })
       continue
     }
     if (line.startsWith('> ')) {
-      blocks.push({ kind: 'quote', text: line.slice(2) })
+      push({ kind: 'quote', text: line.slice(2) })
       continue
     }
-    blocks.push({ kind: 'p', text: line })
+    push({ kind: 'p', text: line })
   }
 
-  if (inFence && fence.length > 0) blocks.push({ kind: 'code', text: fence.join('\n') })
+  if (inFence && fence.length > 0) push({ kind: 'code', text: fence.join('\n') })
+  // An unclosed `<details>` still renders its body rather than swallowing it.
+  while (open.length > 0) {
+    const leftover = open.pop()
+    if (leftover !== undefined) {
+      blocks.push({ kind: 'details', summary: leftover.summary, body: leftover.body })
+    }
+  }
   return blocks
 }
 
@@ -125,8 +188,13 @@ function inline(text: string): React.ReactNode[] {
 export function ReportView({ markdown }: { markdown: string }): React.JSX.Element {
   const blocks = useMemo(() => parseMarkdown(markdown), [markdown])
 
+  return <article className="report">{renderBlocks(blocks)}</article>
+}
+
+/** One block list. Recursive because `<details>` holds its own list. */
+function renderBlocks(blocks: Block[]): React.ReactNode {
   return (
-    <article className="report">
+    <>
       {blocks.map((block, index) => {
         switch (block.kind) {
           case 'h1':
@@ -172,6 +240,21 @@ export function ReportView({ markdown }: { markdown: string }): React.JSX.Elemen
                 {inline(block.text)}
               </blockquote>
             )
+          case 'reason':
+            return (
+              <div className="report__reason" key={index}>
+                <span className="report__reason-label">{block.label}</span>
+                <code className="report__reason-where">{block.where}</code>
+                <span className="report__reason-why">{inline(block.why)}</span>
+              </div>
+            )
+          case 'details':
+            return (
+              <details className="report__details" key={index}>
+                <summary className="report__summary">{block.summary}</summary>
+                <div className="report__details-body">{renderBlocks(block.body)}</div>
+              </details>
+            )
           default:
             return (
               <p className="report__p" key={index}>
@@ -180,6 +263,6 @@ export function ReportView({ markdown }: { markdown: string }): React.JSX.Elemen
             )
         }
       })}
-    </article>
+    </>
   )
 }

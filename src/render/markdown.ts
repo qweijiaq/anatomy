@@ -45,17 +45,23 @@ const CONFIDENCE_LABEL: Record<string, string> = {
  * A model-supplied string as one line of prose.
  *
  * Whitespace becomes a single space so a newline cannot start a heading or a
- * block, and the three characters that could change the page's structure are
- * escaped: a backtick can open a code span or a fence, `<` and `>` can open or
- * close an HTML block. The text itself stays readable — `&lt;details&gt;`
- * renders as the literal characters the model wrote.
+ * block, and `<`/`>` are escaped so they cannot open an HTML block. The text
+ * stays readable — `&lt;details&gt;` renders as the characters the model wrote.
+ *
+ * Backticks are **not** escaped. `\`` renders as a literal backtick, so a model
+ * that wrote ``用 `ip|slug` 拼 key`` came out as ``用 \`ip|slug\` 拼 key`` — the
+ * backslash leaked into the page. The characters are also harmless here: this
+ * output only runs through `prose()` into paragraph text, and a code span needs
+ * a closing backtick, so a lone one renders literally anyway. Where a backtick
+ * really could break structure — titles, snippets, citations — the code already
+ * goes through `codeSpan()`/`fence()`, which size their own delimiters to the
+ * content instead of escaping it.
  */
 function prose(value: unknown): string {
   if (typeof value !== 'string') return ''
   return value
     .replace(/\s+/g, ' ')
     .trim()
-    .replace(/`/g, '\\`')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
 }
