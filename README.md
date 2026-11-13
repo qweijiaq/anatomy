@@ -11,6 +11,16 @@ npm install
 npm run verify        # 末行应为 VERIFY: PASS
 ```
 
+## 桌面应用
+
+```bash
+npm run build:desktop && npm run start:desktop
+```
+
+窗口里填一个仓库地址就能跑分析，模型 Key 在应用内配置（加密存在本机，
+渲染进程拿不到）。provider 预设与 reading-notes 同一套，含 Anthropic 原生协议。
+细节见 [docs/desktop.md](docs/desktop.md)。
+
 ## 四条命令
 
 ```bash
