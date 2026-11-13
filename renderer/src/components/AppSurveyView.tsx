@@ -73,6 +73,10 @@ export function AppSurveyView({ survey }: { survey: AppSurvey }): React.JSX.Elem
         </span>
       </header>
 
+      {survey.retried && (
+        <p className="notice notice--warn survey__retry">{survey.retryNote}</p>
+      )}
+
       <div className="survey__grid">
         <section className="survey__block">
           <h2 className="survey__h2">Electron 暴露面</h2>

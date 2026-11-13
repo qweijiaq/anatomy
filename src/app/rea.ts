@@ -122,8 +122,67 @@ export type AppSurvey = {
   relations: AppRelation[]
   /** Why the graph is missing, when it is. Empty when it is present. */
   graphOmitted: string
+  /** True when the first pass hit REA's worker heap and a narrower pass was run. */
+  retried: boolean
+  /** What the retry did, in the reader's words. Empty when no retry happened. */
+  retryNote: string
   /** Where the untouched evidence file lives, for anyone who wants the fact store. */
   evidenceFile: string
+}
+
+/**
+ * Does this limitation say the analyser ran out of memory?
+ *
+ * REA reports it two ways — `exhausted its 1024 MiB V8 old-space heap` per file,
+ * and `(max_heap_mb)` inside the resource-constraint text — and both mean the same
+ * thing: the file was skipped, so every counter derived from it is a lower bound.
+ * That is the condition worth retrying, and it is distinguishable from "this
+ * directory has no Electron in it", which retrying would not fix.
+ */
+export function heapLimited(limitations: readonly string[]): boolean {
+  return limitations.some((item) => /exhausted its [\d.]+ ?[GM]iB/i.test(item) || /max_heap_mb/i.test(item))
+}
+
+/**
+ * The small files that carry an Electron surface, by name.
+ *
+ * A bundle that exhausts a 1 GiB heap is by definition not where the boundary is
+ * declared — `preload` and the main entry are, and they are kilobytes. Matching on
+ * the file name is crude, and it is what REA's own guidance says to do when a pass
+ * is too large: name first-party main and preload files, analyse fewer sources.
+ */
+const SMALL_SOURCE = /^(?:preload|main|index|entry)\.(?:c|m)?js$/i
+export const SMALL_SOURCE_MAX_BYTES = 2 * 1024 * 1024
+
+export async function pickSmallSources(target: string): Promise<string[]> {
+  const found: string[] = []
+  const walk = async (dir: string, prefix: string, depth: number): Promise<void> => {
+    if (depth > 3) return
+    let entries: Array<{ name: string; isDirectory(): boolean; isFile(): boolean }>
+    try {
+      entries = await readdir(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue
+      const relative = prefix === '' ? entry.name : `${prefix}/${entry.name}`
+      const absolute = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        await walk(absolute, relative, depth + 1)
+        continue
+      }
+      if (!entry.isFile() || !SMALL_SOURCE.test(entry.name)) continue
+      try {
+        const info = await stat(absolute)
+        if (info.size <= SMALL_SOURCE_MAX_BYTES) found.push(relative)
+      } catch {
+        // A file that vanished mid-walk is not a candidate.
+      }
+    }
+  }
+  await walk(path.resolve(target), '', 0)
+  return found.sort()
 }
 
 /** Raised when REA is not installed, or is installed for a Node that cannot run it. */
@@ -374,13 +433,54 @@ export async function surveyApplication(
   await mkdir(options.outputDir, { recursive: true })
   const evidencePath = path.join(options.outputDir, 'rea-evidence.json')
 
-  const selection = (options.sourcePaths ?? []).flatMap((item) => ['--source-path', item])
-  const evidence = (await reaJson(
-    location,
-    ['analyze-javascript-application', target, ...selection, '--json'],
-    options.timeoutMs ?? 15 * 60_000,
-    MAX_EVIDENCE_BYTES,
-  )) as Record<string, unknown>
+  const timeout = options.timeoutMs ?? 15 * 60_000
+  const analyze = async (sourcePaths: string[]): Promise<Record<string, unknown>> => {
+    const selection = sourcePaths.flatMap((item) => ['--source-path', item])
+    return (await reaJson(
+      location,
+      ['analyze-javascript-application', target, ...selection, '--json'],
+      timeout,
+      MAX_EVIDENCE_BYTES,
+    )) as Record<string, unknown>
+  }
+
+  /**
+   * How much of the Electron boundary a document actually carries.
+   *
+   * The comparison has to be on facts, not on exit status: both passes "succeed".
+   */
+  const exposedSurface = (document: Record<string, unknown>): number => {
+    const normalized = (document['normalized_result'] ?? {}) as Record<string, unknown>
+    const surface = surfaceFrom((normalized['summary'] ?? {}) as Record<string, unknown>)
+    return surface.contextBridgeApis * 100 + surface.exposedApiMembers + surface.ipcOperations
+  }
+
+  const limitationsOf = (document: Record<string, unknown>): string[] => {
+    const normalized = (document['normalized_result'] ?? {}) as Record<string, unknown>
+    const list = normalized['limitations']
+    return Array.isArray(list) ? list.filter((item): item is string => typeof item === 'string') : []
+  }
+
+  let evidence = await analyze(options.sourcePaths ?? [])
+  let retried = false
+  let retryNote = ''
+
+  // One retry, and only for the one failure that a narrower pass can fix. A bundle
+  // too large for a 1 GiB worker heap is not a failure of the application; it is a
+  // failure of trying to read all of it at once. The surface lives in kilobytes.
+  if ((options.sourcePaths ?? []).length === 0 && heapLimited(limitationsOf(evidence))) {
+    const small = await pickSmallSources(target)
+    if (small.length > 0) {
+      const second = await analyze(small)
+      // Only take the retry if it actually saw more. A narrower pass that also
+      // failed would swap a complete inventory for a partial one for nothing.
+      if (exposedSurface(second) > exposedSurface(evidence)) {
+        evidence = second
+        retried = true
+        retryNote = `第一次全量分析把 REA 的 worker 堆撑爆了（1 GiB），自动缩小范围重跑：只分析 ${small.join('、')}。下面的数字是这一次的，没有被分析的其余文件写在第一条限制里。`
+      }
+    }
+  }
 
   // Written before anything is read back: the file is the record, and a crash below
   // must not lose an analysis that took minutes.
@@ -428,6 +528,8 @@ export async function surveyApplication(
     modules: 'omitted' in graph ? [] : graph.modules,
     relations: 'omitted' in graph ? [] : graph.relations,
     graphOmitted: 'omitted' in graph ? graph.omitted : '',
+    retried,
+    retryNote,
     evidenceFile: evidencePath,
   }
 }

@@ -8,9 +8,18 @@
  * show, so the mapping is pinned here rather than trusted.
  */
 
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+
 import { describe, expect, it } from 'vitest'
 
-import { surfaceFrom } from '../src/app/rea.js'
+import {
+  heapLimited,
+  pickSmallSources,
+  SMALL_SOURCE_MAX_BYTES,
+  surfaceFrom,
+} from '../src/app/rea.js'
 
 describe('surfaceFrom', () => {
   it('reads the counters REA actually reported', () => {
@@ -63,5 +72,55 @@ describe('surfaceFrom', () => {
     const surface = surfaceFrom({ context_bridge_apis: 1, ipc: null })
     expect(surface.contextBridgeApis).toBe(1)
     expect(surface.ipcOperations).toBe(0)
+  })
+})
+
+describe('heapLimited', () => {
+  it('recognises both ways REA reports the worker heap running out', () => {
+    // Per-file form, as it appears for main.cjs.
+    expect(
+      heapLimited([
+        'main.cjs: Resource constraint during analyze_javascript_application: Owned JavaScript worker exhausted its 1024 MiB V8 old-space heap (max_heap_mb) while analyzing main.cjs during static',
+      ]),
+    ).toBe(true)
+    // The generic resource-constraint wording, without a file prefix.
+    expect(heapLimited(['Preload discovery could not read main.cjs (Resource constraint: max_heap_mb)'])).toBe(
+      true,
+    )
+  })
+
+  it('is not fooled by the ordinary limitations, which retrying cannot fix', () => {
+    expect(
+      heapLimited([
+        'Graph coverage is incomplete; unavailable facts remain explicit and must not be read as absence.',
+        'Static paths and relationships may remain unresolved when expressions are dynamic or obfuscated.',
+        'JavaScript and HTML were parsed as inert text; bundle bootstrap code was never executed.',
+      ]),
+    ).toBe(false)
+  })
+})
+
+describe('pickSmallSources', () => {
+  it('finds the files that declare the boundary and skips the bundle that broke it', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'ana-small-'))
+    await mkdir(path.join(root, 'renderer', 'assets'), { recursive: true })
+
+    // The two that matter, at the shallow levels an Electron app puts them.
+    await writeFile(path.join(root, 'preload.cjs'), 'module.exports = {}')
+    await writeFile(path.join(root, 'main.cjs'), 'const x = 1')
+    // A bundle: named nothing like a boundary file, and far too large to be one.
+    await writeFile(path.join(root, 'renderer', 'assets', 'index-abc.js'), 'x')
+    // Vendored code is never first-party.
+    await mkdir(path.join(root, 'node_modules', 'dep'), { recursive: true })
+    await writeFile(path.join(root, 'node_modules', 'dep', 'main.js'), 'x')
+
+    const found = await pickSmallSources(root)
+    expect(found).toEqual(['main.cjs', 'preload.cjs'])
+  })
+
+  it('refuses a file too large to be a declaration, even when the name matches', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'ana-small-'))
+    await writeFile(path.join(root, 'main.js'), 'x'.repeat(SMALL_SOURCE_MAX_BYTES + 1))
+    expect(await pickSmallSources(root)).toEqual([])
   })
 })

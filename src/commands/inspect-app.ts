@@ -119,6 +119,12 @@ function lines(survey: AppSurvey): string[] {
   }
   out.push('')
 
+  if (survey.retried) {
+    out.push('自动缩小范围重跑过')
+    out.push(`  ${survey.retryNote}`)
+    out.push('')
+  }
+
   out.push(`没看的部分（${survey.limitations.length} 条，REA 原话）`)
   for (const item of survey.limitations) out.push(`  - ${item}`)
   out.push('')

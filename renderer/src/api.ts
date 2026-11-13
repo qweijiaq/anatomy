@@ -99,6 +99,8 @@ export type AppSurvey = {
   }>
   relations: Array<{ from: string; to: string; relation: string }>
   graphOmitted: string
+  retried: boolean
+  retryNote: string
   evidenceFile: string
 }
 

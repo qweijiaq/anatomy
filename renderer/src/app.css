@@ -1173,3 +1173,15 @@
   font-size: 10px;
   letter-spacing: 0.02em;
 }
+
+/* 自动重跑的说明。用 warn 色而不是 error：拿到结果了，只是范围比请求的小，
+   这件事必须显眼但不算失败。 */
+.notice--warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.survey__retry {
+  margin: 0 0 var(--space-4);
+  line-height: 1.6;
+}
