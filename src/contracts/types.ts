@@ -135,6 +135,29 @@ export type SignalKind =
   | 'test-spec'
   /** A function named after a published algorithm: a design choice in itself. */
   | 'algorithm'
+  /**
+   * A call to an API that exists because a naive version is wrong: constant-time
+   * comparison, a signed payload, a permission bit, a trusted-proxy header. The
+   * shape is fixed, so recognising it needs no judgement about intent.
+   */
+  | 'security'
+  /**
+   * A database constraint or transaction boundary. Integrity is declared where it
+   * can be enforced rather than in every caller, which is a decision with a cost.
+   */
+  | 'data-integrity'
+  /**
+   * A deliberate bound on a failure: a timeout, an error carrying a status, a
+   * retry ceiling. The alternative — unbounded waiting — is the bug being avoided.
+   */
+  | 'resilience'
+  /**
+   * A local trick in a short function: testing a capability instead of a type,
+   * folding two loop conditions into one guard, pre-binding arguments, generating
+   * from a table. Small libraries are read *for* these, and they are invisible to
+   * every rule that keys on names or length.
+   */
+  | 'idiom'
 
 export type Candidate = {
   id: string

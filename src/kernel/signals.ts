@@ -42,11 +42,17 @@ import { detectLanguage, isUnsupportedSource } from './scope.js'
 export const SIGNAL_WEIGHTS: Record<SignalKind, number> = {
   'custom-infra': 3,
   'decision-trace': 3,
+  // Same tier as the two above: the API only exists because the obvious version is
+  // wrong, so the code around it usually explains something the reader cannot guess.
+  security: 3,
   complexity: 2,
   abstraction: 2,
+  algorithm: 2,
+  'data-integrity': 2,
+  resilience: 2,
+  idiom: 2,
   evolution: 1,
   'test-spec': 1,
-  algorithm: 2,
 }
 
 /**
@@ -56,8 +62,13 @@ export const SIGNAL_WEIGHTS: Record<SignalKind, number> = {
 const KIND_ORDER: readonly SignalKind[] = [
   'custom-infra',
   'decision-trace',
+  'security',
   'complexity',
   'abstraction',
+  'algorithm',
+  'data-integrity',
+  'resilience',
+  'idiom',
   'evolution',
   'test-spec',
 ]
@@ -1493,9 +1504,39 @@ function abstractionHits(context: FileContext): Hit[] {
 const EVOLUTION =
   /\b(?:legacy|rewritten|deprecated|removed|superseded|migrat(?:e|es|ed|ing|ion)\w*)\b/gi
 
+/**
+ * Evolution words that count inside an *identifier*.
+ *
+ * Narrower than the comment vocabulary on purpose. `previous` and `removed` are
+ * everyday code words; matching them as name tokens would bury a real migration
+ * under noise. What is left is the vocabulary of code that is knowingly carrying
+ * an older shape forward.
+ */
+const EVOLUTION_TOKENS: ReadonlySet<string> = new Set([
+  'legacy',
+  'migrate',
+  'migrates',
+  'migrated',
+  'migrating',
+  'migration',
+  'migrations',
+  'deprecated',
+  'superseded',
+  'obsolete',
+  'compat',
+])
+
+/**
+ * Any identifier, in blanked code. `scan.code` has comment and string bodies
+ * replaced by spaces, so a string saying "legacy" is not a name.
+ */
+const IDENTIFIER = /[A-Za-z_$][\w$]*/g
+
 function evolutionLabel(word: string): string {
   const normalized = word.toLowerCase()
-  return normalized.startsWith('migrat') ? 'migrate' : normalized
+  if (normalized.startsWith('migrat')) return 'migrate'
+  if (normalized === 'compat') return 'compatibility'
+  return normalized
 }
 
 function evolutionHits(context: FileContext): Hit[] {
@@ -1505,8 +1546,263 @@ function evolutionHits(context: FileContext): Hit[] {
       hits.push(hit('evolution', comment.line, evolutionLabel(match[0])))
     }
   }
+  // Bare words in code, where the vocabulary stands on its own.
   for (const match of matches(context.scan.code, EVOLUTION)) {
     hits.push(hit('evolution', lineAt(context.newlines, match.index), evolutionLabel(match[0])))
+  }
+  // And the same vocabulary *inside* camelCase and snake_case names. `\b` does not
+  // fire at a case boundary — `legacyPath` and `importLegacy` contain the word but
+  // not a word boundary — so a whole migration can live in an identifier and never
+  // be seen. That is how `importLegacy()` (read the old JSON store on first open,
+  // otherwise seed) stayed invisible. Names are split the same way the wheel
+  // detector splits them, so `importLegacy`, `legacy_path` and `LEGACY_PATH` agree.
+  for (const match of matches(context.scan.code, IDENTIFIER)) {
+    const token = nameTokens(match[0]).find((candidate) => EVOLUTION_TOKENS.has(candidate))
+    if (token === undefined) continue
+    hits.push(hit('evolution', lineAt(context.newlines, match.index), evolutionLabel(token)))
+  }
+  return hits
+}
+
+// --- rule: security -------------------------------------------------------
+
+/**
+ * Calls that exist because the naive version is exploitable.
+ *
+ * Every entry is a *fixed API shape*, not a guess about intent: `timingSafeEqual`
+ * is not written by accident, and nobody passes `mode: 0o600` for style. That is
+ * what keeps this rule's false-positive rate near zero while catching decisions no
+ * other rule can see — `auth.mjs` in the sample repository is 25 lines, has no
+ * comment and no wheel in its names, and produced no candidate at all until this
+ * rule existed. Its whole content is "hash both sides, then compare in constant
+ * time", which is a real lesson.
+ */
+const SECURITY_PATTERNS: ReadonlyArray<{ label: string; re: RegExp }> = [
+  // Compare digests, not secrets: fixes the length leak and the length-mismatch throw.
+  { label: 'constant-time-compare', re: /\btimingSafeEqual\b/g },
+  { label: 'hmac-signature', re: /\bcreateHmac\b/g },
+  { label: 'secure-random', re: /\brandomBytes\b/g },
+  // An explicit owner-only file mode; a default umask is the mistake this avoids.
+  { label: 'file-permission', re: /\bmode:[ \t]*0o[0-7]{3}\b/g },
+  // Reading proxy headers means deciding who is allowed to set them.
+  { label: 'proxy-header', re: /\bx-forwarded-(?:proto|host|for)\b/g },
+  // Decoding before validation, because `%2e%2e` only becomes `..` after decoding.
+  { label: 'url-decode-first', re: /\bdecodeURIComponent\b/g },
+]
+
+/**
+ * An allow-list: a literal array of strings that some later call tests against.
+ *
+ * The array bodies are blanked in `scan.code`, so this matches the *shape* — a
+ * declaration of a string-only list plus a `.includes(` on the same name — and the
+ * names are compared, not the values. An allow-list is the decision; which MIME
+ * types it holds is the detail.
+ */
+const ALLOW_LIST = /(?:const|let|var)[ \t]+([A-Za-z_$][\w$]*)[ \t]*=[ \t]*\[([^\]]*)\]/g
+const INCLUDES_CALL = /\b([A-Za-z_$][\w$]*)[ \t]*\.includes[ \t]*\(/g
+
+function allowListHits(context: FileContext): Hit[] {
+  const code = context.scan.code
+  const lists = new Map<string, number>()
+  for (const match of matches(code, ALLOW_LIST)) {
+    const name = match[1] as string
+    const body = match[2] as string
+    // Two or more items, nothing nested, and no digits. String bodies are blanked
+    // in `scan.code`, so `['image/png', 'image/jpeg']` arrives as spaces and commas
+    // while `[1, 2, 3]` still shows its digits — that is the whole distinction
+    // between a policy and a list of numbers.
+    if (countMatches(body, /,\s*/g) < 1) continue
+    if (/[{}()\d]/.test(body)) continue
+    lists.set(name, lineAt(context.newlines, match.index))
+  }
+  if (lists.size === 0) return []
+
+  const hits: Hit[] = []
+  for (const match of matches(code, INCLUDES_CALL)) {
+    const name = match[1] as string
+    const declared = lists.get(name)
+    if (declared === undefined) continue
+    hits.push(hit('security', lineAt(context.newlines, match.index), 'allow-list'))
+  }
+  return hits
+}
+
+function securityHits(context: FileContext): Hit[] {
+  // A test that asserts on a security API is exercising it, not deciding anything.
+  if (context.isTestFile) return []
+  const hits: Hit[] = []
+  for (const pattern of SECURITY_PATTERNS) {
+    for (const match of matches(context.scan.code, pattern.re)) {
+      hits.push(hit('security', lineAt(context.newlines, match.index), pattern.label))
+    }
+  }
+  hits.push(...allowListHits(context))
+  return hits
+}
+
+// --- rule: data integrity -------------------------------------------------
+
+/**
+ * Constraints and transaction boundaries declared in SQL.
+ *
+ * `INSERT OR IGNORE` and `ON DELETE CASCADE` are decisions about what the database
+ * is responsible for, and they only work if someone remembered them. A block that
+ * carries them is worth reading even when the surrounding JavaScript is ordinary.
+ */
+const INTEGRITY_PATTERNS: ReadonlyArray<{ label: string; re: RegExp }> = [
+  { label: 'upsert-or-ignore', re: /\bINSERT\s+OR\s+(?:IGNORE|REPLACE)\b/gi },
+  { label: 'cascade-delete', re: /\bON\s+DELETE\s+CASCADE\b/gi },
+  { label: 'foreign-key', re: /\bFOREIGN\s+KEY\b/gi },
+  { label: 'explicit-transaction', re: /\b(?:BEGIN|COMMIT|ROLLBACK)\b/g },
+  { label: 'pragma', re: /\bPRAGMA\s+[a-z_]+/gi },
+  { label: 'idempotent-ddl', re: /\bCREATE\s+(?:TABLE|INDEX)\s+IF\s+NOT\s+EXISTS\b/gi },
+]
+
+function dataIntegrityHits(context: FileContext): Hit[] {
+  const hits: Hit[] = []
+  // SQL lives inside the blanked strings, so this reads the raw text and accepts
+  // that a SQL keyword in a comment also counts — the block is what gets read.
+  const text = context.file.text
+  for (const pattern of INTEGRITY_PATTERNS) {
+    for (const match of matches(text, pattern.re)) {
+      hits.push(hit('data-integrity', lineAt(context.newlines, match.index), pattern.label))
+    }
+  }
+  return hits
+}
+
+// --- rule: resilience -----------------------------------------------------
+
+/**
+ * Code that bounds how long a failure can last.
+ *
+ * An unbounded `await` on a third-party service is the classic outage; a timeout is
+ * the decision that prevents it. Same for an error carrying its own status instead
+ * of being parsed out of a message later.
+ */
+const RESILIENCE_PATTERNS: ReadonlyArray<{ label: string; re: RegExp }> = [
+  { label: 'bounded-timeout', re: /\bAbortSignal\s*\.\s*timeout\b/g },
+  { label: 'status-on-error', re: /\bObject\s*\.\s*assign\s*\(\s*new\s+Error\b/g },
+  { label: 'retry-ceiling', re: /\bmaxRetries\b/g },
+  // A fire-and-forget side effect that logs instead of throwing.
+  { label: 'side-effect-isolated', re: /\bcatch\s*\(\s*\w+\s*\)\s*\{\s*console\s*\.\s*(?:error|warn)\b/g },
+]
+
+function resilienceHits(context: FileContext): Hit[] {
+  if (context.isTestFile) return []
+  const hits: Hit[] = []
+  for (const pattern of RESILIENCE_PATTERNS) {
+    for (const match of matches(context.scan.code, pattern.re)) {
+      hits.push(hit('resilience', lineAt(context.newlines, match.index), pattern.label))
+    }
+  }
+  return hits
+}
+
+// --- rule: idiom ----------------------------------------------------------
+
+/**
+ * Small libraries are read for exactly this: the move that fits in one line.
+ *
+ * Every pattern below is a compact way to avoid something — a type check, a second
+ * loop condition, recomputed arguments, thirty lines of copy-paste. None of them
+ * carries a name that `custom-infra` recognises, none is long enough for
+ * `complexity`, and none is explained by a comment. That is why a six-line function
+ * with three real lessons produced zero candidates before this rule existed.
+ */
+/**
+ * `source` says which view to read. Two of these patterns are *about* string
+ * literals — a returned sentinel and a quoted property name — and `scan.code` has
+ * whole literals blanked, quotes included, so reading code there finds nothing.
+ * Those read the raw text; the rest read code, where a string cannot pose as one.
+ */
+const IDIOM_PATTERNS: ReadonlyArray<{ label: string; re: RegExp; source?: 'text' }> = [
+  // Ask what an argument can do, not what type it is: `key.split ? … : key` accepts
+  // both a dotted string and an already-split array without overloading the function.
+  {
+    label: 'capability-test',
+    re: /\b[A-Za-z_$][\w$]*\.(?:split|toString|then|pipe|forEach|has|get|delete)\s*\?/g,
+  },
+  // Existence and progress folded into one guard, so there is a single exit.
+  { label: 'folded-loop-guard', re: /\b(?:while|for)\s*\([^);]*&&[^);]*\)/g },
+  // Pre-bind the outer arguments, return a function that only awaits the data.
+  { label: 'pre-bound-arguments', re: /=>\s*\([^)]*\)\s*=>/g },
+  // Generate from data instead of writing the entries out.
+  {
+    label: 'generated-from-table',
+    re: /\bObject\.entries\s*\([^)]*\)\s*\.\s*(?:map|forEach|reduce)\b/g,
+  },
+  // Parse-time rejection of the keys that poison a prototype.
+  { label: 'prototype-key-guard', re: /__proto__|\bconstructor\b\s*(?:===|!==|\bin\b)/g },
+  // The whole implementation is one delegating call. A wrapper library like this is
+  // a decision about which substrate to stand on, which is the thing worth learning.
+  { label: 'delegates-whole-body', re: /\breturn\s+[A-Za-z_$][\w$]*\s*\([^;]*?=>/g },
+  // A default derived from another parameter: the recursive call then passes one
+  // argument instead of computing four, and there is no second entry point.
+  { label: 'derived-default', re: /\(\s*[^()]*\w+\s*=\s*[A-Za-z_$][\w$.]*\s*[,)]/g },
+  // The degenerate input gets a precomputed constant instead of a trip through the
+  // general path. Cheap, and it documents which case the author cared about.
+  {
+    label: 'degenerate-fast-path',
+    re: /\.length\s*===?\s*0\s*\)[^}]{0,80}?return\s+['"`]/g,
+    source: 'text',
+  },
+  // Shape, not class: asking whether an object *has* the fields is what lets a
+  // value from another module or another realm pass. `instanceof` would reject it.
+  { label: 'structural-check', re: /['"][A-Za-z_$][\w$]*['"]\s+in\s+[A-Za-z_$]/g, source: 'text' },
+]
+
+/**
+ * A function only carries an idiom while it is short enough to read at once.
+ *
+ * The same `while (a && b)` inside a 200-line function is ordinary control flow;
+ * in a six-line function it *is* the design, because there is no room for anything
+ * else. Gating on function length is what keeps this rule from firing everywhere.
+ */
+const IDIOM_MAX_FUNCTION_LINES = 30
+const IDIOM_MAX_BLOCK_LINES = 40
+const IDIOM_MAX_FILE_LINES = 200
+
+function idiomHits(context: FileContext): Hit[] {
+  if (context.isTestFile) return []
+  const shortAt = new Map<number, boolean>()
+  /**
+   * The smallest thing that encloses `line` — function, else block, else file.
+   *
+   * Falling back matters: an arrow function assigned across several lines, or one
+   * with an implicit return, has no brace group and no detected span, and a gate
+   * that answered "unknown, not short" would throw away the exact code this rule
+   * exists for. `filterEmpty` in colorette is four lines of currying with no body
+   * braces; with the gate closed on it, the file produced zero candidates.
+   */
+  const isShort = (line: number): boolean => {
+    const cached = shortAt.get(line)
+    if (cached !== undefined) return cached
+    const short = ((): boolean => {
+      const index = functionAt(context.functions, line)
+      if (index >= 0) {
+        const span = context.functions[index] as PlacedSpan
+        return span.endLine - span.startLine <= IDIOM_MAX_FUNCTION_LINES
+      }
+      const block = blockIndexAt(context.blocks, line)
+      if (block >= 0) {
+        const span = context.blocks[block] as BlockSpan
+        return span.endLine - span.startLine <= IDIOM_MAX_BLOCK_LINES
+      }
+      return context.lines.length <= IDIOM_MAX_FILE_LINES
+    })()
+    shortAt.set(line, short)
+    return short
+  }
+
+  const hits: Hit[] = []
+  for (const pattern of IDIOM_PATTERNS) {
+    const view = pattern.source === 'text' ? context.file.text : context.scan.code
+    for (const match of matches(view, pattern.re)) {
+      const line = lineAt(context.newlines, match.index)
+      if (!isShort(line)) continue
+      hits.push(hit('idiom', line, pattern.label))
+    }
   }
   return hits
 }
@@ -1635,7 +1931,14 @@ function groupHits(
   const groups = new Map<string, HitGroup>()
   for (const entry of entries) {
     const inside = functionAt(functions, entry.line)
-    const owner = inside >= 0 ? inside : functionAfter(functions, entry.line)
+    const after = inside >= 0 ? inside : functionAfter(functions, entry.line)
+    // Adopting the *next* function is only right when it is close. Module-level code
+    // between two declarations has no owner of its own, and filing it under a
+    // function forty lines below merged unrelated idioms into one candidate — four
+    // separate lessons in colorette became a single hit on line 9.
+    const nearby =
+      after >= 0 && (functions[after] as PlacedSpan).startLine - entry.line <= GROUP_MERGE_LINES
+    const owner = nearby ? after : -1 - entry.line
     const start = owner >= 0 ? (functions[owner] as PlacedSpan).startLine : anchor
     const bucket = Math.max(0, Math.floor((entry.line - start) / BUCKET_LINES))
     const line = bucket === 0 && owner >= 0 ? start : entry.line
@@ -1690,6 +1993,11 @@ function scoreHits(
       kinds.add(entry.kind)
       score += SIGNAL_WEIGHTS[entry.kind]
     }
+    // Size is not a decision. A block that only looks big is reported at half
+    // weight, so a real rule (security, a wheel, a stated trade-off) outranks it
+    // instead of tying. `complexity` alongside any other signal keeps its weight:
+    // there, the length is a symptom of the thing that fired.
+    if (kinds.size === 1 && kinds.has('complexity')) score = Math.max(1, Math.floor(score / 2))
     // The kind reported is the most valuable one that fired; on a tie the earliest
     // hit wins, because that is where a reader would start reading.
     const topWeight = Math.max(...[...kinds].map((kind) => SIGNAL_WEIGHTS[kind]))
@@ -1755,8 +2063,12 @@ export function scoreFile(file: CanonicalFile, structure: StructureIndex): Candi
   const hits: Hit[] = [
     ...decisionHits(context),
     ...customInfraHits(context),
+    ...securityHits(context),
     ...complexityHits(context),
     ...abstractionHits(context),
+    ...dataIntegrityHits(context),
+    ...resilienceHits(context),
+    ...idiomHits(context),
     ...evolutionHits(context),
     ...testSpecHits(context),
   ]

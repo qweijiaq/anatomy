@@ -101,6 +101,16 @@ describe('SIGNAL_WEIGHTS', () => {
       // Added after the plan closed: a function named after a standard algorithm
       // is a design choice, and the wheel vocabulary cannot see it.
       algorithm: 2,
+      // Same tier as the wheels and the stated trade-offs: these APIs only exist
+      // because the obvious version is wrong, so the surrounding code explains
+      // something a reader cannot guess from the call itself.
+      security: 3,
+      // Which leaves the constraint to the database and which bounds a failure.
+      'data-integrity': 2,
+      resilience: 2,
+      // A one-line move inside a short function. It cannot be seen by name or
+      // length, and small libraries are read for exactly this.
+      idiom: 2,
     })
   })
 })
@@ -334,11 +344,26 @@ describe('custom-infra', () => {
 // --- complexity -----------------------------------------------------------
 
 describe('complexity', () => {
-  it('fires on a long function', () => {
+  it('fires on a long function, at half weight when nothing else fires', () => {
     const candidates = scoreFile(fileOf(longFunction(61)), emptyIndex())
     expect(candidates).toHaveLength(1)
-    expect(candidates[0]).toMatchObject({ kind: 'complexity', line: 1, score: 2 })
+    // Half of the complexity weight: size on its own is not a decision, and it must
+    // not outrank a security call or a stated trade-off that shares the same file.
+    expect(candidates[0]).toMatchObject({ kind: 'complexity', line: 1, score: 1 })
     expect(candidates[0]!.matched).toEqual(['complexity:long-function'])
+  })
+
+  it('keeps full weight for complexity alongside another signal', () => {
+    // The security call sits on the declaration line, so both hits land in one
+    // group: there, the length is a symptom of the thing that fired, not a claim.
+    const lines = ['export function load(): void { const t = crypto.randomBytes(8)']
+    for (let i = 0; i < 61; i += 1) lines.push(`  step(${i})`)
+    lines.push('  void MaxRetries', '}', '')
+    const candidates = scoreFile(fileOf(lines.join('\n')), emptyIndex())
+    expect(candidates).toHaveLength(1)
+    // 3 (security) + 2 (complexity at full weight, because it is not alone).
+    // The reported kind is the weightiest one that fired; complexity is the symptom.
+    expect(candidates[0]).toMatchObject({ kind: 'security', score: 5 })
   })
 
   it('leaves an ordinary function alone', () => {
@@ -369,7 +394,7 @@ describe('complexity', () => {
     lines.push('')
     const candidates = scoreFile(fileOf(lines.join('\n'), 'src/handler.py'), emptyIndex())
     expect(candidates).toHaveLength(1)
-    expect(candidates[0]).toMatchObject({ kind: 'complexity', line: 1, score: 2 })
+    expect(candidates[0]).toMatchObject({ kind: 'complexity', line: 1, score: 1 })
     expect(candidates[0]!.matched).toEqual(['complexity:long-function'])
   })
 
@@ -529,6 +554,30 @@ describe('evolution', () => {
     expect(candidates).toHaveLength(1)
     expect(candidates[0]).toMatchObject({ kind: 'evolution', line: 1, score: 1 })
     expect(candidates[0]!.matched).toEqual(['evolution:removed', 'evolution:migrate'])
+  })
+
+  it('sees the word inside a camelCase name, where \\b does not fire', () => {
+    // `legacyPath` and `importLegacy` contain the vocabulary but no word boundary,
+    // so a comment-only rule found nothing. In a real repository that is exactly
+    // how a whole data migration stayed invisible.
+    const text = [
+      'export function createStore(dir) {',
+      '  const legacyPath = join(dir, "db.json")',
+      '  function importLegacy() { return readJson(legacyPath) }',
+      '  if (!importLegacy()) seed()',
+      '  return open(dir)',
+      '}',
+      '',
+    ].join('\n')
+    const candidates = scoreFile(fileOf(text), emptyIndex())
+    expect(candidates.map((candidate) => candidate.kind)).toEqual(['evolution', 'evolution'])
+    expect(candidates.every((candidate) => candidate.matched.includes('evolution:legacy'))).toBe(
+      true,
+    )
+  })
+
+  it('does not take a word from inside a string literal', () => {
+    expect(scoreFile(fileOf('const note = "legacyPath"\n'), emptyIndex())).toEqual([])
   })
 })
 
@@ -1218,5 +1267,154 @@ describe('collectSignals', () => {
     await rm(path.join(root, 'src/goes.ts'))
     const candidates = await collectSignals(root, scope, emptyIndex())
     expect(candidates.map((candidate) => candidate.path)).toEqual(['src/stays.ts'])
+  })
+})
+
+// --- security -------------------------------------------------------------
+
+describe('security', () => {
+  it('sees a constant-time comparison, which no other rule can', () => {
+    const text = [
+      'export function isAuthorized(req, token) {',
+      '  const a = crypto.createHash("sha256").update(req).digest()',
+      '  const b = crypto.createHash("sha256").update(token).digest()',
+      '  return crypto.timingSafeEqual(a, b)',
+      '}',
+      '',
+    ].join('\n')
+    const candidates = scoreFile(fileOf(text), emptyIndex())
+    expect(candidates).toHaveLength(1)
+    expect(candidates[0]).toMatchObject({ kind: 'security', score: 3 })
+    expect(candidates[0]!.matched).toContain('security:constant-time-compare')
+  })
+
+  it('sees an explicit owner-only file mode', () => {
+    const text = 'const token = randomBytes(24)\nwriteFileSync(p, token, { mode: 0o600 })\n'
+    const matched = scoreFile(fileOf(text), emptyIndex()).flatMap((c) => c.matched)
+    expect(matched).toContain('security:file-permission')
+    expect(matched).toContain('security:secure-random')
+  })
+
+  it('sees an allow-list tested with includes, and not a list of numbers', () => {
+    const allow = [
+      'const allowed = ["image/png", "image/jpeg"]',
+      'export function check(type) {',
+      '  if (!allowed.includes(type)) throw new Error("no")',
+      '}',
+      '',
+    ].join('\n')
+    expect(scoreFile(fileOf(allow), emptyIndex())[0]!.matched).toContain('security:allow-list')
+
+    const numbers = ['const sizes = [1, 2, 3]', 'export const ok = (n) => sizes.includes(n)', '']
+    const candidates = scoreFile(fileOf(numbers.join('\n')), emptyIndex())
+    expect(candidates.flatMap((c) => c.matched)).not.toContain('security:allow-list')
+  })
+
+  it('leaves a test file alone', () => {
+    const text = 'expect(crypto.timingSafeEqual(a, b)).toBe(true)\n'
+    expect(scoreFile(fileOf(text, 'tests/auth.test.ts'), emptyIndex())).toEqual([])
+  })
+})
+
+// --- data-integrity -------------------------------------------------------
+
+describe('data-integrity', () => {
+  it('sees the constraints a schema declares instead of enforcing in code', () => {
+    const text = [
+      'const schema = `',
+      '  CREATE TABLE IF NOT EXISTS votes (',
+      '    feedback_id TEXT,',
+      '    FOREIGN KEY (feedback_id) REFERENCES feedback(id) ON DELETE CASCADE',
+      '  )',
+      '`',
+      '',
+    ].join('\n')
+    const candidates = scoreFile(fileOf(text), emptyIndex())
+    expect(candidates[0]).toMatchObject({ kind: 'data-integrity' })
+    expect(candidates[0]!.matched).toContain('data-integrity:cascade-delete')
+    expect(candidates[0]!.matched).toContain('data-integrity:idempotent-ddl')
+  })
+
+  it('sees an explicit transaction boundary', () => {
+    const text = ['db.exec("BEGIN")', 'try { insert(row) } catch { db.exec("ROLLBACK") }', ''].join('\n')
+    expect(scoreFile(fileOf(text), emptyIndex())[0]!.matched).toContain(
+      'data-integrity:explicit-transaction',
+    )
+  })
+})
+
+// --- resilience -----------------------------------------------------------
+
+describe('resilience', () => {
+  it('sees a bounded timeout on an outbound call', () => {
+    const text = 'await fetch(url, { signal: AbortSignal.timeout(5000) })\n'
+    const candidates = scoreFile(fileOf(text), emptyIndex())
+    expect(candidates[0]).toMatchObject({ kind: 'resilience', score: 2 })
+    expect(candidates[0]!.matched).toContain('resilience:bounded-timeout')
+  })
+
+  it('sees an error that carries its own status', () => {
+    const text = 'throw Object.assign(new Error("bad"), { status: 400 })\n'
+    expect(scoreFile(fileOf(text), emptyIndex())[0]!.matched).toContain(
+      'resilience:status-on-error',
+    )
+  })
+})
+
+// --- idiom ----------------------------------------------------------------
+
+describe('idiom', () => {
+  it('sees a capability test that avoids an overload', () => {
+    const text = [
+      'export default function dlv(obj, key, def, p) {',
+      '  p = 0',
+      '  key = key.split ? key.split(".") : key',
+      '  while (obj && p < key.length) obj = obj[key[p++]]',
+      '  return obj === undefined || p < key.length ? def : obj',
+      '}',
+      '',
+    ].join('\n')
+    const candidates = scoreFile(fileOf(text), emptyIndex())
+    expect(candidates[0]).toMatchObject({ kind: 'idiom' })
+    expect(candidates[0]!.matched).toContain('idiom:capability-test')
+    expect(candidates[0]!.matched).toContain('idiom:folded-loop-guard')
+  })
+
+  it('sees a whole implementation that is one delegating call', () => {
+    const text = [
+      'import pMap from "p-map"',
+      'export default async function pAll(iterable, options) {',
+      '  return pMap(iterable, element => element(), options)',
+      '}',
+      '',
+    ].join('\n')
+    expect(scoreFile(fileOf(text), emptyIndex())[0]!.matched).toContain(
+      'idiom:delegates-whole-body',
+    )
+  })
+
+  it('sees a degenerate-input fast path', () => {
+    const text = [
+      'function entitytag(entity) {',
+      '  if (entity.length === 0) {',
+      '    return "0-2jmj7l5rSw0yVb"',
+      '  }',
+      '  return hash(entity)',
+      '}',
+      '',
+    ].join('\n')
+    expect(scoreFile(fileOf(text), emptyIndex())[0]!.matched).toContain(
+      'idiom:degenerate-fast-path',
+    )
+  })
+
+  it('ignores the same shapes inside a long function', () => {
+    // The gate is the whole reason this rule is usable: a `while (a && b)` in a
+    // 200-line function is ordinary control flow, not a lesson.
+    const lines = ['export function big(xs) {']
+    for (let i = 0; i < 40; i += 1) lines.push(`  step${i}(xs)`)
+    lines.push('  while (xs && xs.length) xs = xs.slice(1)', '  return xs', '}', '')
+    const candidates = scoreFile(fileOf(lines.join('\n')), emptyIndex())
+    expect(candidates.flatMap((c) => c.matched)).not.toContain('idiom:folded-loop-guard')
   })
 })
