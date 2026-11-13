@@ -171,6 +171,9 @@ export async function readReportInput(
     profile,
     scope,
     skipped: skipLinesFrom(skipped),
+    // The page's own words follow the language the run asked for; the prose already
+    // does, because the prompt did.
+    lang: manifest.lang === 'en' ? 'en' : 'zh',
     ...(candidates === null ? {} : { candidates }),
     ...(structure === null ? {} : { structure }),
   }

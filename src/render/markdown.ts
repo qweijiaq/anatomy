@@ -19,25 +19,11 @@
  */
 
 import type { ReportInput, SymbolRef } from '../contracts/types.js'
+import { labelsFor, type Labels, type Lang } from './labels.js'
 import type { ReportDocument, ReportPoint } from './json.js'
 import { buildReport } from './json.js'
 
-const KIND_LABEL: Record<string, string> = {
-  architecture: '架构',
-  algorithm: '算法',
-  'data-model': '数据模型',
-  'api-design': '接口设计',
-  performance: '性能',
-  testing: '测试',
-  tooling: '工具链',
-  process: '流程',
-}
 
-const CONFIDENCE_LABEL: Record<string, string> = {
-  high: '高',
-  medium: '中',
-  low: '低',
-}
 
 // --- text safety ----------------------------------------------------------
 
@@ -110,68 +96,70 @@ function fenced(code: string): string {
 // --- numbers --------------------------------------------------------------
 
 /** Stats are copied verbatim by `buildReport`; this only spells them. */
-function numberText(value: number | undefined): string {
-  return value === undefined || !Number.isFinite(value) ? '未知' : String(value)
+function numberText(value: number | undefined, L: Labels): string {
+  return value === undefined || !Number.isFinite(value) ? L.unknown : String(value)
 }
 
 /** A rate is stored as a fraction and shown as a percentage. Not recomputed. */
-function percentText(rate: number | undefined): string {
-  return rate === undefined || !Number.isFinite(rate) ? '未知' : `${(rate * 100).toFixed(1)}%`
+function percentText(rate: number | undefined, L: Labels): string {
+  return rate === undefined || !Number.isFinite(rate) ? L.unknown : `${(rate * 100).toFixed(1)}%`
 }
 
 // --- sections -------------------------------------------------------------
 
-function brief(doc: ReportDocument): string {
+function brief(doc: ReportDocument, L: Labels): string {
   const lines: string[] = []
 
-  lines.push('## 这次分析在解决什么', '')
-  lines.push(proseOr(doc.problem, '这次没有拿到对仓库整体问题的概括。'), '')
+  lines.push(`## ${L.problemHeading}`, '')
+  lines.push(proseOr(doc.problem, L.problemFallback), '')
 
   const heading =
-    doc.topFive.length === 0 ? '## 最值得学的点' : `## 最值得学的 ${doc.topFive.length} 件事`
+    doc.topFive.length === 0 ? `## ${L.topHeadingEmpty}` : `## ${L.topHeading(doc.topFive.length)}`
   lines.push(heading, '')
   if (doc.topFive.length === 0) {
-    lines.push('- 这次没有选出最值得学的条目。')
+    lines.push(`- ${L.topEmpty}`)
   } else {
     // A point the page withheld must not be advertised as if it were below:
     // the list stays, but the entry says where it went.
     const rendered = new Set(doc.points.map((point) => prose(point.title)))
     doc.topFive.forEach((item, index) => {
       const shown = prose(item)
-      const absent = !rendered.has(shown) ? '（未进正文）' : ''
+      const absent = !rendered.has(shown) ? L.notInBody : ''
       lines.push(`${index + 1}. ${shown}${absent}`)
     })
   }
   lines.push('')
 
-  lines.push('## 这次分析的可信度', '')
-  lines.push(`- 已取证点占比：${percentText(doc.trust.evidenceRate)}`)
-  lines.push(`- 被丢弃证据数：${numberText(doc.trust.droppedEvidence)}`)
-  lines.push(`- 每点平均证据数：${numberText(doc.trust.avgEvidence)}`)
+  lines.push(`## ${L.trustHeading}`, '')
+  lines.push(`- ${L.evidenceRate}${L.colon}${percentText(doc.trust.evidenceRate, L)}`)
+  lines.push(`- ${L.droppedEvidence}${L.colon}${numberText(doc.trust.droppedEvidence, L)}`)
+  lines.push(`- ${L.avgEvidence}${L.colon}${numberText(doc.trust.avgEvidence, L)}`)
   lines.push('')
 
-  lines.push('## 分析口径', '')
-  if (doc.source !== '') lines.push(`- 来源：${proseOr(doc.source, '（未知）')}`)
-  lines.push(`- 根目录：${proseOr(doc.analysis.root, '（未知）')}`)
+  lines.push(`## ${L.scopeHeading}`, '')
+  if (doc.source !== '') lines.push(`- ${L.source}${L.colon}${proseOr(doc.source, L.unknown)}`)
+  lines.push(`- ${L.root}${L.colon}${proseOr(doc.analysis.root, L.unknown)}`)
   lines.push(
-    `- 规模：${numberText(doc.analysis.totals.files)} 个文件 / ` +
-      `${numberText(doc.analysis.totals.bytes)} 字节 / ` +
-      `${numberText(doc.analysis.totals.lines)} 行`,
+    `- ${L.scaleLabel}${L.colon}${L.scale(
+      numberText(doc.analysis.totals.files, L),
+      numberText(doc.analysis.totals.bytes, L),
+      numberText(doc.analysis.totals.lines, L),
+    )}`,
   )
   const languages =
     doc.analysis.languages.length === 0
-      ? '未识别'
+      ? L.unidentified
       : doc.analysis.languages
-          .map((item) => `${prose(item.language)} ${numberText(item.files)}`)
-          .join('、')
-  lines.push(`- 语言：${languages}`)
+          .map((item) => `${prose(item.language)} ${numberText(item.files, L)}`)
+          .join(L.listSeparator)
+  lines.push(`- ${L.languages}${L.colon}${languages}`)
   const excluded =
     doc.analysis.excluded.length === 0
-      ? '没有文件被排除'
+      ? L.nothingExcluded
       : doc.analysis.excluded
-          .map((item) => `${prose(item.reason)} ${numberText(item.count)}`)
-          .join('、')
-  lines.push(`- 排除：${excluded}`)
+          .map((item) => `${prose(item.reason)} ${numberText(item.count, L)}`)
+          .join(L.listSeparator)
+  lines.push(`- ${L.excluded}${L.colon}${excluded}`)
 
   return lines.join('\n')
 }
@@ -185,118 +173,122 @@ function evidenceBlock(point: ReportPoint): string {
   return lines.join('\n').trimEnd()
 }
 
-function recipeBlock(point: ReportPoint): string {
+function recipeBlock(point: ReportPoint, L: Labels): string {
   const recipe = point.recipe
   if (recipe === null) return ''
 
-  const lines: string[] = ['<details>', '<summary>要在自己项目里用</summary>', '']
+  // `<summary>` is rendered as a real tag by the in-window parser, so this text is
+  // part of the page's structure rather than prose — which is why it belongs here.
+  const lines: string[] = ['<details>', `<summary>${L.recipeSummary}</summary>`, '']
 
-  lines.push('**前置条件**', '')
-  if (recipe.prereqs.length === 0) lines.push('- （没有额外前置条件）')
+  lines.push(`**${L.prereqs}**`, '')
+  if (recipe.prereqs.length === 0) lines.push(`- ${L.noPrereqs}`)
   else for (const item of recipe.prereqs) lines.push(`- ${prose(item)}`)
   lines.push('')
 
-  lines.push('**最小形态**', '')
+  lines.push(`**${L.minimalForm}**`, '')
   lines.push(
-    fenced(recipe.minimalForm.trim() === '' ? '// （没有给出最小形态）' : recipe.minimalForm),
+    fenced(recipe.minimalForm.trim() === '' ? L.noMinimalForm : recipe.minimalForm),
     '',
   )
 
-  lines.push('**什么情况下别用**', '')
-  if (recipe.avoidWhen.length === 0) lines.push('- （没有记录适用边界）')
+  lines.push(`**${L.avoidWhen}**`, '')
+  if (recipe.avoidWhen.length === 0) lines.push(`- ${L.noAvoidWhen}`)
   else for (const item of recipe.avoidWhen) lines.push(`- ${prose(item)}`)
 
   lines.push('', '</details>')
   return lines.join('\n')
 }
 
-function pointSection(point: ReportPoint, index: number): string {
+function pointSection(point: ReportPoint, index: number, L: Labels): string {
   const lines: string[] = []
 
-  lines.push(`## ${index}. ${proseOr(point.title, '（无标题）')}`, '')
-  lines.push(`- 类型：${KIND_LABEL[point.kind] ?? proseOr(point.kind, '未分类')}`)
-  lines.push(`- 置信度：${CONFIDENCE_LABEL[point.confidence] ?? proseOr(point.confidence, '未标注')}`)
+  lines.push(`## ${index}. ${proseOr(point.title, L.untitled)}`, '')
+  lines.push(`- ${L.kind}${L.colon}${L.kinds[point.kind] ?? proseOr(point.kind, L.unclassified)}`)
+  lines.push(`- ${L.confidence}${L.colon}${L.confidences[point.confidence] ?? proseOr(point.confidence, L.unlabeled)}`)
   lines.push('')
 
   const stakes = prose(point.problem.stakes)
-  const constraint = proseOr(point.problem.constraint, '（没有记录约束）')
-  lines.push(`**约束**：${stakes === '' ? constraint : `${constraint}（${stakes}）`}`, '')
+  const constraint = proseOr(point.problem.constraint, L.constraintMissing)
+  const joined = stakes === '' ? constraint : `${constraint} —— ${stakes}`
+  lines.push(`**${L.constraint}**${L.colon}${joined}`, '')
 
-  lines.push('**常见做法与代价**', '')
-  if (point.alternatives.length === 0) lines.push('- （没有记录常见做法）')
+  lines.push(`**${L.alternatives}**`, '')
+  if (point.alternatives.length === 0) lines.push(`- ${L.alternativesMissing}`)
   else {
     for (const item of point.alternatives) {
-      const approach = proseOr(item.approach, '（未命名做法）')
+      const approach = proseOr(item.approach, L.unnamedApproach)
       const cost = prose(item.cost)
       lines.push(`- ${cost === '' ? approach : `${approach} —— ${cost}`}`)
     }
   }
   lines.push('')
 
-  lines.push('**他们怎么做**', '', proseOr(point.theirs.summary, '（没有记录做法）'), '')
+  lines.push(`**${L.theirs}**`, '', proseOr(point.theirs.summary, L.theirsMissing), '')
   const evidence = evidenceBlock(point)
   if (evidence !== '') lines.push(evidence, '')
 
-  lines.push('**为什么有效**', '', proseOr(point.mechanism, '（没有记录原理）'), '')
+  lines.push(`**${L.mechanism}**`, '', proseOr(point.mechanism, L.mechanismMissing), '')
 
-  lines.push('**代价**', '')
-  if (point.tradeoffs.length === 0) lines.push('- （没有记录代价）')
+  lines.push(`**${L.tradeoffs}**`, '')
+  if (point.tradeoffs.length === 0) lines.push(`- ${L.tradeoffsMissing}`)
   else {
     for (const item of point.tradeoffs) {
-      const cost = proseOr(item.cost, '（未命名代价）')
+      const cost = proseOr(item.cost, L.unnamedCost)
       const hurts = prose(item.whenItHurts)
       lines.push(`- ${hurts === '' ? cost : `${cost} —— ${hurts}`}`)
     }
   }
 
   if (point.unknowns.length > 0) {
-    lines.push('', '**还不确定的地方**', '')
+    lines.push('', `**${L.unknowns}**`, '')
     for (const item of point.unknowns) lines.push(`- ${prose(item)}`)
   }
 
-  const recipe = recipeBlock(point)
+  const recipe = recipeBlock(point, L)
   if (recipe !== '') lines.push('', recipe)
 
   return lines.join('\n')
 }
 
-function emptyState(doc: ReportDocument): string {
+function emptyState(doc: ReportDocument, L: Labels): string {
   const reasons: string[] = []
-  for (const note of doc.notes) reasons.push(`备注：${prose(note)}`)
-  for (const skip of doc.skipped) reasons.push(`跳过：${prose(skip)}`)
-  for (const item of doc.notRendered) reasons.push(`没有可核对的证据：${prose(item.pointId)}`)
+  for (const note of doc.notes) reasons.push(`${L.notePrefix}${L.colon}${prose(note)}`)
+  for (const skip of doc.skipped) reasons.push(`${L.skipPrefix}${L.colon}${prose(skip)}`)
+  for (const item of doc.notRendered) {
+    reasons.push(`${L.notRenderedPrefix}${L.colon}${prose(item.pointId)}`)
+  }
   for (const item of doc.validation.dropped) {
-    reasons.push(`被丢弃：${proseOr(item.pointId, '（未知点）')} —— ${prose(item.reason)}`)
+    reasons.push(
+      `${L.droppedPrefix}${L.colon}${proseOr(item.pointId, L.unknownPoint)} —— ${prose(item.reason)}`,
+    )
   }
-  if (reasons.length === 0) {
-    reasons.push('这次分析没有留下可用的线索：既没有被跳过的部分，也没有可复述的备注。')
-  }
+  if (reasons.length === 0) reasons.push(L.noClues)
 
-  const lines: string[] = [
-    '## 没找到值得学的点',
-    '',
-    '这次没有找到既能核对到具体代码、又值得学习的点。原因如下：',
-    '',
-  ]
+  const lines: string[] = [`## ${L.emptyHeading}`, '', L.emptyLede, '']
   for (const reason of reasons) lines.push(`- ${reason}`)
   return lines.join('\n')
 }
 
-function tail(doc: ReportDocument): string {
+function tail(doc: ReportDocument, L: Labels): string {
   const outside: string[] = []
-  for (const skip of doc.skipped) outside.push(`- 跳过：${prose(skip)}`)
-  for (const note of doc.notes) outside.push(`- 备注：${prose(note)}`)
+  for (const skip of doc.skipped) outside.push(`- ${L.skipPrefix}${L.colon}${prose(skip)}`)
+  for (const note of doc.notes) outside.push(`- ${L.notePrefix}${L.colon}${prose(note)}`)
 
   const withheld: string[] = [
-    `- 没有可核对证据的点：${doc.notRendered.length} 个`,
-    `- 被降级的点：${doc.validation.downgraded.length} 个`,
-    `- 被丢弃的点：${doc.validation.dropped.length} 个`,
+    `- ${L.notRenderedCount(doc.notRendered.length)}`,
+    `- ${L.downgradedCount(doc.validation.downgraded.length)}`,
+    `- ${L.droppedCount(doc.validation.dropped.length)}`,
   ]
   for (const item of doc.validation.dropped) {
-    withheld.push(`- 丢弃原因：${proseOr(item.pointId, '（未知点）')} —— ${prose(item.reason)}`)
+    withheld.push(
+      `- ${L.droppedReason}${L.colon}${proseOr(item.pointId, L.unknownPoint)} —— ${prose(item.reason)}`,
+    )
   }
   for (const item of doc.validation.downgraded) {
-    withheld.push(`- 降级原因：${proseOr(item.pointId, '（未知点）')} —— ${prose(item.reason)}`)
+    withheld.push(
+      `- ${L.downgradedReason}${L.colon}${proseOr(item.pointId, L.unknownPoint)} —— ${prose(item.reason)}`,
+    )
   }
 
   const declared =
@@ -306,13 +298,13 @@ function tail(doc: ReportDocument): string {
     doc.validation.dropped.length > 0 ||
     doc.validation.downgraded.length > 0
 
-  if (!declared) return ['## 没看的部分', '', '- 没有需要声明的遗漏。'].join('\n')
+  if (!declared) return [`## ${L.tailHeading}`, '', `- ${L.nothingOmitted}`].join('\n')
 
-  const lines: string[] = ['## 没看的部分', '', '**分析口径之外**', '']
-  if (outside.length === 0) lines.push('- （没有声明被跳过的输入）')
+  const lines: string[] = [`## ${L.tailHeading}`, '', `**${L.outsideHeading}**`, '']
+  if (outside.length === 0) lines.push(`- ${L.noSkippedInput}`)
   else lines.push(...outside)
 
-  lines.push('', '**没进正文的判断**', '')
+  lines.push('', `**${L.withheldHeading}**`, '')
   lines.push(...withheld)
   return lines.join('\n')
 }
@@ -361,7 +353,7 @@ function enclosingSymbol(
   return best
 }
 
-function appendix(input: ReportInput): string {
+function appendix(input: ReportInput, L: Labels): string {
   const sections: string[] = []
   const candidates = Array.isArray(input.candidates) ? input.candidates : []
   const structure = input.structure
@@ -373,25 +365,29 @@ function appendix(input: ReportInput): string {
     )
     const shown = sorted.slice(0, APPENDIX_CANDIDATES)
 
-    sections.push('## 值得自己去看的位置')
+    sections.push(`## ${L.appendixCandidatesHeading}`)
     sections.push('')
-    sections.push(
-      `扫描共给出 ${candidates.length} 个候选点。**分数是规则命中累加，不是质量评分**——` +
-        '它只说明这里同时符合几条启发式，不说明这里一定值得学。',
-    )
+    sections.push(L.appendixCandidatesLede(candidates.length))
     sections.push('')
     // The column only exists when the index did. Without symbols an empty column
     // would suggest nothing is declared there, which is a different statement.
     const withSymbol = symbols.length > 0
     sections.push(
-      withSymbol ? '| 位置 | 所在声明 | 类型 | 分 | 命中的规则 |' : '| 位置 | 类型 | 分 | 命中的规则 |',
+      withSymbol
+        ? `| ${L.appendixPosition} | ${L.appendixSymbol} | ${L.appendixKind} | ${L.appendixScore} | ${L.appendixRules} |`
+        : `| ${L.appendixPosition} | ${L.appendixKind} | ${L.appendixScore} | ${L.appendixRules} |`,
     )
-    sections.push(withSymbol ? '| --- | --- | --- | --- | --- |' : '| --- | --- | --- | --- |')
+    sections.push(
+      withSymbol ? '| --- | --- | --- | --- | --- |' : '| --- | --- | --- | --- |',
+    )
     for (const candidate of shown) {
       const matched = candidate.matched.map((item) => prose(item)).join('、')
       const location = inlineCode(`${candidate.path}:${candidate.line}`)
       const symbol = withSymbol ? enclosingSymbol(symbols, candidate.path, candidate.line) : null
-      const where = symbol === null ? '—' : `${inlineCode(symbol.name)}（${prose(symbol.kind)}）`
+      const where =
+        symbol === null
+          ? L.appendixNoSymbol
+          : `${inlineCode(symbol.name)} (${prose(symbol.kind)})`
       sections.push(
         withSymbol
           ? `| ${location} | ${where} | ${prose(candidate.kind)} | ${candidate.score} | ${matched} |`
@@ -400,7 +396,7 @@ function appendix(input: ReportInput): string {
     }
     sections.push('')
     if (candidates.length > shown.length) {
-      sections.push(`按分数排在后面的 ${candidates.length - shown.length} 个没有列出。`)
+      sections.push(L.appendixMore(candidates.length - shown.length))
       sections.push('')
     }
 
@@ -411,8 +407,8 @@ function appendix(input: ReportInput): string {
     const distribution = [...byKind.entries()]
       .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
       .map(([kind, count]) => `${prose(kind)} ${count}`)
-      .join('、')
-    sections.push(`**信号分布**：${distribution}`)
+      .join(L.listSeparator)
+    sections.push(`**${L.appendixDistribution}**${L.colon}${distribution}`)
     sections.push('')
   }
 
@@ -429,33 +425,37 @@ function appendix(input: ReportInput): string {
       .slice(0, 8)
     const leaves = structure.modules.filter((module) => !inbound.has(module.path))
 
-    sections.push('## 这个仓库的形状')
+    sections.push(`## ${L.appendixShapeHeading}`)
     sections.push('')
-    sections.push(`- 模块：${structure.modules.length} 个；其中 ${leaves.length} 个没有任何文件导入它`)
+    sections.push(`- ${L.appendixModules(structure.modules.length, leaves.length)}`)
     if (hubs.length > 0) {
       sections.push(
-        `- 被依赖最多：${hubs.map(([name, count]) => `${inlineCode(name)} (${count})`).join('、')}`,
+        `- ${L.appendixHubs}: ${hubs
+          .map(([name, count]) => `${inlineCode(name)} (${count})`)
+          .join(L.listSeparator)}`,
       )
     }
     if (structure.unresolved > 0) {
-      sections.push(`- 未解析的导入：${structure.unresolved} 条（多半是外部依赖或路径别名）`)
+      sections.push(`- ${L.appendixUnresolved(structure.unresolved)}`)
     }
     const entryPoints = input.profile.entryPoints
     if (entryPoints.length > 0) {
-      sections.push(`- 入口：${entryPoints.map((item) => inlineCode(item)).join('、')}`)
+      sections.push(
+        `- ${L.appendixEntries}: ${entryPoints.map((item) => inlineCode(item)).join(L.listSeparator)}`,
+      )
     }
     const manifests = input.profile.manifests
     if (manifests.length > 0) {
-      sections.push(`- 清单文件：${manifests.map((item) => inlineCode(item)).join('、')}`)
+      sections.push(
+        `- ${L.appendixManifests}: ${manifests.map((item) => inlineCode(item)).join(L.listSeparator)}`,
+      )
     }
+    const yesNo = (value: boolean): string => (value ? L.yes : L.no)
     sections.push(
-      `- 测试 / CI / 文档：${input.profile.hasTests ? '有' : '无'} / ` +
-        `${input.profile.hasCi ? '有' : '无'} / ${input.profile.hasDocs ? '有' : '无'}`,
+      `- ${L.appendixTooling(yesNo(input.profile.hasTests), yesNo(input.profile.hasCi), yesNo(input.profile.hasDocs))}`,
     )
     sections.push('')
-    sections.push(
-      '这些数字来自结构索引，没有经过模型。它们只说明代码长什么样，不说明写得好不好。',
-    )
+    sections.push(L.appendixShapeNote)
     sections.push('')
   }
 
@@ -473,11 +473,13 @@ function appendix(input: ReportInput): string {
       return total > 0 ? `${Math.round((lines / total) * 100)}%` : '—'
     }
 
-    sections.push('## 代码集中在哪')
+    sections.push(`## ${L.appendixFilesHeading}`)
     sections.push('')
-    sections.push(`按行数排的前 ${largest.length} 个文件（共 ${files.length} 个）：`)
+    sections.push(L.appendixFilesLede(largest.length, files.length))
     sections.push('')
-    sections.push('| 文件 | 行 | 字节 | 占全部行数 |')
+    sections.push(
+      `| ${L.appendixFilePath} | ${L.appendixFileLines} | ${L.appendixFileBytes} | ${L.appendixFileShare} |`,
+    )
     sections.push('| --- | --- | --- | --- |')
     for (const file of largest) {
       sections.push(
@@ -485,9 +487,7 @@ function appendix(input: ReportInput): string {
       )
     }
     sections.push('')
-    sections.push(
-      '行数是文件的物理行数，包含空行和注释——它衡量的是「要翻多久」，不是「逻辑有多重」。',
-    )
+    sections.push(L.appendixFilesNote)
     sections.push('')
   }
 
@@ -501,17 +501,19 @@ const APPENDIX_CANDIDATES = 20
 const APPENDIX_FILES = 10
 
 export function renderMarkdown(input: ReportInput): string {
+  const lang: Lang = input.lang ?? 'zh'
+  const L = labelsFor(lang)
   const doc = buildReport(input)
-  const sections: string[] = [`# ${proseOr(doc.repo, '未知仓库')}`, brief(doc)]
+  const sections: string[] = [`# ${proseOr(doc.repo, L.unknown)}`, brief(doc, L)]
 
   if (doc.points.length === 0) {
-    sections.push(emptyState(doc))
+    sections.push(emptyState(doc, L))
   } else {
-    doc.points.forEach((point, index) => sections.push(pointSection(point, index + 1)))
+    doc.points.forEach((point, index) => sections.push(pointSection(point, index + 1, L)))
   }
 
-  const extra = appendix(input)
+  const extra = appendix(input, L)
   if (extra !== '') sections.push(extra)
-  sections.push(tail(doc))
+  sections.push(tail(doc, L))
   return `${sections.join('\n\n')}\n`
 }

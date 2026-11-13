@@ -330,10 +330,17 @@ async function persist(
  * first, a run that dies in the middle leaves the scan's `complete` behind and a
  * directory with no report reads as done.
  */
-async function stampStatus(run: Run, status: RunManifest['status']): Promise<void> {
+async function stampStatus(
+  run: Run,
+  status: RunManifest['status'],
+  lang?: RunManifest['lang'],
+): Promise<void> {
   const manifest = await run.read<RunManifest>('manifest')
   if (manifest === null) return
   const next: RunManifest = { ...manifest, status }
+  // Stamped with the same call that finishes the run, so a directory can always
+  // say which language its page was written in.
+  if (lang !== undefined) next.lang = lang
   if (status === 'complete') next.completedAt = new Date().toISOString()
   else delete next.completedAt
   await run.write('manifest', next)
@@ -557,7 +564,7 @@ export async function runAnalyze(
     )
 
     // Everything the run owes the reader is on disk, including the page itself.
-    await stampStatus(run, 'complete')
+    await stampStatus(run, 'complete', lang)
 
     return { runId: scanned.runId, reportPath }
   } catch (error) {

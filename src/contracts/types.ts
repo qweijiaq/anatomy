@@ -230,6 +230,11 @@ export type ValidationResult = {
 
 export type RunManifest = {
   runId: string
+  /**
+   * The language the run was asked for. Optional because a run recorded before the
+   * field existed has no answer, and re-rendering it as Chinese is what it did.
+   */
+  lang?: 'zh' | 'en'
   source: string
   ref: string
   sha: string
@@ -270,6 +275,14 @@ export type ReportInput = {
    */
   candidates?: Candidate[]
   structure?: StructureIndex
+  /**
+   * Which language the fixed parts of the page are written in.
+   *
+   * The prose is already in this language because the prompt asked for it; this
+   * covers the headings, the field labels and the units around it. Absent means
+   * `zh`, so a run stored before this existed renders exactly as it did.
+   */
+  lang?: 'zh' | 'en'
 }
 
 // --- defaults (spec §5, §7.2, R9) ----------------------------------------
