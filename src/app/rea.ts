@@ -1,0 +1,381 @@
+/**
+ * REA, as a source of facts about an application that has no readable source.
+ *
+ * anatomy needs source: it indexes modules, reads functions and quotes lines. An
+ * Electron app that ships as a minified bundle or an ASAR has none of that, and
+ * that is exactly the case [REA](https://github.com/morluto/rea) covers — it
+ * reconstructs modules, IPC channels, contextBridge surfaces and storage relations
+ * from shipped artifacts, with an evidence id on every claim.
+ *
+ * The two systems agree on the part that matters: neither will state a fact it
+ * cannot point at. So REA is wired in as a *source* of candidates, not a second
+ * opinion — its `limitations` land in the same「没看的部分」that anatomy's own
+ * gaps do.
+ *
+ * ## The one hard constraint
+ *
+ * A single analysis of a 2.4 MB bundle produced **144 MB of JSON**, of which
+ * 141.8 MB was `normalized_result.semantic_graph`. Loading that into the main
+ * process to read a handful of counters would be absurd, and loading it into a
+ * renderer would be worse. So:
+ *
+ * - the full evidence file is written to disk and never read back whole;
+ * - the counters come from `inspect-analysis-view`, which projects one view and
+ *   is cheap regardless of how large the fact store behind it is;
+ * - the module graph is read from the file directly only under a size cap, and
+ *   omitted (with a stated reason) above it.
+ */
+
+import { execFile } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import path from 'node:path'
+import { promisify } from 'node:util'
+
+const run = promisify(execFile)
+
+/**
+ * Above this, the graph is left in the evidence file.
+ *
+ * The graph is 1.9 MB against 144 MB of semantic store, so most files pass. The cap
+ * exists because the cap is what keeps "parse it" from becoming the default and
+ * the memory profile a function of the target's size rather than of ours.
+ */
+const MAX_PARSE_BYTES = 24 * 1024 * 1024
+
+/** REA only ships as an ESM script; it needs a Node the package's engines field allows. */
+const MIN_NODE = { major: 22, minor: 23 } as const
+
+export type ReaLocation = { entry: string; node: string }
+
+/** What the Electron layer of an application looks like, in REA's own counters. */
+export type AppSurface = {
+  browserWindows: number
+  preloadEntrypoints: number
+  contextBridgeApis: number
+  exposedApiMembers: number
+  ipcOperations: number
+  ipcLiteralChannels: number
+  ipcMainHandlers: number
+  rendererTransmissions: number
+  rendererListeners: number
+  /** Registered transmissions REA could not pair with a handler. */
+  ambiguousTransmissions: number
+  senderValidationObservations: number
+  nativeAddonBindings: number
+  protocolRegistrations: number
+  /** `partial` when REA could not read every artifact it found. */
+  semantics: string
+}
+
+export type AppModule = { id: string; kind: string; label: string; artifact: string }
+
+export type AppRelation = { from: string; to: string; relation: string }
+
+/** One survey of one application: everything a reader can be shown, and nothing else. */
+export type AppSurvey = {
+  evidenceId: string
+  confidence: string
+  authority: string
+  /** The directory that was analysed. */
+  target: string
+  /** REA's own name for it, taken from the artifact. */
+  name: string
+  format: string
+  digest: string
+  surface: AppSurface
+  statistics: {
+    relevantFiles: number
+    parsedJavaScriptFiles: number
+    visitedAstNodes: number
+    findings: number
+    textBytesRead: number
+    parseFailures: number
+  }
+  /** REA's statements about what it could not see. Reader-facing by design. */
+  limitations: string[]
+  modules: AppModule[]
+  relations: AppRelation[]
+  /** Why the graph is missing, when it is. Empty when it is present. */
+  graphOmitted: string
+  /** Where the untouched evidence file lives, for anyone who wants the fact store. */
+  evidenceFile: string
+}
+
+/** Raised when REA is not installed, or is installed for a Node that cannot run it. */
+export class ReaUnavailableError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ReaUnavailableError'
+  }
+}
+
+function nodeVersionOk(node: string): Promise<boolean> {
+  return run(node, ['-e', 'process.stdout.write(process.versions.node)'], { timeout: 10_000 })
+    .then(({ stdout }) => {
+      const [major = 0, minor = 0] = stdout.trim().split('.').map(Number)
+      return (
+        (major === MIN_NODE.major && minor >= MIN_NODE.minor) ||
+        (major === 24 && minor >= 22) ||
+        major >= 26
+      )
+    })
+    .catch(() => false)
+}
+
+/** Every place an `npx rea-agents` install can have left an entry script. */
+async function npxCandidates(): Promise<string[]> {
+  const found: string[] = []
+  const roots = [
+    path.join(homedir(), '.local', 'npm-cache-rea', '_npx'),
+    path.join(homedir(), '.npm', '_npx'),
+  ]
+  for (const root of roots) {
+    let entries: string[]
+    try {
+      entries = await readdir(root)
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      const candidate = path.join(root, entry, 'node_modules', 'rea-agents', 'scripts', 'rea.mjs')
+      if (existsSync(candidate)) found.push(candidate)
+    }
+  }
+  return found
+}
+
+/**
+ * Find a REA that can actually run.
+ *
+ * Three sources, in order of how much the caller meant them: `ANA_REA` (an explicit
+ * path, for a checkout or a non-npx install), `rea` on `PATH`, then whatever `npx`
+ * left behind. The Node that will run it is the one that passes the engines check —
+ * a REA found under an older Node is not a REA that works, and reporting that is
+ * more useful than a parse error three steps later.
+ */
+export async function findRea(): Promise<ReaLocation> {
+  const explicit = process.env['ANA_REA']
+  const onPath = await run('which', ['rea'], { timeout: 5000 })
+    .then(({ stdout }) => stdout.trim())
+    .catch(() => '')
+
+  const entries = [explicit, onPath, ...(await npxCandidates())].filter(
+    (item): item is string => typeof item === 'string' && item !== '',
+  )
+  if (entries.length === 0) {
+    throw new ReaUnavailableError(
+      '没找到 rea。装一次就好：`npx rea-agents setup`，或者把 ANA_REA 指向它的 scripts/rea.mjs。',
+    )
+  }
+
+  const nodes = [process.execPath, path.join(homedir(), '.local', 'node-v24.22.3-darwin-arm64', 'bin', 'node')]
+  for (const node of nodes) {
+    if (!existsSync(node)) continue
+    if (!(await nodeVersionOk(node))) continue
+    return { entry: entries[0] as string, node }
+  }
+
+  throw new ReaUnavailableError(
+    '找到了 rea，但没有能跑它的 Node。它要求 ^22.23.4 || ^24.22.1 || >=26.12.1，' +
+      '而当前 Node 是 ' +
+      process.versions.node +
+      '。装一个新的 Node 后把 ANA_REA_NODE 指过去。',
+  )
+}
+
+/** Start REA once and keep the promise: locating it is not free and does not change. */
+let cached: Promise<ReaLocation> | null = null
+export function reaLocation(): Promise<ReaLocation> {
+  cached ??= findRea()
+  return cached
+}
+
+async function reaJson(location: ReaLocation, args: string[], timeoutMs: number): Promise<unknown> {
+  const { stdout } = await run(location.node, [location.entry, ...args], {
+    timeout: timeoutMs,
+    maxBuffer: 8 * 1024 * 1024,
+  })
+  return JSON.parse(stdout) as unknown
+}
+
+/**
+ * One view of an evidence file, without reading the file.
+ *
+ * REA projects a named view from the fact store it already wrote. `summary` is the
+ * cheap one and the only one this module needs: it holds the Electron counters and
+ * is independent of how large the store is.
+ */
+async function projectSummary(
+  location: ReaLocation,
+  evidencePath: string,
+  tempDir: string,
+): Promise<Record<string, unknown>> {
+  const requestPath = path.join(tempDir, 'view.json')
+  await writeFile(
+    requestPath,
+    JSON.stringify({ source: { kind: 'evidence-file', path: evidencePath }, view: { kind: 'summary' } }),
+  )
+  const projected = await reaJson(location, ['inspect-analysis-view', requestPath, '--format', 'json'], 120_000)
+  return projected as Record<string, unknown>
+}
+
+function numberAt(source: unknown, key: string): number {
+  const value = (source as Record<string, unknown> | null | undefined)?.[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+function surfaceFrom(summary: Record<string, unknown>): AppSurface {
+  const ipc = (summary['ipc'] ?? {}) as Record<string, unknown>
+  return {
+    browserWindows: numberAt(summary, 'browser_windows'),
+    preloadEntrypoints: numberAt(summary, 'preload_entrypoints'),
+    contextBridgeApis: numberAt(summary, 'context_bridge_apis'),
+    exposedApiMembers: numberAt(summary, 'exposed_api_members'),
+    ipcOperations: numberAt(ipc, 'operations'),
+    ipcLiteralChannels: numberAt(ipc, 'literal_channels'),
+    ipcMainHandlers: numberAt(ipc, 'main_handlers'),
+    rendererTransmissions: numberAt(ipc, 'renderer_transmissions'),
+    rendererListeners: numberAt(ipc, 'renderer_listeners'),
+    ambiguousTransmissions: numberAt(ipc, 'ambiguous_renderer_transmissions'),
+    senderValidationObservations: numberAt(summary, 'sender_validation_observations'),
+    nativeAddonBindings: numberAt(summary, 'native_addon_bindings'),
+    protocolRegistrations: numberAt(summary, 'protocol_registrations'),
+    semantics: typeof summary['electron_semantics'] === 'string' ? summary['electron_semantics'] : 'unknown',
+  }
+}
+
+/** String fields only: a node identity carries hashes and we do not want them in a label. */
+function labelOf(node: Record<string, unknown>): string {
+  const identity = (node['identity'] ?? {}) as Record<string, unknown>
+  for (const key of ['key', 'original_source', 'module_path', 'logical_path', 'path', 'name']) {
+    const value = identity[key]
+    if (typeof value === 'string' && value !== '') return value
+  }
+  const kind = typeof node['kind'] === 'string' ? node['kind'] : 'node'
+  const id = typeof node['node_id'] === 'string' ? node['node_id'] : ''
+  return `${kind}:${id.slice(-8)}`
+}
+
+function artifactOf(node: Record<string, unknown>): string {
+  const identity = (node['identity'] ?? {}) as Record<string, unknown>
+  const value = identity['artifact_sha256']
+  return typeof value === 'string' ? value.slice(0, 12) : ''
+}
+
+/**
+ * The graph, read straight out of the evidence file.
+ *
+ * A projection for it does not exist — `inspect-analysis-view` offers `summary` and
+ * `javascript-facts` — so this is the one place the file is parsed. The size cap is
+ * the reason that is acceptable.
+ */
+async function readGraph(evidencePath: string): Promise<
+  { modules: AppModule[]; relations: AppRelation[] } | { omitted: string }
+> {
+  const info = await stat(evidencePath)
+  if (info.size > MAX_PARSE_BYTES) {
+    return {
+      omitted: `证据文件 ${(info.size / 1048576).toFixed(0)} MB，超过 ${
+        MAX_PARSE_BYTES / 1048576
+      } MB 的解析上限，模块图没有载入。文件本身在磁盘上，可以用 inspect-analysis-view 分页查询。`,
+    }
+  }
+  const parsed = JSON.parse(await readFile(evidencePath, 'utf8')) as Record<string, unknown>
+  const normalized = (parsed['normalized_result'] ?? {}) as Record<string, unknown>
+  const graph = (normalized['graph'] ?? {}) as Record<string, unknown>
+  const nodes = Array.isArray(graph['nodes']) ? (graph['nodes'] as Record<string, unknown>[]) : []
+  const edges = Array.isArray(graph['edges']) ? (graph['edges'] as Record<string, unknown>[]) : []
+
+  const modules: AppModule[] = nodes.map((node) => ({
+    id: typeof node['node_id'] === 'string' ? node['node_id'] : '',
+    kind: typeof node['kind'] === 'string' ? node['kind'] : 'unknown',
+    label: labelOf(node),
+    artifact: artifactOf(node),
+  }))
+  const relations: AppRelation[] = edges
+    .map((edge) => ({
+      from: typeof edge['source_node_id'] === 'string' ? edge['source_node_id'] : '',
+      to: typeof edge['target_node_id'] === 'string' ? edge['target_node_id'] : '',
+      relation: typeof edge['relation'] === 'string' ? edge['relation'] : 'related',
+    }))
+    .filter((edge) => edge.from !== '' && edge.to !== '')
+  return { modules, relations }
+}
+
+export type SurveyOptions = {
+  /** Where the untouched evidence file goes. */
+  outputDir: string
+  /** REA analyses a large app for minutes; this is the ceiling before we give up. */
+  timeoutMs?: number
+}
+
+/**
+ * Analyse one application directory with REA and reduce it to what a reader can use.
+ *
+ * The evidence file stays in `outputDir` untouched. Everything returned here is
+ * derived from cheap projections, except the graph, which is bounded.
+ */
+export async function surveyApplication(
+  target: string,
+  options: SurveyOptions,
+): Promise<AppSurvey> {
+  const location = await reaLocation()
+  await mkdir(options.outputDir, { recursive: true })
+  const evidencePath = path.join(options.outputDir, 'rea-evidence.json')
+
+  const evidence = (await reaJson(
+    location,
+    ['analyze-javascript-application', target, '--json'],
+    options.timeoutMs ?? 15 * 60_000,
+  )) as Record<string, unknown>
+
+  // Written before anything is read back: the file is the record, and a crash below
+  // must not lose an analysis that took minutes.
+  await writeFile(evidencePath, JSON.stringify(evidence))
+
+  const projected = await projectSummary(location, evidencePath, options.outputDir)
+  const normalized = (projected['normalized_result'] ?? {}) as Record<string, unknown>
+  const summary = (normalized['summary'] ?? {}) as Record<string, unknown>
+  const view = (normalized['view'] ?? {}) as Record<string, unknown>
+  const artifact = (view['artifact'] ?? normalized['artifact'] ?? {}) as Record<string, unknown>
+
+  const parent = (evidence['normalized_result'] ?? {}) as Record<string, unknown>
+  const statistics = (parent['statistics'] ?? {}) as Record<string, unknown>
+
+  const graph = await readGraph(evidencePath)
+  const subject = (evidence['subject'] ?? {}) as Record<string, unknown>
+  const digest = (subject['digest'] ?? {}) as Record<string, unknown>
+
+  return {
+    evidenceId: typeof evidence['evidence_id'] === 'string' ? evidence['evidence_id'] : '',
+    confidence: typeof evidence['confidence'] === 'string' ? evidence['confidence'] : 'unknown',
+    authority: typeof evidence['authority'] === 'string' ? evidence['authority'] : 'unknown',
+    target,
+    name:
+      typeof subject['name'] === 'string'
+        ? subject['name']
+        : path.basename(path.resolve(target)),
+    format: typeof subject['format'] === 'string' ? subject['format'] : 'directory',
+    digest: typeof digest['sha256'] === 'string' ? digest['sha256'].slice(0, 12) : '',
+    surface: surfaceFrom(summary),
+    statistics: {
+      relevantFiles: numberAt(statistics, 'relevant_files'),
+      parsedJavaScriptFiles: numberAt(statistics, 'parsed_javascript_files'),
+      visitedAstNodes: numberAt(statistics, 'visited_ast_nodes'),
+      findings: numberAt(statistics, 'findings'),
+      textBytesRead: numberAt(statistics, 'text_bytes_read'),
+      parseFailures: numberAt(statistics, 'parse_failures'),
+    },
+    // Not filtered or paraphrased. REA is explicit about what its numbers do *not*
+    // prove, and that is the half of the report anatomy exists to keep honest.
+    limitations: Array.isArray(parent['limitations'])
+      ? (parent['limitations'] as unknown[]).filter((item): item is string => typeof item === 'string')
+      : [],
+    modules: 'omitted' in graph ? [] : graph.modules,
+    relations: 'omitted' in graph ? [] : graph.relations,
+    graphOmitted: 'omitted' in graph ? graph.omitted : '',
+    evidenceFile: evidencePath,
+  }
+}

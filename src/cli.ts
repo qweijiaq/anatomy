@@ -24,6 +24,11 @@ import {
   ScanUsageError,
   type ScanIo,
 } from './commands/scan.js'
+import {
+  INSPECT_APP_USAGE,
+  parseInspectAppArgs,
+  runInspectApp,
+} from './commands/inspect-app.js'
 import { readVersion } from './version.js'
 
 export { readVersion }
@@ -157,6 +162,7 @@ Commands:
   analyze <repo>     Full analysis: report with evidence-backed learning points
   report <runId>     Re-render a previous run without re-running analysis
   inspect <evId>     Print the source behind one evidence id
+  inspect-app <dir>  Reconstruct a JS/Electron app from shipped artifacts, via REA
 
 Options:
   --version          Print the version
@@ -275,6 +281,25 @@ export async function runCli(
           io.err.write(`ana: ${error.message}\n`)
           return 1
         }
+        io.err.write(`ana: ${describeFailure(error)}\n`)
+        return 1
+      }
+    }
+    case 'inspect-app': {
+      let args
+      try {
+        args = parseInspectAppArgs(argv.slice(1))
+      } catch (error) {
+        io.err.write(`ana: ${(error as Error).message}\n\n${INSPECT_APP_USAGE}\n`)
+        return 2
+      }
+      try {
+        const original = process.stdout.write.bind(process.stdout)
+        // The command writes through its own stream so tests can capture it.
+        void original
+        await runInspectApp(args)
+        return process.exitCode === 1 ? 1 : 0
+      } catch (error) {
         io.err.write(`ana: ${describeFailure(error)}\n`)
         return 1
       }
