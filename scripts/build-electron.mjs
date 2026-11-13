@@ -23,7 +23,11 @@ const shared = {
   platform: 'node',
   target: 'node20',
   format: 'cjs',
-  sourcemap: true,
+  // Off by default. The main bundle is 9.7 MB and its source map is 14 MB — the
+  // largest file in the working tree by a wide margin, for a payload that a local
+  // launcher loads once. Set ANA_SOURCEMAP=1 when a stack trace actually needs to
+  // point at TypeScript.
+  sourcemap: process.env.ANA_SOURCEMAP === '1',
   // Electron is provided by the runtime; everything else is bundled so the app has
   // no dependency on node_modules at launch.
   external: ['electron'],
