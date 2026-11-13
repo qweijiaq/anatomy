@@ -27,6 +27,7 @@ import {
 import {
   INSPECT_APP_USAGE,
   parseInspectAppArgs,
+  runAppReport,
   runInspectApp,
 } from './commands/inspect-app.js'
 import { readVersion } from './version.js'
@@ -163,6 +164,7 @@ Commands:
   report <runId>     Re-render a previous run without re-running analysis
   inspect <evId>     Print the source behind one evidence id
   inspect-app <dir>  Reconstruct a JS/Electron app from shipped artifacts, via REA
+  app-report <name>  Re-render the facts report of a reconstructed application
 
 Options:
   --version          Print the version
@@ -284,6 +286,15 @@ export async function runCli(
         io.err.write(`ana: ${describeFailure(error)}\n`)
         return 1
       }
+    }
+    case 'app-report': {
+      const name = argv[1]
+      if (name === undefined) {
+        io.err.write('ana: app-report 需要一个 survey 目录名\n')
+        return 2
+      }
+      await runAppReport(name, io)
+      return process.exitCode === 1 ? 1 : 0
     }
     case 'inspect-app': {
       let args

@@ -11,10 +11,11 @@
  * `ana scan`: it tells you where to look before anything costs money.
  */
 
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 import { ReaUnavailableError, surveyApplication, type AppSurvey } from '../app/rea.js'
+import { renderAppReport } from '../render/app-report.js'
 
 export const INSPECT_APP_USAGE = `Usage: ana inspect-app <dir> [options]
 
@@ -146,6 +147,7 @@ function lines(survey: AppSurvey): string[] {
   out.push('')
   out.push(`证据  ${survey.evidenceId}`)
   out.push(`文件  ${survey.evidenceFile}`)
+  out.push(`报告  ${survey.reportPath}`)
   return out
 }
 
@@ -186,13 +188,42 @@ export async function runInspectApp(args: InspectAppArgs): Promise<void> {
     survey = {
       ...survey,
       evidenceFile: path.join(finalDir, 'rea-evidence.json'),
+      reportPath: path.join(finalDir, 'report.md'),
     }
   }
   await writeFile(path.join(finalDir, 'survey.json'), JSON.stringify(survey, null, 2))
+  // The report is rendered here, not on demand: it is a function of the survey and
+  // costs nothing, and having it on disk means `app-report` can print it without
+  // re-deriving anything.
+  await writeFile(path.join(finalDir, 'report.md'), renderAppReport(survey))
 
   if (args.json) {
     process.stdout.write(`${JSON.stringify(survey, null, 2)}\n`)
     return
   }
   process.stdout.write(`${lines(survey).join('\n')}\n`)
+}
+
+/**
+ * `ana app-report <name>` — re-render a survey's facts report.
+ *
+ * Reads the survey, not the rendered file, so a change to the renderer applies to
+ * applications analysed before it. The report is a function of the survey; the
+ * only thing on disk that matters is `survey.json` and the evidence beside it.
+ */
+export async function runAppReport(name: string, io: { out: { write(chunk: string): unknown } }): Promise<void> {
+  const dir = path.resolve(name)
+  const surveyPath = path.join(dir, 'survey.json')
+  let raw: string
+  try {
+    raw = await readFile(surveyPath, 'utf8')
+  } catch {
+    process.stderr.write(
+      `ana: 找不到 ${surveyPath}。先跑 ana inspect-app <dir>，它会把 survey.json 留在 .ana/apps/<name>-<digest>/ 下。\n`,
+    )
+    process.exitCode = 1
+    return
+  }
+  const survey = JSON.parse(raw) as AppSurvey
+  io.out.write(renderAppReport(survey))
 }

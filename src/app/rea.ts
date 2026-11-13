@@ -130,6 +130,14 @@ export type AppSurvey = {
    * grouping the window shows.
    */
   groups: { channels: GroupedNames; members: GroupedNames }
+  /**
+   * Every channel with whether REA found a receiver for it.
+   *
+   * Derived from the graph, not from the summary count: a `handles` edge pointing
+   * at an `ipc-channel` is a receiver, and its absence is the thing worth naming —
+   * "9 unpaired" is a number, the nine names are the finding.
+   */
+  pairs: Array<{ name: string; operation: string; handled: boolean }>
   /** Why the graph is missing, when it is. Empty when it is present. */
   graphOmitted: string
   /** True when the first pass hit REA's worker heap and a narrower pass was run. */
@@ -138,6 +146,8 @@ export type AppSurvey = {
   retryNote: string
   /** Where the untouched evidence file lives, for anyone who wants the fact store. */
   evidenceFile: string
+  /** The rendered facts report beside it. */
+  reportPath: string
 }
 
 /**
@@ -508,6 +518,18 @@ export async function surveyApplication(
 
   const graph = await readGraph(evidencePath)
   const modules = 'omitted' in graph ? [] : graph.modules
+  const relations = 'omitted' in graph ? [] : graph.relations
+  const handled = new Set(
+    relations.filter((edge) => edge.relation === 'handles').map((edge) => edge.to),
+  )
+  const pairs = modules
+    .filter((module) => module.kind === 'ipc-channel')
+    .map((module) => ({
+      name: module.label,
+      operation: module.operation,
+      handled: handled.has(module.id),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name))
   const groups = {
     channels: groupNames(modules.filter((m) => m.kind === 'ipc-channel').map((m) => m.label)),
     members: groupNames([
@@ -545,11 +567,14 @@ export async function surveyApplication(
       ? (parent['limitations'] as unknown[]).filter((item): item is string => typeof item === 'string')
       : [],
     groups,
+    pairs,
     modules,
     relations: 'omitted' in graph ? [] : graph.relations,
     graphOmitted: 'omitted' in graph ? graph.omitted : '',
     retried,
     retryNote,
     evidenceFile: evidencePath,
+    // Filled in by the command, which knows the directory the survey ends up in.
+    reportPath: path.join(path.dirname(evidencePath), 'report.md'),
   }
 }

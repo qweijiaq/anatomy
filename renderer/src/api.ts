@@ -102,6 +102,7 @@ export type AppSurvey = {
     channels: Record<'privileged' | 'write' | 'read' | 'event' | 'other', string[]>
     members: Record<'privileged' | 'write' | 'read' | 'event' | 'other', string[]>
   }
+  pairs: Array<{ name: string; operation: string; handled: boolean }>
   graphOmitted: string
   retried: boolean
   retryNote: string
