@@ -29,8 +29,27 @@ npm run dev:desktop       # 另一个终端：窗口连到上面那个地址
 
 ## 支持的 provider
 
-与 reading-notes 同一套预设：DeepSeek、智谱 GLM、Anthropic Claude、OpenAI、Moonshot、
-阿里云百炼、OpenRouter、OpenCode Zen、本地 Ollama / LM Studio，以及自定义 OpenAI 兼容网关。
+与 x-code-cli 的 provider 目录同构，16 个：
+
+| 名称 | 协议 | 端点 |
+|---|---|---|
+| DeepSeek | OpenAI | api.deepseek.com |
+| Anthropic Claude | **Messages** | api.anthropic.com |
+| OpenAI | OpenAI | api.openai.com |
+| Google Gemini | OpenAI | generativelanguage.googleapis.com/v1beta/openai |
+| xAI Grok | OpenAI | api.x.ai |
+| 智谱 GLM | OpenAI | 中国站 / 国际站 **两选一** |
+| Moonshot Kimi | OpenAI | 国内 / 海外 **两选一** |
+| 阿里云百炼 | OpenAI | 中国 / 新加坡 / 美国 **三选一** |
+| OpenRouter | OpenAI | openrouter.ai |
+| OpenCode Zen | OpenAI | opencode.ai/zen/v1 |
+| OpenCode Go | OpenAI | opencode.ai/zen/go/v1 |
+| OpenDesign / Go | OpenAI | amr-link.open-design.ai |
+| 本地 Ollama / LM Studio | OpenAI | localhost |
+| 自定义 | OpenAI | 任意兼容网关 |
+
+区域端点做成**可点的选项**而不是隐藏默认值：Key 与地域绑定，选错了会得到一个像
+"Key 无效"的错误，而实际上是省份选错了。
 
 两处实现细节值得知道：
 
