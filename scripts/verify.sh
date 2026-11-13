@@ -44,6 +44,9 @@ fi
 echo "== scan ($kind) =="
 head -3 "$work/scan.txt"
 grep -qE '^[^ ]+:[0-9]+' "$work/scan.txt" || fail "scan produced no path:line candidate"
+# `scan` writes a run directory too. It has no report, so the history list skips it —
+# but on disk it is still a directory, and this script used to leave it behind.
+scan_run=$(sed -n 's/^run \([^ ]*\).*/\1/p' "$work/scan.txt" | head -1)
 
 echo "== analyze ($kind) =="
 node dist/cli.js analyze "$target" --model stub --top 2 > "$work/report-path.txt" 2>"$work/analyze.err" \
@@ -94,6 +97,9 @@ node dist/cli.js forget "$run_id" > "$work/forget.txt" 2>&1 || fail "forget: $(c
 if node dist/cli.js forget "$run_id" > /dev/null 2>&1; then
   fail "forget reported success for a run that was already gone"
 fi
+
+[ -n "$scan_run" ] && node dist/cli.js forget "$scan_run" > /dev/null 2>&1
+[ -n "$scan_run" ] && [ -d ".ana/runs/$scan_run" ] && fail "the scan run was left behind"
 
 echo "SUMMARY: ${counts:-tests passed} | typecheck clean | build ok"
 echo "SUMMARY: scan+analyze+report+inspect+forget ok on $target"
