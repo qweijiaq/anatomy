@@ -25,6 +25,8 @@ type Block =
   | { kind: 'details'; summary: string; body: Block[] }
   /** `丢弃原因：path:line:kind —— why`, kept as three fields so it can be laid out. */
   | { kind: 'reason'; label: string; where: string; why: string }
+  /** A pipe table. First row is the header; the `| --- |` row is dropped. */
+  | { kind: 'table'; head: string[]; rows: string[][] }
 
 const CITE = /^`([^`]+:\d+-\d+)`$/
 const FENCE = /^```/
@@ -47,6 +49,15 @@ const SUMMARY = /^<summary>(.*)<\/summary>$/
  * the location, everything after is the explanation.
  */
 const REASON = /^[-*]\s+(丢弃原因|降级原因|跳过|备注)：(.+?)\s+——\s+(.*)$/
+/**
+ * A pipe table row.
+ *
+ * The app-diff report prints counters as a table, and without this the reader sees
+ * eleven lines of `| 窗口 | 0 | 0 | — |`. Detection is deliberately strict — a line
+ * must start and end with a pipe — because plenty of prose contains one.
+ */
+const TABLE_ROW = /^\|(.+)\|$/
+const TABLE_RULE = /^\|[-: |]+\|$/
 
 /** A line-oriented pass. Anything it does not recognise stays a paragraph. */
 export function parseMarkdown(markdown: string): Block[] {
@@ -57,9 +68,15 @@ export function parseMarkdown(markdown: string): Block[] {
   // Open `<details>` blocks, innermost last. The recipe is one level deep today;
   // a stack costs nothing and keeps nested blocks from merging into the outer one.
   const open: Array<{ summary: string; body: Block[] }> = []
+  const target = (): Block[] =>
+    open.length > 0 ? (open[open.length - 1] as { body: Block[] }).body : blocks
   const push = (block: Block): void => {
-    const target = open.length > 0 ? (open[open.length - 1] as { body: Block[] }).body : blocks
-    target.push(block)
+    target().push(block)
+  }
+  /** The block a continuation belongs to, or nothing. */
+  const current = (): Block | undefined => {
+    const list = target()
+    return list[list.length - 1]
   }
 
   for (const raw of lines) {
@@ -81,6 +98,20 @@ export function parseMarkdown(markdown: string): Block[] {
     }
 
     if (line.trim() === '') continue
+
+    const tableRow = TABLE_ROW.exec(line.trim())
+    if (tableRow !== null) {
+      const cells = (tableRow[1] as string).split('|').map((cell) => cell.trim())
+      const last = current()
+      if (last !== undefined && last.kind === 'table') {
+        if (!TABLE_RULE.test(line.trim())) last.rows.push(cells)
+        continue
+      }
+      if (!TABLE_RULE.test(line.trim())) {
+        push({ kind: 'table', head: cells, rows: [] })
+        continue
+      }
+    }
 
     if (DETAILS_OPEN.test(line.trim())) {
       open.push({ summary: '展开', body: [] })
@@ -246,6 +277,29 @@ function renderBlocks(blocks: Block[]): React.ReactNode {
                 <span className="report__reason-label">{block.label}</span>
                 <code className="report__reason-where">{block.where}</code>
                 <span className="report__reason-why">{inline(block.why)}</span>
+              </div>
+            )
+          case 'table':
+            return (
+              <div className="report__table-wrap" key={index}>
+                <table className="report__table">
+                  <thead>
+                    <tr>
+                      {block.head.map((cell, cellIndex) => (
+                        <th key={cellIndex}>{cell}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {block.rows.map((row, rowIndex) => (
+                      <tr key={rowIndex}>
+                        {row.map((cell, cellIndex) => (
+                          <td key={cellIndex}>{inline(cell)}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )
           case 'details':

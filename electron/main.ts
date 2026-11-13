@@ -21,6 +21,9 @@ import { activeModelConfig, getSettingsView, readKey, rememberRepo, saveSettings
 import { createModelClient, MissingCredentialsError } from '../src/writing/client.js'
 import { runAnalyze } from '../src/commands/analyze.js'
 import { NoSuchRunError, runReport } from '../src/commands/report.js'
+import { diffSurveys, isEmptyDiff } from '../src/app/diff.js'
+import { renderAppDiff } from '../src/render/app-diff.js'
+import type { AppSurvey } from '../src/app/rea.js'
 import { DEFAULT_RUNS_DIR } from '../src/kernel/pipeline.js'
 import { readRunArtifact } from '../src/store/runs.js'
 import type { Protocol } from './providers.js'
@@ -320,12 +323,47 @@ ipcMain.handle('surveys:list', async () => {
     const file = path.join(baseDir, entry, 'survey.json')
     try {
       const parsed: unknown = JSON.parse(await readFile(file, 'utf8'))
-      if (typeof parsed === 'object' && parsed !== null) surveys.push(parsed)
+      if (typeof parsed === 'object' && parsed !== null) {
+        // The directory name is how a specific survey is asked for later.
+        surveys.push({ ...(parsed as Record<string, unknown>), dirName: entry })
+      }
     } catch {
       // A half-written survey is not a survey; skip it rather than fail the list.
     }
   }
   return { ok: true, surveys }
+})
+
+/**
+ * `surveys:diff` — the boundary of one build against another.
+ *
+ * Both surveys are read from disk and diffed in the main process, then rendered to
+ * the same markdown the CLI prints. One renderer, two front ends: a table that
+ * looks different in the window than in `app-diff` would be two answers to one
+ * question.
+ */
+ipcMain.handle('surveys:diff', async (_event, before: unknown, after: unknown) => {
+  if (typeof before !== 'string' || typeof after !== 'string') {
+    return { ok: false, message: '需要两个 survey 目录名。' }
+  }
+  const baseDir = path.resolve(process.cwd(), '.ana', 'apps')
+  const load = async (name: string): Promise<AppSurvey | null> => {
+    try {
+      const raw = await readFile(path.join(baseDir, path.basename(name), 'survey.json'), 'utf8')
+      return JSON.parse(raw) as AppSurvey
+    } catch {
+      return null
+    }
+  }
+  const [a, b] = await Promise.all([load(before), load(after)])
+  if (a === null || b === null) {
+    return { ok: false, message: '有一份 survey 读不出来，可能已经被重新分析覆盖。' }
+  }
+  const diff = diffSurveys(a, b)
+  if (isEmptyDiff(diff) && diff.comparable) {
+    return { ok: true, markdown: `# ${b.name}\n\n两次分析的暴露面没有差异。\n` }
+  }
+  return { ok: true, markdown: renderAppDiff(diff) }
 })
 
 // --- model discovery --------------------------------------------------------

@@ -168,6 +168,37 @@ export function App(): React.JSX.Element {
       })
   }, [])
 
+  /**
+   * 最新两份重建结果的差异。
+   *
+   * 顺序按目录名里的摘要排不可靠，所以按加载顺序取最新的两份——survey 列表
+   * 已经是 `readdir` 的顺序，不保证时间，因此显式按 evidenceId 去重后取前两个。
+   */
+  const openDiff = useCallback(async (): Promise<void> => {
+    const [a, b] = surveys
+    if (a === undefined || b === undefined) return
+    const before = a.dirName ?? ''
+    const after = b.dirName ?? ''
+    if (before === '' || after === '') {
+      setError('这两份 survey 缺少目录信息。')
+      return
+    }
+    setError('')
+    try {
+      const result = await api().surveys.diff(before, after)
+      if (result.ok && typeof result.markdown === 'string') {
+        setSurveyOpen(false)
+        setMarkdown(result.markdown)
+        setRunId('')
+        setProgress(null)
+      } else {
+        setError(result.message ?? '算不出差异。')
+      }
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure))
+    }
+  }, [surveys])
+
   /** 打开一份旧报告：走和刚跑完完全相同的渲染路径。 */
   const openReport = useCallback(async (id: string): Promise<void> => {
     setError('')
@@ -241,11 +272,24 @@ export function App(): React.JSX.Element {
           <span className="topbar__tag">拆解一个项目，找出值得学的地方</span>
         </div>
         <div className="topbar__right">
+          {surveys.length > 1 && (
+            <button
+              className="btn btn--ghost btn--sm"
+              type="button"
+              onClick={() => void openDiff()}
+              title="最新两份重建结果的差异"
+            >
+              对比
+            </button>
+          )}
           {surveys.length > 0 && (
             <button
               className={`btn btn--ghost btn--sm ${surveyOpen ? 'btn--on' : ''}`}
               type="button"
-              onClick={() => setSurveyOpen((current) => !current)}
+              onClick={() => {
+                setSurveyOpen((current) => !current)
+                setMarkdown('')
+              }}
               title="REA 重建过的应用"
             >
               应用 · {surveys.length}

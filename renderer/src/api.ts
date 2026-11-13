@@ -56,6 +56,8 @@ export type RunResult =
 
 /** One application reconstructed by REA — the shape `ana inspect-app` writes. */
 export type AppSurvey = {
+  /** 目录名，用来说明「哪一份」。 */
+  dirName?: string
   evidenceId: string
   confidence: string
   authority: string
@@ -145,6 +147,7 @@ type AnaBridge = {
   }
   surveys: {
     list(): Promise<{ ok: boolean; surveys?: AppSurvey[]; message?: string }>
+    diff(before: string, after: string): Promise<{ ok: boolean; markdown?: string; message?: string }>
   }
   app: {
     info(): Promise<{ version: string; hasKey: boolean }>

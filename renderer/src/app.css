@@ -1204,3 +1204,39 @@
   color: var(--warn);
   background: var(--warn-soft);
 }
+
+/* 差异报告里的计数表。窄屏横向滚动，不折行——行高不同会让「前/后」对不齐。 */
+.report__table-wrap {
+  margin: var(--space-4) 0;
+  overflow-x: auto;
+}
+
+.report__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.report__table th {
+  padding: 6px var(--space-3);
+  border-bottom: 1px solid var(--border-strong);
+  color: var(--text-faint);
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.report__table td {
+  padding: 6px var(--space-3);
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+/* 数字列右对齐，等宽：读差异时眼睛是竖着扫的。 */
+.report__table td:nth-child(n + 2),
+.report__table th:nth-child(n + 2) {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-align: right;
+  white-space: nowrap;
+}

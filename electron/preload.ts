@@ -45,6 +45,8 @@ const api = {
   surveys: {
     // 已经重建过的应用。生成走 CLI 的 inspect-app，界面只负责看。
     list: () => ipcRenderer.invoke('surveys:list'),
+    // 两份之间的差异，主进程算，和 CLI 用同一个渲染器。
+    diff: (before: string, after: string) => ipcRenderer.invoke('surveys:diff', before, after),
   },
   app: {
     info: () => ipcRenderer.invoke('app:info'),
