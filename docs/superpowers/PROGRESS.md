@@ -78,8 +78,6 @@ node dist/cli.js analyze https://github.com/<owner>/<repo> --top 8
 4. `judge` 丢弃自己展示过的切片范围，模型可引用没给过的行号 → 按已展示区间过滤
 5. synthesis 失败会丢弃已判完的整轮 → 先落盘判读结果再合成
 
-## 明确未做
-
 ## 这一版之后补上的东西
 
 验收表之外，后续提交还带来了：
