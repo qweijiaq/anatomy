@@ -77,6 +77,15 @@ export type SkippedCandidate = {
 export type JudgeResult = Judgement & {
   validation: ValidationResult
   skipped: SkippedCandidate[]
+  /**
+   * Candidates no usable reply came back for — prose where JSON was asked, an empty
+   * message, a shape that could not be read even after the repair attempt.
+   *
+   * Kept apart from `skipped` because a skip is an answer and this is a failure. A
+   * run where every reply was unusable produces zero points, exactly like a repository
+   * with nothing to learn, and the two must not report the same thing.
+   */
+  replyFailures: number
 }
 
 export type JudgeDeps = {
@@ -634,6 +643,7 @@ export async function judgeCandidates(deps: JudgeDeps): Promise<JudgeResult> {
   const usage: Usage = { in: 0, out: 0 }
   const points: LearningPoint[] = []
   const skipped: SkippedCandidate[] = []
+  let replyFailures = 0
 
   const limit =
     typeof deps.limit === 'number' && Number.isFinite(deps.limit)
@@ -765,6 +775,8 @@ export async function judgeCandidates(deps: JudgeDeps): Promise<JudgeResult> {
       continue
     }
 
+    // A skip is an answer; an empty `skipReason` with a reason attached is a failure.
+    if (skipReason === '' && lastReason !== '') replyFailures += 1
     skipped.push({
       candidateId: candidate.id,
       path: candidate.path,
@@ -776,5 +788,5 @@ export async function judgeCandidates(deps: JudgeDeps): Promise<JudgeResult> {
   // Always, so no caller can return unvalidated model output by forgetting.
   const validation = await validatePoints(points, ctx.root, deps.runId, deps.scope)
 
-  return { points: validation.kept, usage, validation, skipped }
+  return { points: validation.kept, usage, validation, skipped, replyFailures }
 }

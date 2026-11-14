@@ -190,7 +190,13 @@ export function providerRefusal(failures: ModelFailure[]): ModelFailure[] {
   )
 }
 
-export type AnalyzeResult = { runId: string; reportPath: string; modelFailures: ModelFailure[] }
+export type AnalyzeResult = {
+  runId: string
+  reportPath: string
+  modelFailures: ModelFailure[]
+  /** Candidates no usable reply came back for; zero points plus this is a failure. */
+  replyFailures: number
+}
 
 /**
  * Where an analysis currently is.
@@ -609,17 +615,20 @@ export async function runAnalyze(
     // if that changes.
     const topFive = synthesis.topFive.filter((title) => renderedTitles.has(title))
 
+    // The gap note is about points that were verified and then left out of the body.
+    // With no verified points it says "all 0 of 0 were written", which is vacuous and
+    // — because it is recorded as a skip reason — also broke the report's ability to
+    // name the real cause: a budget that cut every candidate read as "nothing worth
+    // learning was found".
+    const gapNote =
+      renderedPoints.length === 0 && synthesisFailure === ''
+        ? ''
+        : redactReason(
+            synthesisFailure === '' ? synthesisGap(synthesis, renderedPoints, lang) : synthesisFailure,
+          )
     const skipped: AnalyzeSkip[] = [
       ...judgedSkips,
-      {
-        path: '',
-        line: 0,
-        reason: redactReason(
-          synthesisFailure === ''
-            ? synthesisGap(synthesis, renderedPoints, lang)
-            : synthesisFailure,
-        ),
-      },
+      ...(gapNote === '' ? [] : [{ path: '', line: 0, reason: gapNote }]),
     ]
 
     const report: ReportInput = {
@@ -653,7 +662,7 @@ export async function runAnalyze(
     // Everything the run owes the reader is on disk, including the page itself.
     await stampStatus(run, 'complete', lang)
 
-    return { runId: scanned.runId, reportPath, modelFailures }
+    return { runId: scanned.runId, reportPath, modelFailures, replyFailures: judged.replyFailures }
   } catch (error) {
     failure = error
     throw error

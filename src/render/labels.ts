@@ -85,6 +85,8 @@ export type Labels = {
   // --- empty state ---
   emptyHeading: string
   emptyLede: string
+  /** 说完「没有点」之后，如果原因是预算把候选全裁了，要说清那是配置不是仓库的问题。 */
+  emptyLedeBudget: string
   noClues: string
   notePrefix: string
   skipPrefix: string
@@ -205,6 +207,10 @@ const ZH: Labels = {
 
   emptyHeading: '没找到值得学的点',
   emptyLede: '这次没有找到既能核对到具体代码、又值得学习的点。原因如下：',
+  // "no point survived" reads as a verdict on the repository. When the budget cut
+  // every candidate before a single judgement, the verdict is on the command line.
+  emptyLedeBudget:
+    '这次没有一个候选进入判读：token 预算把它们全部裁掉了。这不是仓库的问题，把 `--budget` 调大再跑一次。原因如下：',
   noClues: '这次分析没有留下可用的线索：既没有被跳过的部分，也没有可复述的备注。',
   notePrefix: '备注',
   skipPrefix: '跳过',
@@ -323,6 +329,8 @@ const EN: Labels = {
 
   emptyHeading: 'Nothing worth learning was found',
   emptyLede: 'No point survived both a check against the code and the bar for being worth reading. Here is why:',
+  emptyLedeBudget:
+    'No candidate reached the judge at all: the token budget cut every one. That is the command line, not the repository — raise `--budget` and run it again. Here is why:',
   noClues: 'This run left no usable trace: nothing was skipped and nothing was worth repeating.',
   notePrefix: 'note',
   skipPrefix: 'skipped',

@@ -268,7 +268,11 @@ function emptyState(doc: ReportDocument, L: Labels): string {
   }
   if (reasons.length === 0) reasons.push(L.noClues)
 
-  const lines: string[] = [`## ${L.emptyHeading}`, '', L.emptyLede, '']
+  // Every reason being a budget cut means nothing was ever judged. Saying "nothing
+  // worth learning was found" there blames the repository for a flag.
+  const allBudget =
+    reasons.length > 0 && reasons.every((reason) => /cut by token budget/i.test(reason))
+  const lines: string[] = [`## ${L.emptyHeading}`, '', allBudget ? L.emptyLedeBudget : L.emptyLede, '']
   for (const reason of reasons) lines.push(`- ${reason}`)
   return lines.join('\n')
 }

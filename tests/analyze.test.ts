@@ -760,3 +760,48 @@ describe('a rejected run is not a run that found nothing', () => {
     expect(result.modelFailures).toEqual([{ status: 401, count: 1 }])
   })
 })
+
+describe('a reply the model did not shape', () => {
+  /**
+   * A provider that answers prose where JSON was asked produced zero points and exit
+   * 0 — the same output as a repository that genuinely holds nothing to learn. The
+   * judge now counts those separately, so the two answers stay distinguishable.
+   */
+  const prose = {
+    complete: async () => ({ json: undefined, usage: { in: 10, out: 5 }, raw: 'Sure! Here is a point.' }),
+    calls: [],
+  }
+
+  it('records a failure when every reply was unusable', async () => {
+    const baseDir = temporaryDir('ana-analyze-prose-')
+    const repo = fixtureRepo()
+    // The client contract hands back parsed JSON; a provider that sends prose is
+    // surfaced by the client as a throw, which is what a real one does.
+    const refusing = {
+      complete: async () => {
+        throw new ModelRequestError('model reply content is not JSON: Sure! Here is a point.', {
+          retryable: false,
+          status: null,
+        })
+      },
+    }
+
+    const result = await runAnalyze(repo, { baseDir, client: refusing as never })
+    expect(result.replyFailures).toBeGreaterThan(0)
+    // No HTTP status was involved, so the provider-failure list stays empty: the two
+    // counters answer different questions.
+    expect(result.modelFailures).toEqual([])
+  })
+
+  it('does not count a decision to skip', async () => {
+    const baseDir = temporaryDir('ana-analyze-skip-')
+    const repo = fixtureRepo()
+    const skipping = {
+      complete: async () => ({ json: { skip: true }, usage: { in: 10, out: 5 } }),
+    }
+
+    const result = await runAnalyze(repo, { baseDir, client: skipping as never })
+    expect(result.replyFailures).toBe(0)
+    expect(result.modelFailures).toEqual([])
+  })
+})

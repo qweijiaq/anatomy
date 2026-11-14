@@ -176,3 +176,37 @@ describe('the language travels with the run', () => {
     expect(block?.[1]).toContain('lang')
   })
 })
+
+describe('the empty report says why it is empty', () => {
+  /**
+   * `--budget 1` cut every candidate before a single judgement, and the page said
+   * "no point survived both a check against the code and the bar for being worth
+   * reading" — a verdict on the repository for something the command line did.
+   */
+  const budgetDoc = () => {
+    // `reportOf()` is the English fixture; the Chinese assertion asks for Chinese.
+    const doc: ReportInput = { ...reportOf(), lang: 'zh' }
+    doc.points = []
+    doc.skipped = ['6 candidates cut by token budget (1 tokens)', 'src/a.ts:1 cut by token budget']
+    return doc
+  }
+
+  it('names the budget when it cut everything, in both languages', () => {
+    const zh = renderMarkdown(budgetDoc())
+    expect(zh).toContain('预算')
+    expect(zh).toContain('`--budget`')
+
+    const en = renderMarkdown({ ...budgetDoc(), lang: 'en' })
+    expect(en).toContain('token budget cut every one')
+    expect(HAN.test(en.split('\n').filter((line) => line.includes('budget')).join('\n'))).toBe(false)
+  })
+
+  it('keeps the ordinary wording when the reason is not the budget', () => {
+    const doc: ReportInput = { ...reportOf(), lang: 'zh' }
+    doc.points = []
+    doc.skipped = ['src/a.ts:1 model reply content is not JSON']
+    const zh = renderMarkdown(doc)
+    expect(zh).not.toContain('`--budget`')
+    expect(zh).toContain('这次没有找到')
+  })
+})

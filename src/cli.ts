@@ -287,6 +287,16 @@ export async function runCli(
         // It exited 0 until a wrong API key produced an empty report with a clean
         // status, which is the failure a script cannot see. Client errors (4xx) are
         // not retried, so a non-empty list means the provider refused the whole run.
+        // Zero points for a reason the model is responsible for is not the same answer
+        // as zero points because there was nothing to learn. A provider that answers
+        // prose where JSON was asked produced the former, and it used to exit 0 too.
+        if (result.replyFailures > 0 && result.modelFailures.length === 0) {
+          io.err.write(
+            `ana: ${result.replyFailures} candidate(s) got no usable reply from the model; the report was written but holds no points.\n`,
+          )
+          return 1
+        }
+
         const refused = providerRefusal(result.modelFailures)
         if (refused.length > 0) {
           const detail = refused.map((failure: { status: number | null; count: number }) => `HTTP ${String(failure.status)} ×${failure.count}`).join(', ')

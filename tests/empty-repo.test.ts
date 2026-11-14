@@ -41,8 +41,13 @@ describe('runAnalyze on a repository with nothing but a README', () => {
     const markdown = await readFile(result.reportPath, 'utf8')
     expect(markdown).toContain('没找到值得学的点')
 
+    // This repository has no candidates at all, so there is nothing to declare
+    // missing — and the old report said "all 0 of 0 verified points were written",
+    // which was a sentence about nothing. The empty section is the explanation now.
     const tail = markdown.slice(markdown.indexOf('## 没看的部分'))
-    expect(tail).toContain('跳过：')
-    expect(tail.split('\n').some((line) => line.startsWith('- 跳过：'))).toBe(true)
+    expect(tail).toContain('没有需要声明的遗漏')
+    expect(tail).not.toContain('全部 0')
+    const empty = markdown.slice(markdown.indexOf('## 没找到值得学的点'))
+    expect(empty.split('\n').some((line) => line.startsWith('- '))).toBe(true)
   })
 })
