@@ -19,7 +19,7 @@ VERIFY: PASS (github, run <runId>)
 
 | 步骤 | 断言 |
 |---|---|
-| `npm test` | 35 个测试文件、748 个测试全过 |
+| `npm test` | 35 个测试文件、749 个测试全过 |
 | `npm run typecheck` | 三套 tsconfig（`tsconfig.json` + `tsconfig.test.json` + `tsconfig.desktop.json`）均无诊断 |
 | `npm run build` | 编译成功，且 `python_index.py` 被复制进 `dist/` |
 | `ana scan <真实仓库>` | 取回 GitHub 归档，输出 `path:line` 形式的候选 |

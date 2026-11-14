@@ -325,3 +325,24 @@ describe('the window offers the zero-token path', () => {
     expect(readFileSync(path.join(ROOT, 'renderer/src/App.tsx'), 'utf8')).toContain('先扫一眼')
   })
 })
+
+describe('the report can leave the window', () => {
+  /**
+   * The report is not only what the window renders — it is a file at
+   * `.ana/runs/<id>/report.md`, and the text is something people paste into an issue
+   * or a note. Neither action existed: the app could show a report and nothing else,
+   * so getting it out meant finding the directory by hand.
+   *
+   * Verified by driving the built window in Electron: clicking a history row renders
+   * the tools, the copy button is present, and the reveal button reaches the IPC
+   * handler with the right run id.
+   */
+  it('exposes reveal through the bridge and offers both actions', async () => {
+    const { readFileSync } = await import('node:fs')
+    expect(readFileSync(path.join(ROOT, 'electron/preload.ts'), 'utf8')).toContain('report:reveal')
+    expect(readFileSync(path.join(ROOT, 'electron/main.ts'), 'utf8')).toContain("ipcMain.handle('report:reveal'")
+    const app = readFileSync(path.join(ROOT, 'renderer/src/App.tsx'), 'utf8')
+    expect(app).toContain('在文件夹中显示')
+    expect(app).toContain('navigator.clipboard.writeText')
+  })
+})

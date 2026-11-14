@@ -155,7 +155,9 @@ npm run eval:recall
 
 ## Release status
 
-`0.1.0` — the first version whose reports are worth reading. Not on npm: `ana` runs
+`0.1.0` — the first version whose reports are worth reading. The window shows a
+report, copies its markdown, reveals the file, lists history, compares two surveys,
+and scans a repository without spending tokens. Not on npm: `ana` runs
 from a checkout (`npm run build && node dist/cli.js …`). The MCP server is in this
 version; `publish` is not.
 

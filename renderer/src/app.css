@@ -1372,3 +1372,14 @@
   font-size: var(--text-xs);
   color: var(--text-faint);
 }
+
+/* 报告顶部的两个动作。刻意做得很轻：读报告才是这件事，复制和定位是附带操作。 */
+.paper__tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-content: flex-end;
+  padding-bottom: var(--space-3);
+  margin-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border);
+}

@@ -329,6 +329,27 @@ export function App(): React.JSX.Element {
     }
   }, [repo])
 
+  /**
+   * 复制报告原文。
+   *
+   * 用剪贴板 API 而不是走主进程：内容已经在渲染进程里，绕一圈没有意义，而且
+   * `navigator.clipboard` 在 Electron 的窗口里是可用的。
+   */
+  const copyReport = useCallback(async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(markdown)
+      setError('')
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure))
+    }
+  }, [markdown])
+
+  /** 在文件管理器里显示这份报告。磁盘上的它和窗口里的是同一个文件。 */
+  const revealReport = useCallback(async (): Promise<void> => {
+    const result = await api().report.reveal(runId)
+    if (!result.ok) setError(result.message ?? '找不到这份报告的文件。')
+  }, [runId])
+
   /** 打开一份旧报告：走和刚跑完完全相同的渲染路径。 */
   const openReport = useCallback(async (id: string): Promise<void> => {
     setError('')
@@ -640,6 +661,26 @@ export function App(): React.JSX.Element {
                   setMarkdown('')
                 }}
               />}
+              <div className="paper__tools">
+                <button
+                  className="btn btn--ghost btn--sm"
+                  type="button"
+                  onClick={() => void copyReport()}
+                  title="把这份报告复制成 Markdown"
+                >
+                  复制
+                </button>
+                {runId !== '' && (
+                  <button
+                    className="btn btn--ghost btn--sm"
+                    type="button"
+                    onClick={() => void revealReport()}
+                    title="在文件管理器里显示 report.md"
+                  >
+                    在文件夹中显示
+                  </button>
+                )}
+              </div>
               <ReportView markdown={markdown} />
             </div>
           </>

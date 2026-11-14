@@ -39,6 +39,8 @@ const api = {
     read: (runId: string) => ipcRenderer.invoke('report:read', runId),
     // 删除一份存下来的分析：id 而不是路径，主进程在同一处校验。
     forget: (kind: 'run' | 'app', id: string) => ipcRenderer.invoke('runs:forget', kind, id),
+    // 在文件管理器里显示这份报告：它是磁盘上的一个文件，不只是窗口里的一页。
+    reveal: (runId: string) => ipcRenderer.invoke('report:reveal', runId),
     // 历史报告：磁盘上每一个跑完的 run，最新的在前。
     list: () => ipcRenderer.invoke('runs:list'),
   },

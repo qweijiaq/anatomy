@@ -13,7 +13,7 @@
  */
 
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from 'electron'
-import { readdir, readFile } from 'node:fs/promises'
+import { readdir, readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -324,6 +324,27 @@ ipcMain.handle('runs:list', async () => {
   // Newest first: the thing a person just ran belongs at the top.
   runs.sort((a, b) => b.startedAt.localeCompare(a.startedAt))
   return { ok: true, runs }
+})
+
+/**
+ * Show the report file in the file manager.
+ *
+ * The report is not only what the window renders — it is a file at
+ * `.ana/runs/<id>/report.md`, and someone who reads it usually wants it next to the
+ * code it talks about. Opening the folder is the one action that makes that easy
+ * without inventing an editor integration, which would be platform- and
+ * editor-specific for no extra benefit.
+ */
+ipcMain.handle('report:reveal', async (_event, runId: unknown) => {
+  if (typeof runId !== 'string' || runId === '') return { ok: false, message: '缺少 run id。' }
+  const file = path.resolve(process.cwd(), '.ana', 'runs', path.basename(runId), 'report.md')
+  try {
+    await stat(file)
+  } catch {
+    return { ok: false, message: '这份报告没有落成文件，先跑一次分析。' }
+  }
+  shell.showItemInFolder(file)
+  return { ok: true, path: file }
 })
 
 ipcMain.handle('report:read', async (_event, runId: unknown) => {
