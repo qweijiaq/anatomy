@@ -103,11 +103,15 @@ progress_files=$(grep -oE '[0-9]+ 个测试文件' docs/superpowers/PROGRESS.md 
 # authority. Saying which commit it belongs to is the difference between a citation
 # and a claim.
 snapshot=$(grep -oE '\| 提交 \| `[0-9a-f]+`' docs/superpowers/verify-output.txt 2>/dev/null | grep -oE '[0-9a-f]{7,}')
-head_now=$(git rev-parse HEAD 2>/dev/null)
-if [ -n "$snapshot" ] && [ -n "$head_now" ] && [ "${head_now#"$snapshot"}" = "$head_now" ]; then
-  snapshot_note="snapshot ${snapshot:0:7} predates HEAD"
+if [ -z "$snapshot" ]; then
+  snapshot_note="no snapshot on file"
+elif git diff --quiet "$snapshot" HEAD -- . ':!docs/superpowers/verify-output.txt' 2>/dev/null; then
+  # The snapshot is written before it is committed, so it always trails HEAD by its
+  # own commit. What matters is whether anything else changed between the two —
+  # if not, the recorded numbers describe this tree.
+  snapshot_note="snapshot ${snapshot:0:7} describes HEAD's tree"
 else
-  snapshot_note="snapshot ${snapshot:0:7} is HEAD"
+  snapshot_note="snapshot ${snapshot:0:7} predates HEAD"
 fi
 
 if [ -n "$stale" ]; then
