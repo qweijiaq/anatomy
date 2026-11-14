@@ -14,10 +14,14 @@
 
 import { useMemo } from 'react'
 
-import { parseMarkdown, type Block } from '../../../src/render/parse-report.js'
+import { decodeEntities, parseMarkdown, type Block } from '../../../src/render/parse-report.js'
 
 function inline(text: string): React.ReactNode[] {
   const parts: React.ReactNode[] = []
+  // The writer escaped `<` and `>` so a model's prose could not open an HTML block;
+  // a markdown viewer would decode them, and this is not one. Without this a report
+  // renders `&lt;key&gt;.json` while the evidence it cites says `<key>.json`.
+  text = decodeEntities(text)
   const pattern = /(\*\*[^*]+\*\*|`[^`]+`)/g
   let last = 0
   let index = 0

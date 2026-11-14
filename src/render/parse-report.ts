@@ -12,6 +12,29 @@
  * React nodes.
  */
 
+/**
+ * The five entities `markdown.ts` writes, turned back into the characters they stand for.
+ *
+ * The writer escapes `<` and `>` so a model's prose cannot open an HTML block. A
+ * markdown renderer decodes them again, which is why the file looks right on GitHub —
+ * but this project's two readers are a terminal and a React component, and neither
+ * decodes anything. A report about a TTS cache printed `&lt;key&gt;.json` where the
+ * model had written `<key>.json`, and `ana inspect` of the cited line showed the real
+ * text, so the page disagreed with its own evidence.
+ *
+ * Decoding here rather than not escaping there, because the file is also read by
+ * markdown viewers that need the escape.
+ */
+export function decodeEntities(text: string): string {
+  return text
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    // `&amp;` last: decoding it first would turn `&amp;lt;` into `<`.
+    .replace(/&amp;/g, '&')
+}
+
 export type Block =
   | { kind: 'h1' | 'h2' | 'h3'; text: string }
   | { kind: 'p'; text: string }
