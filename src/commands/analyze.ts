@@ -155,7 +155,42 @@ export type AnalyzeOptions = {
   deps?: AcquireDeps
 }
 
-export type AnalyzeResult = { runId: string; reportPath: string }
+/**
+ * A provider failure that stopped a stage, kept apart from "there was nothing here".
+ *
+ * A run where every judge call was rejected by a 401 produced a report with no points
+ * and exited 0 — a script cannot tell that from a repository that genuinely holds
+ * nothing to learn. The caller needs the difference, so the status survives the run.
+ */
+export type ModelFailure = { status: number | null; count: number }
+
+/** An error body with its per-request noise removed, for comparing two failures. */
+export function normaliseExcerpt(excerpt: string): string {
+  return excerpt
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '<id>')
+    .replace(/\b[0-9a-f]{12,}\b/gi, '<id>')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * The provider refusals that mean the run produced nothing readable.
+ *
+ * A 4xx is never retried, so a non-empty list of them means every request the run
+ * needed was rejected — a bad key, a wrong model name, a rejected parameter. That is
+ * not the same answer as "this repository holds nothing to learn", and it used to be
+ * reported as success: a wrong key produced an empty report and exit code 0.
+ *
+ * 429 and 5xx are excluded on purpose: the client already retried those, and a run
+ * that hit its retry budget is a different failure with its own message.
+ */
+export function providerRefusal(failures: ModelFailure[]): ModelFailure[] {
+  return failures.filter(
+    (failure) => failure.status !== null && failure.status >= 400 && failure.status < 500 && failure.status !== 429,
+  )
+}
+
+export type AnalyzeResult = { runId: string; reportPath: string; modelFailures: ModelFailure[] }
 
 /**
  * Where an analysis currently is.
@@ -482,6 +517,7 @@ export async function runAnalyze(
 
     opts.onStage?.({ stage: 'judge', done: 0, total: fitted.kept.length })
     const seenProviderErrors = new Set<string>()
+    const modelFailures: ModelFailure[] = []
     const judged = await judgeCandidates({
       client,
       root: scanned.root,
@@ -494,8 +530,15 @@ export async function runAnalyze(
       // is a status code and nothing else — the terminal is the one place the
       // provider's own words can go, since the report cannot carry them.
       onProviderError: (detail) => {
-        if (seenProviderErrors.has(detail.excerpt)) return
-        seenProviderErrors.add(detail.excerpt)
+        // Two 401s differ only in their request id, so a raw excerpt compare printed
+        // the same sentence once per candidate. Ids and long hex runs are noise with
+        // respect to *why* the request failed.
+        const key = `${detail.status ?? 'none'}:${normaliseExcerpt(detail.excerpt)}`
+        if (seenProviderErrors.has(key)) return
+        seenProviderErrors.add(key)
+        const bucket = modelFailures.find((failure) => failure.status === detail.status)
+        if (bucket === undefined) modelFailures.push({ status: detail.status, count: 1 })
+        else bucket.count += 1
         opts.onProviderError?.(detail)
       },
       // The budget already decided how many candidates there are; the judge must
@@ -610,7 +653,7 @@ export async function runAnalyze(
     // Everything the run owes the reader is on disk, including the page itself.
     await stampStatus(run, 'complete', lang)
 
-    return { runId: scanned.runId, reportPath }
+    return { runId: scanned.runId, reportPath, modelFailures }
   } catch (error) {
     failure = error
     throw error

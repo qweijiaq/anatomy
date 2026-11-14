@@ -21,8 +21,8 @@ import path from 'node:path'
 
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 
-import { resolveModelName, runAnalyze, synthesisGap } from '../src/commands/analyze.js'
-import { DEFAULT_MODEL } from '../src/writing/client.js'
+import { normaliseExcerpt, providerRefusal, resolveModelName, runAnalyze, synthesisGap } from '../src/commands/analyze.js'
+import { DEFAULT_MODEL, ModelRequestError } from '../src/writing/client.js'
 import type { LearningPoint, RunManifest } from '../src/contracts/types.js'
 import type { AcquireDeps } from '../src/kernel/acquire.js'
 import type { Run } from '../src/store/runs.js'
@@ -715,5 +715,48 @@ describe('the note about points left out of the body', () => {
     const synthesis = { problem: '', topFive: ['a', 'b', 'c'] } as never
     expect(synthesisGap(synthesis, points, 'en')).toBe('All 3 verified points were written into the report.')
     expect(synthesisGap(synthesis, points, 'zh')).toBe('全部 3 个已核实的点都写进了报告。')
+  })
+})
+
+describe('a rejected run is not a run that found nothing', () => {
+  /**
+   * A wrong API key made every judge call fail with HTTP 401, wrote a report with no
+   * points, and exited 0. A script cannot tell that from a repository that genuinely
+   * holds nothing to learn — the difference only exists if the status survives the run.
+   */
+  it('keeps the client-error statuses and ignores what was retried', () => {
+    expect(providerRefusal([{ status: 401, count: 3 }])).toEqual([{ status: 401, count: 3 }])
+    expect(providerRefusal([{ status: 400, count: 1 }, { status: 403, count: 2 }])).toHaveLength(2)
+    // 429 and 5xx already went through the client's retry budget; they are a different
+    // failure with their own message.
+    expect(providerRefusal([{ status: 429, count: 1 }, { status: 503, count: 2 }])).toEqual([])
+    expect(providerRefusal([])).toEqual([])
+  })
+
+  it('recognises two 401s as one kind of failure', () => {
+    // Provider bodies carry a per-request id, so a raw compare printed the same
+    // sentence once per candidate.
+    const a = '{"error":{"message":"Authentication Fails","request_id":"aca75d39-6441-4b6d-9e0c-9e1e53a85e51"}}'
+    const b = '{"error":{"message":"Authentication Fails","request_id":"988d3b64-71e9-45fa-85ed-e62ab5fd9716"}}'
+    expect(normaliseExcerpt(a)).toBe(normaliseExcerpt(b))
+    expect(normaliseExcerpt(a)).toContain('Authentication Fails')
+  })
+
+  it('reports the failure through the run result', async () => {
+    const baseDir = temporaryDir('ana-analyze-refused-')
+    const repo = fixtureRepo()
+    const refused = {
+      complete: async () => {
+        const error = new ModelRequestError('model request failed: HTTP 401', {
+          retryable: false,
+          status: 401,
+          detail: '{"error":{"message":"Authentication Fails","request_id":"x-1"}}',
+        })
+        throw error
+      },
+    }
+
+    const result = await runAnalyze(repo, { baseDir, client: refused as never })
+    expect(result.modelFailures).toEqual([{ status: 401, count: 1 }])
   })
 })
