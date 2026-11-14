@@ -93,7 +93,7 @@ node dist/cli.js analyze https://github.com/<owner>/<repo> --top 8
 - **`npm run audit`**：一条命令给出仓库当前状况的八行结论
 - **`docs/superpowers/real-model-eval.md`**：真模型（deepseek-chat）在五个 gold 仓库上的实测——
   已取证点占比 100%，进正文 1–4 个点，引用 3–13 条。此前所有数字都来自 stub
-- **`docs/DONE.md`**：十二条可判真假的完成条件，各自附一条命令和一个文件，外加四条明确不做的事
+- **`docs/DONE.md`**：十三条可判真假的完成条件，各自附一条命令和一个文件，外加四条明确不做的事
 - **`ana runs [--json]`**：窗口一直能列存档，CLI 不能——`report` 和 `forget` 都要 id，
   而知道 id 的唯一办法是 `ls`。现在 CLI 能列出日期、来源、点数、有没有报告
 - **`ana forget --keep <n>`**：存档目录原本没有上限——这个工作副本攒到过 282 轮、
