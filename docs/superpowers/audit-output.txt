@@ -4,26 +4,30 @@
 
 | | |
 |---|---|
-| 生成于 | 2026-11-14 12:39 |
-| 提交 | `712d9b81b80f157d67024842ef24161b946ecf42` |
+| 生成于 | 2026-11-14 13:44 |
+| 提交 | `31472acba6585e1e54a1057a32521a2f3e26096c` |
 | 工作区 | dirty |
 | 退出码 | 1 |
 
-一行就能把这份记录钉在树上：`git show 712d9b81b80f157d67024842ef24161b946ecf42:package.json | grep version`。
-若当前 HEAD 与上面的提交不同，先看 `git diff 712d9b8 HEAD --stat`：只动了这份记录，
+一行就能把这份记录钉在树上：`git show 31472acba6585e1e54a1057a32521a2f3e26096c:package.json | grep version`。
+若当前 HEAD 与上面的提交不同，先看 `git diff 31472ac HEAD --stat`：只动了这份记录，
 结论就仍然成立；动了别的，以重跑为准。
 
 ```
 anatomy audit
 -----------------------------------------------
-gate           VERIFY: PASS (github, run d371d52592e2, deleted)
-tests          788 passed
-tree           FAIL — main at 712d9b8 but upstream is 2770309
+gate           FAIL — npm run verify exited non-zero
+               
+               == typecheck ==
+               tests/analyze.test.ts(25,25): error TS2300: Duplicate identifier 'ModelRequestError'.
+               tests/analyze.test.ts(31,3): error TS2300: Duplicate identifier 'ModelRequestError'.
+               VERIFY: FAIL — typecheck (exit 2)
+tree           FAIL — main at 31472ac but upstream is 0b83bf7
 artefacts      none tracked
-docs           README (en/zh), EVIDENCE and PROGRESS say 788 tests / 36 files; v0.1.0; snapshot 712d9b8 describes HEAD's tree
+docs           not checked — the gate produced no test count (see the gate line)
 markers        none in src, renderer, electron, scripts
 surface        10 CLI commands, 4 MCP tools
 docs-files     every document named, and every docs/ path they point at
 -----------------------------------------------
-AUDIT: NOT READY — 1 check(s) failed.
+AUDIT: NOT READY — 2 check(s) failed.
 ```
