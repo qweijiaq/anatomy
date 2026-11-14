@@ -37,6 +37,14 @@ export type ScanSummary = {
   runId: string
   candidates: Candidate[]
   profile: Profile
+  /**
+   * What the scan actually looked at.
+   *
+   * Not printed by the report (which shows totals and exclusions), but the callers
+   * that ask "did it even see my file?" need the inventory: the MCP tool can report
+   * coverage, and a test can assert a binary was excluded rather than parsed.
+   */
+  scope: Scope
 }
 
 export type ScanIo = { out: { write(chunk: string): unknown } }
@@ -166,5 +174,10 @@ export async function runScan(
 
   io.out.write(formatScanReport(result))
 
-  return { runId: result.runId, candidates: result.candidates, profile: result.profile }
+  return {
+    runId: result.runId,
+    candidates: result.candidates,
+    profile: result.profile,
+    scope: result.scope,
+  }
 }

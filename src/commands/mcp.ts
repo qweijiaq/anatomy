@@ -109,6 +109,11 @@ function tools(): Tool[] {
               {
                 runId: summary.runId,
                 files: summary.profile.languages,
+                // Coverage, so a caller can tell "no candidates" from "nothing was
+                // read" — the difference matters when the answer is used to decide
+                // whether to keep looking.
+                scannedFiles: summary.scope.totals.files,
+                excluded: summary.scope.excluded,
                 candidates: summary.candidates.map((candidate) => ({
                   path: candidate.path,
                   line: candidate.line,

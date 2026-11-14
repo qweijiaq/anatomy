@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -520,5 +520,74 @@ describe('scanRepo', () => {
 
     expect(result.root).toBe(path.join(out, result.runId, 'tree'))
     expect(await readFile(path.join(result.root, 'src', 'index.ts'), 'utf8')).toContain('Widget')
+  })
+})
+
+describe('scan — real repositories are messier than fixtures', () => {
+  /**
+   * Probed by hand first; every one of these was already handled. They are here so
+   * that stays true, because each is a plausible crash or hang on a real repository
+   * and none of them appears in the fixtures.
+   */
+  async function repoWith(files: Record<string, string | Buffer>): Promise<string> {
+    const root = await mkdtemp(path.join(tmpdir(), 'ana-messy-'))
+    for (const [name, body] of Object.entries(files)) {
+      const absolute = path.join(root, name)
+      await mkdir(path.dirname(absolute), { recursive: true })
+      await writeFile(absolute, body)
+    }
+    return root
+  }
+
+  it('counts lines correctly in a CRLF file', async () => {
+    const root = await repoWith({
+      'package.json': '{"name":"crlf","version":"1.0.0"}',
+      'src/thing.ts':
+        'export function a() {\r\n  // we chose this because it is simpler\r\n  return 1\r\n}\r\n\r\nexport function b() {\r\n  // instead of a class, because reasons\r\n  return 2\r\n}\r\n',
+    })
+    const summary = await runScan(root, { topK: 5 })
+    const lines = summary.candidates.map((candidate) => candidate.line).sort((a, b) => a - b)
+    // The comments sit on lines 2 and 7 of a CRLF file; an off-by-one from `\r`
+    // handling would report 2 and 8, or 1 and 6.
+    expect(lines).toContain(2)
+    expect(lines).toContain(7)
+  })
+
+  it('survives a package.json that is not JSON', async () => {
+    const root = await repoWith({
+      'package.json': '{invalid json,,',
+      'src/a.ts': 'export const x = 1\n',
+    })
+    await expect(runScan(root, { topK: 2 })).resolves.toBeDefined()
+  })
+
+  it('skips a binary file instead of reading it as source', async () => {
+    const root = await repoWith({
+      'package.json': '{"name":"bin","version":"1.0.0"}',
+      'logo.png': Buffer.from([0xff, 0xfe, 0x00, 0x01, 0x00]),
+      'src/a.ts': 'export const x = 1\n',
+    })
+    const summary = await runScan(root, { topK: 2 })
+    expect(summary.scope.files.some((file) => file.path === 'logo.png')).toBe(false)
+  })
+
+  it('tolerates invalid UTF-8 in a source file', async () => {
+    const root = await repoWith({
+      'package.json': '{"name":"utf","version":"1.0.0"}',
+      'src/bad.ts': Buffer.from([0x63, 0x6f, 0x6e, 0x73, 0x74, 0x20, 0xff, 0xfe, 0x0a]),
+    })
+    await expect(runScan(root, { topK: 2 })).resolves.toBeDefined()
+  })
+
+  it('does not follow a symlink loop', async () => {
+    const root = await repoWith({
+      'package.json': '{"name":"loop","version":"1.0.0"}',
+      'src/a.ts': 'export const x = 1\n',
+    })
+    // `self -> .` and `src/up -> root` are a cycle a naive walk would never leave.
+    await symlink(root, path.join(root, 'self'))
+    const summary = await runScan(root, { topK: 3 })
+    // The point is that it returned at all, and that it counted the one real file.
+    expect(summary.scope.totals.files).toBeLessThan(10)
   })
 })
