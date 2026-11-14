@@ -353,3 +353,23 @@ describe('the report can leave the window', () => {
     expect(app).toContain('navigator.clipboard.writeText')
   })
 })
+
+describe('the window asks the same question the CLI asks', () => {
+  /**
+   * A provider that rejected every request produced `ok: true` from the window: the
+   * run finished, the report was empty, and the page said nothing was wrong. The CLI
+   * had already learned this and the window had not, because the check lived in
+   * `src/cli.ts` rather than in the thing both surfaces call.
+   *
+   * There is no Electron test harness in this repository, so the mapping itself is
+   * verified by driving the built app with a 401 stub (recorded in the commit that
+   * introduced it). What a test can pin is that the window still consults the shared
+   * judgement — removing the call is exactly how the defect happened.
+   */
+  it('main.ts turns a refused run into a failure rather than a report', async () => {
+    const { readFileSync } = await import('node:fs')
+    const source = readFileSync(path.join(ROOT, 'electron/main.ts'), 'utf8')
+    expect(source).toContain('describeRunFailure')
+    expect(source).toContain("if (failure !== '') return { ok: false, message: failure }")
+  })
+})

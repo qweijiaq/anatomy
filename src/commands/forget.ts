@@ -20,6 +20,7 @@ import path from 'node:path'
 
 import { DEFAULT_RUNS_DIR } from '../kernel/pipeline.js'
 import { isArtifactName } from '../store/runs.js'
+import { listRuns } from './runs.js'
 
 export const FORGET_USAGE = `Usage: ana forget <runId|app-name> [options]
        ana forget --keep <n> [--dir <path>]
@@ -112,22 +113,20 @@ export async function keepRecent(
     return { removed: [], kept: [] }
   }
 
-  const stamped: Array<{ id: string; at: number }> = []
-  for (const id of entries) {
-    let at = -1
-    try {
-      at = (await stat(path.join(dir, id, 'manifest.json'))).mtimeMs
-    } catch {
-      // No manifest: an interrupted run. It still sorts, at the oldest end.
-    }
-    stamped.push({ id, at })
-  }
-  stamped.sort((a, b) => b.at - a.at)
+  // The same ordering the list command uses, not a second one. `--keep 3` deletes
+  // everything except the three `ana runs` shows at the top; computing "newest" twice
+  // is how those two commands start disagreeing.
+  const stored = await listRuns({ baseDir: dir })
+  const keepIds = new Set(stored.slice(0, keep).map((run) => run.runId))
 
-  const kept = stamped.slice(0, keep).map((entry) => path.join(dir, entry.id))
+  const kept: string[] = []
   const removed: string[] = []
-  for (const entry of stamped.slice(keep)) {
-    const absolute = path.join(dir, entry.id)
+  for (const run of stored) {
+    const absolute = path.join(dir, run.runId)
+    if (keepIds.has(run.runId)) {
+      kept.push(absolute)
+      continue
+    }
     await rm(absolute, { recursive: true, force: true })
     removed.push(absolute)
   }

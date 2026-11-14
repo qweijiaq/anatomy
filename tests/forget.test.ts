@@ -17,6 +17,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { forget, keepRecent, parseForgetArgs } from '../src/commands/forget.js'
+import { listRuns } from '../src/commands/runs.js'
 
 async function runWithDirs(): Promise<{ base: string; id: string }> {
   const base = await mkdtemp(path.join(tmpdir(), 'ana-forget-'))
@@ -174,5 +175,40 @@ describe('parseForgetArgs with --keep', () => {
 
   it('refuses --keep together with --app', () => {
     expect(() => parseForgetArgs(['--keep', '2', '--app'])).toThrow(/只作用于 run/)
+  })
+})
+
+describe('newest means when the run started', () => {
+  /**
+   * Two answers to "which are the newest three" would be worse than one wrong answer:
+   * `ana runs` shows a list and `forget --keep 3` keeps a list, and they have to be
+   * the same list. Both now take the order from `listRuns`, which sorts by `startedAt`
+   * — the manifest's mtime moves when the file is rewritten, and "the run I touched
+   * last" is not "the run I ran last".
+   */
+  async function runWith(base: string, id: string, startedAt: string, mtime: Date): Promise<void> {
+    const dir = path.join(base, id)
+    await mkdir(dir, { recursive: true })
+    const file = path.join(dir, 'manifest.json')
+    await writeFile(
+      file,
+      JSON.stringify({ runId: id, source: '/x', ref: 'HEAD', sha: 'abc', subpath: '', engineVersion: '0', startedAt, status: 'complete' }),
+    )
+    await utimes(file, mtime, mtime)
+  }
+
+  it('orders by startedAt even when the newer run has the older file', async () => {
+    const base = await mkdtemp(path.join(tmpdir(), 'ana-order-'))
+    // The run that started later was written first: mtime order is the reverse.
+    await runWith(base, 'aaaaaaaaaaaa', '2026-11-01T00:00:00.000Z', new Date('2026-12-01T00:00:00Z'))
+    await runWith(base, 'bbbbbbbbbbbb', '2026-11-02T00:00:00.000Z', new Date('2026-11-10T00:00:00Z'))
+
+    const listed = await listRuns({ baseDir: base })
+    expect(listed.map((run) => run.runId)).toEqual(['bbbbbbbbbbbb', 'aaaaaaaaaaaa'])
+
+    // And the sweep keeps the same one the list calls newest.
+    const swept = await keepRecent(1, { baseDir: base })
+    expect(swept.kept).toEqual([path.join(base, 'bbbbbbbbbbbb')])
+    expect(await readdir(base)).toEqual(['bbbbbbbbbbbb'])
   })
 })

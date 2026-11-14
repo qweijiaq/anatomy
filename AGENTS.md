@@ -68,7 +68,7 @@ says about itself; the right column is where that claim can be falsified.
 
 | Claim | Falsified by |
 |---|---|
-| 801 tests pass in 36 files | `npm test`, or `docs/superpowers/verify-output.txt` for the recorded run |
+| 804 tests pass in 36 files | `npm test`, or `docs/superpowers/verify-output.txt` for the recorded run |
 | Typecheck is clean in three configs | `npm run typecheck` (src, tests+eval, renderer+electron) |
 | The CLI works end to end with no API key | `npm run verify` — `scripts/verify.sh`, twelve sections, local stub model |
 | Every citation points at the line it names | `tests/evidence.test.ts`; `ana inspect <path:start-end>` re-reads it |

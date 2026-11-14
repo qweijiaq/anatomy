@@ -3,7 +3,7 @@
 这个文件不解释产品，只做一件事：把"说完成了"和"能被核对"之间的缺口关掉。每条要求后面是
 **能跑出证据的测试名**或**已提交的文件**，两者都可以独立检查。
 
-运行全部测试：`npm test`（38 个文件 / 801 个测试）。最近的完整机器输出提交在
+运行全部测试：`npm test`（38 个文件 / 804 个测试）。最近的完整机器输出提交在
 `docs/superpowers/verify-output.txt`。
 
 那份快照属于它自己记录的那个提交，**不是当前 HEAD**；下面的数字以当前检出上真正跑出来的
@@ -19,7 +19,7 @@
 
 ## 要求 2 — `npm test` 全绿
 
-`docs/superpowers/verify-output.txt`：`Tests  801 passed`（该文件是带日期的运行快照，见其首行）。
+`docs/superpowers/verify-output.txt`：`Tests  804 passed`（该文件是带日期的运行快照，见其首行）。
 
 ## 要求 3 — `npm run typecheck` 全绿
 
@@ -86,7 +86,7 @@ exist. A handoff claim needs the other case: clone it, install it, run it.
 ```
 git clone --depth 1 https://github.com/qweijiaq/anatomy.git /tmp/anatomy-clone
 cd /tmp/anatomy-clone && npm ci && npm run verify
-→ Tests 801 passed | typecheck clean | build ok
+→ Tests 804 passed | typecheck clean | build ok
 → scan+analyze+report+inspect+forget ok on https://github.com/sindresorhus/quick-lru
 → VERIFY: PASS (github, run c33c78ec2c45, deleted)
 ```

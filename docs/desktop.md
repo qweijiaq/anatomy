@@ -105,6 +105,9 @@ scripts/build-electron.mjs  esbuild 打包 main 与 preload，并复制 Python s
 ## 还没做
 
 - 没有逐条证据的 `ana inspect` 交互
+- **分析开始后不能取消**。窗口只显示进度；要停下就关掉窗口。这不是疏忽：一次分析
+  是一串模型调用，中途取消要把它传进每一层（`AbortSignal`），而它现在的价值不如把
+  那件事做对。长任务用的是 CLI，那里的 Ctrl-C 本来就能用。
 - 没有打包成 .dmg 分发（`electron-builder` 未接入）。本地要一个能双击的 app 用
   `npm run build:desktop && npm run build:bundle`，产物在 `out/anatomy.app`（约 233MB，
   是 Electron 运行时的副本，已在 .gitignore 里）。`npm run clean` 可以清掉它。

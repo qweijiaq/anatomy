@@ -124,3 +124,30 @@ describe('createModelClient — protocol plumbing', () => {
     await expect(client.complete(request)).rejects.toBeInstanceOf(MissingCredentialsError)
   })
 })
+
+describe('a network failure says what happened', () => {
+  /**
+   * `fetch` rejects with a bare `TypeError: fetch failed` and keeps the useful part —
+   * `connect ECONNREFUSED 127.0.0.1:5299` — one level down in `cause`. The window's
+   * "test key" button answered "model request failed: fetch failed" for a wrong port,
+   * a dead provider and no network alike; the three want different fixes.
+   */
+  it('carries the cause up to the message', async () => {
+    const refusing: typeof fetch = async () => {
+      const error = new TypeError('fetch failed')
+      ;(error as { cause?: unknown }).cause = new Error('connect ECONNREFUSED 127.0.0.1:5299')
+      throw error
+    }
+    const client = createModelClient({
+      model: 'm',
+      apiKey: 'k',
+      baseUrl: 'http://127.0.0.1:5299',
+      maxRetries: 0,
+      fetchImpl: refusing,
+    })
+
+    await expect(client.complete({ system: 's', user: 'u', schema: {} })).rejects.toThrow(
+      /fetch failed \(connect ECONNREFUSED 127\.0\.0\.1:5299\)/,
+    )
+  })
+})

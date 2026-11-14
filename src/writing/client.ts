@@ -247,8 +247,21 @@ export function resolveApiKey(explicit: string | undefined): string {
   return typeof key === 'string' ? key.trim() : ''
 }
 
+/**
+ * A network failure, with the reason Node keeps one level down.
+ *
+ * `fetch` rejects with a bare `TypeError: fetch failed` and puts the useful part —
+ * `connect ECONNREFUSED 127.0.0.1:5276` — in `cause`. Without it the window's "test
+ * key" button answered "model request failed: fetch failed" for a wrong port, a dead
+ * provider and no network alike.
+ */
 function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  if (!(error instanceof Error)) return String(error)
+  const cause = (error as { cause?: unknown }).cause
+  const detail =
+    cause instanceof Error ? cause.message : typeof cause === 'string' ? cause : ''
+  const base = error.message
+  return detail === '' || base.includes(detail) ? base : `${base} (${detail})`
 }
 
 function shorten(text: string, max: number): string {

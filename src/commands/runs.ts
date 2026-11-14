@@ -100,7 +100,25 @@ export async function listRuns(options: ListRunsOptions = {}): Promise<StoredRun
     })
   }
 
-  runs.sort((a, b) => (b.at === a.at ? a.runId.localeCompare(b.runId) : b.at - a.at))
+  // Newest first, and "newest" means when the run *started*.
+  //
+  // The first version sorted by the manifest's mtime, which is when the run finished
+  // writing — close enough on a fresh analysis and wrong on one that was touched
+  // afterwards: `ana report` does not write, but a re-stamped manifest moves the file
+  // without moving the run, and then `ana runs` and `forget --keep n` disagree about
+  // which three are the newest. One ordering, in one place, used by both.
+  runs.sort((a, b) => {
+    const left = a.startedAt
+    const right = b.startedAt
+    if (left !== right) {
+      // An empty `startedAt` is an unreadable run: it sorts last, not first.
+      if (left === '') return 1
+      if (right === '') return -1
+      return right.localeCompare(left)
+    }
+    if (a.at !== b.at) return b.at - a.at
+    return a.runId.localeCompare(b.runId)
+  })
   return runs
 }
 
