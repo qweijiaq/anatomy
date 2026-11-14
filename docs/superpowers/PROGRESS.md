@@ -19,13 +19,18 @@ VERIFY: PASS (github, run <runId>)
 
 | 步骤 | 断言 |
 |---|---|
-| `npm test` | 35 个测试文件、759 个测试全过 |
-| `npm run typecheck` | 三套 tsconfig（`tsconfig.json` + `tsconfig.test.json` + `tsconfig.desktop.json`）均无诊断 |
-| `npm run build` | 编译成功，且 `python_index.py` 被复制进 `dist/` |
-| `ana scan <真实仓库>` | 取回 GitHub 归档，输出 `path:line` 形式的候选 |
-| `ana analyze` | 写出 `report.md` 等产物；报告含标题、`已取证点占比`、`没看的部分`、以及 `` `path:start-end` `` 证据行 |
-| 删除已分析树后 `ana report` | 仍能重渲染出报告 |
-| `ana inspect <ref>` | 打印 `path:start-end` 与原文片段；id 或报告里的引用都行 |
+| `tests` | 36 个测试文件、765 个测试全过 |
+| `typecheck` | 三套 tsconfig（`tsconfig.json` + `tsconfig.test.json` + `tsconfig.desktop.json`）均无诊断 |
+| `build` | 编译成功，且 `python_index.py` 被复制进 `dist/` |
+| `stub model` | 起一个本地 OpenAI 兼容假模型，回显切片里的真实源码行 |
+| `scan` | 取回 GitHub 归档（失败时退回 fixture 并在输出里标明），输出 `path:line` 候选 |
+| `analyze` | 写出 `report.md` 等产物；报告含标题、`已取证点占比`、`没看的部分`、`` `path:start-end` `` 证据行 |
+| `report` | 删掉已分析树之后仍能重渲染出报告 |
+| `inspect` | 打印 `path:start-end` 与原文片段；id 或报告里写的那种引用都行 |
+| `mcp` | 用 stdio JSON-RPC 起 server，依次问 `anatomy_scan` / `anatomy_report` / `anatomy_evidence` / `anatomy_forget` |
+| `packed package` | `npm pack` 出来装进空目录：3 个依赖，`ana scan` 能跑 |
+| `sample` | 抽样脚本对真实仓库给出可核对的候选点 |
+| `forget` | 拒绝路径、删掉刚生成的那一轮、删第二次报错而不是静默成功 |
 
 模型由仓库内的 `scripts/verify-stub.mjs` 提供（本地 OpenAI 兼容实现，回显切片中的真实源码行），因此**不需要任何 provider key**，结果确定可复现。脚本坚持让产品自己的校验器对着磁盘字节核对引用。网络不可用时自动退回 `tests/fixtures/scan-repo` 并在输出里标明 `(fixture)`，不会静默通过。
 
@@ -75,4 +80,19 @@ node dist/cli.js analyze https://github.com/<owner>/<repo> --top 8
 
 ## 明确未做
 
-`ana mcp` 在这一版实现：`anatomy_scan` / `anatomy_report` / `anatomy_evidence` 三个工具，stdio JSON-RPC，无依赖、不调模型。`ana publish` 仍未做，README 里写了裁定理由。
+## 这一版之后补上的东西
+
+验收表之外，后续提交还带来了：
+
+- **桌面窗口**（`electron/` + `renderer/`）：选目录、后台分析、报告（复制 / 在文件夹中显示）、
+  历史切换、两份 survey 对比、删除、模型与深度设置，以及不花 token 的预扫
+- **`ana inspect-app` / `app-report` / `app-diff`**：没有源码的应用经 REA 出事实报告与两份差异
+- **`ana forget`**：删一轮分析，CLI 和窗口都能删；MCP 上对应 `anatomy_forget`
+- **打包**：`package.json` 的 `files` 列表让 tarball 只含 `dist/` 与文档（有测试问
+  `npm pack --dry-run`，而不是相信那个字段）
+- **`npm run audit`**：一条命令给出仓库当前状况的八行结论
+
+## 明确未做
+
+`ana mcp` 实现四个工具：`anatomy_scan` / `anatomy_report` / `anatomy_evidence` /
+`anatomy_forget`，stdio JSON-RPC，无依赖、不调模型。`ana publish` 仍未做，README 里写了裁定理由。

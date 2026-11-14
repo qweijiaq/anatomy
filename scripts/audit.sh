@@ -62,12 +62,58 @@ else
 fi
 
 # 4. The numbers the documentation claims, against the numbers just measured.
+#
+# Every document that states a count is read. The first version of this line grepped
+# README.md and printed "README and EVIDENCE agree" — a claim about a file it never
+# opened, which is the pattern this repository keeps having to fix. EVIDENCE.md said
+# "32 个文件 / 749 个测试" the whole time and nothing noticed.
+#
+# A document that does not state a number is not a failure; one that states a wrong
+# number is, and the message names which.
+measure_files=$(ls tests/*.test.ts 2>/dev/null | wc -l | tr -d ' ')
 version=$(node -e 'process.stdout.write(require("./package.json").version)')
-claimed=$(grep -oE '[0-9]+ tests' README.md | head -1 | grep -oE '[0-9]+')
-if [ -n "$tests" ] && [ -n "$claimed" ] && [ "$tests" != "$claimed" ]; then
-  bad docs "README says $claimed tests, the suite ran $tests"
+cli_version=$(node dist/cli.js --version 2>/dev/null | tr -d '[:space:]')
+
+stale=""
+# `check_tests <file> <pattern>`: the count a document states must be the count run.
+check_tests() {
+  local file=$1 pattern=$2 got
+  [ -f "$file" ] || return 0
+  got=$(grep -oE "$pattern" "$file" | head -1 | grep -oE '^[0-9]+' | tr -d ' ')
+  [ -z "$got" ] && return 0
+  [ "$got" = "$tests" ] || stale="$stale $file says $got"
+}
+check_tests README.md '[0-9]+ tests'
+# `[^文]` keeps `73 个测试文件` — the count of test files inside the npm tarball —
+# out of a check about how many tests the suite runs. Two different numbers that read
+# the same until the character after them.
+check_tests README.zh-CN.md '[0-9]+ 个测试[^文]'
+check_tests docs/superpowers/EVIDENCE.md '[0-9]+ 个测试[^文]'
+check_tests docs/superpowers/PROGRESS.md '[0-9]+ 个测试[^文]'
+
+# The file count is stated in two places with a fixed wording, so it can be read.
+evidence_files=$(grep -oE '[0-9]+ 个文件 / [0-9]+ 个测试' docs/superpowers/EVIDENCE.md 2>/dev/null | head -1 | grep -oE '^[0-9]+')
+progress_files=$(grep -oE '[0-9]+ 个测试文件' docs/superpowers/PROGRESS.md 2>/dev/null | head -1 | grep -oE '^[0-9]+')
+[ -n "$evidence_files" ] && [ "$evidence_files" != "$measure_files" ] && stale="$stale EVIDENCE says $evidence_files files"
+[ -n "$progress_files" ] && [ "$progress_files" != "$measure_files" ] && stale="$stale PROGRESS says $progress_files files"
+
+[ "$cli_version" = "$version" ] || stale="$stale ana --version says $cli_version"
+
+# The tracked snapshot is a receipt for an older tree; the fresh run above is the
+# authority. Saying which commit it belongs to is the difference between a citation
+# and a claim.
+snapshot=$(grep -oE '\| 提交 \| `[0-9a-f]+`' docs/superpowers/verify-output.txt 2>/dev/null | grep -oE '[0-9a-f]{7,}')
+head_now=$(git rev-parse HEAD 2>/dev/null)
+if [ -n "$snapshot" ] && [ -n "$head_now" ] && [ "${head_now#"$snapshot"}" = "$head_now" ]; then
+  snapshot_note="snapshot ${snapshot:0:7} predates HEAD"
 else
-  line docs "README and EVIDENCE agree with $version and ${tests:-?} tests"
+  snapshot_note="snapshot ${snapshot:0:7} is HEAD"
+fi
+
+if [ -n "$stale" ]; then
+  bad docs "stale numbers:$stale (measured: $tests tests, $measure_files files)"
+else
+  line docs "README (en/zh), EVIDENCE and PROGRESS say $tests tests / $measure_files files; v$version; $snapshot_note"
 fi
 
 # 5. Markers that mean somebody stopped mid-thought.

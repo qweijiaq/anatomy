@@ -183,3 +183,113 @@ describe('runtime output stays out of the repository', () => {
     }
   })
 })
+
+describe('the source map matches the tree', () => {
+  /**
+   * Both READMEs print the shape of `src/` as one line per directory. The line for
+   * `src/commands/` was hand-written, so when `mcp.ts` was added the map kept listing
+   * eight of nine entries — and the command-list test above could not see it, because
+   * that one only reads fenced blocks whose lines begin with `ana `.
+   *
+   * The line names commands, and `app-report` / `app-diff` are dispatched from
+   * `src/cli.ts` while their renderers live in `src/render/`. So the rule is a
+   * containment in both directions rather than equality: every file in the directory
+   * appears, and nothing appears that is neither a file nor a command.
+   */
+  it('names every file in src/commands, and nothing unrelated', async () => {
+    const { readdirSync } = await import('node:fs')
+    const files = readdirSync(path.join(ROOT, 'src/commands'))
+      .filter((name) => name.endsWith('.ts'))
+      .map((name) => name.replace(/\.ts$/, ''))
+
+    const advertised = new Set<string>()
+    const usage = /const USAGE = `Usage: ana <command> \[options\]([\s\S]*?)`/.exec(read('src/cli.ts'))?.[1] ?? ''
+    for (const match of usage.matchAll(/^ {2}([a-z][a-z-]*)(?: |$)/gm)) advertised.add(match[1] as string)
+
+    for (const file of ['README.md', 'README.zh-CN.md']) {
+      const line = /^src\/commands\/\s+(.+)$/m.exec(read(file))?.[1] ?? ''
+      const listed = line
+        .split('/')
+        .map((part) => part.trim())
+        .filter((part) => part !== '')
+
+      for (const name of files) {
+        expect(listed, `${file} does not name src/commands/${name}.ts`).toContain(name)
+      }
+      for (const name of listed) {
+        expect(
+          files.includes(name) || advertised.has(name),
+          `${file} lists \`${name}\`, which is neither a file in src/commands nor a command`,
+        ).toBe(true)
+      }
+    }
+  })
+})
+
+describe('the acceptance table covers the gate it describes', () => {
+  /**
+   * `scripts/verify.sh` grew from seven sections to twelve. The table that documents
+   * it did not, and a handoff reader would have concluded the gate checks less than it
+   * does. A section added to the gate and not to the table now fails here.
+   */
+  it('names every section verify.sh runs', () => {
+    const sections = [...read('scripts/verify.sh').matchAll(/^echo "== (.+?) =="/gm)].map((match) =>
+      (match[1] as string).replace(/ \((?:\$kind|tree deleted)\)$/, ''),
+    )
+    expect(sections.length).toBeGreaterThanOrEqual(12)
+    const table = read('docs/superpowers/PROGRESS.md')
+    for (const section of sections) {
+      expect(table, `PROGRESS does not document the \`${section}\` section`).toContain(section)
+    }
+  })
+})
+
+describe('a test count quoted beside a file name is that file\u2019s count', () => {
+  /**
+   * EVIDENCE.md said `tests/render.test.ts`，40 个测试 while the file held 46, and no
+   * check covered a per-file number — only the suite total. A count written next to a
+   * file name is the most checkable kind there is, so it is checked.
+   */
+  it('matches every `tests/*.test.ts`, N 个测试 claim', () => {
+    const claims = [...read('docs/superpowers/EVIDENCE.md').matchAll(/`(tests\/[\w.-]+\.test\.ts)`，(\d+) 个测试/g)]
+    expect(claims.length).toBeGreaterThan(0)
+    for (const [, file, count] of claims) {
+      const actual = (read(file as string).match(/^\s+it\(/gm) ?? []).length
+      expect(actual, `${file} holds ${actual} tests, EVIDENCE says ${count}`).toBe(Number(count))
+    }
+  })
+})
+
+describe('the audit cannot quietly lose a line', () => {
+  /**
+   * `verify.sh` is guarded by a test that fails when a section is removed. The audit
+   * had no equivalent, so deleting one of its eight lines would have weakened the
+   * handoff verdict with nothing to notice.
+   *
+   * The docs check is guarded specifically: it once printed "README and EVIDENCE
+   * agree" while reading only README.md, which is the failure mode this repository
+   * keeps having to fix — a check that cannot fail is not a check.
+   */
+  const audit = (): string => read('scripts/audit.sh')
+
+  it('still prints all eight lines', () => {
+    for (const label of ['gate', 'tests', 'tree', 'artefacts', 'docs', 'markers', 'surface', 'docs-files']) {
+      expect(new RegExp(`^\\s*(?:line|bad) ${label} `, 'm').test(audit()), `the ${label} line is gone`).toBe(true)
+    }
+  })
+
+  it('reads every document whose numbers it claims to have checked', () => {
+    for (const doc of [
+      'README.md',
+      'README.zh-CN.md',
+      'docs/superpowers/EVIDENCE.md',
+      'docs/superpowers/PROGRESS.md',
+    ]) {
+      expect(audit(), `the audit claims to check ${doc} but never reads it`).toContain(doc)
+    }
+  })
+
+  it('states which commit the tracked snapshot belongs to', () => {
+    expect(audit()).toContain('verify-output.txt')
+  })
+})

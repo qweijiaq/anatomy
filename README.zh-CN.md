@@ -140,7 +140,7 @@ src/kernel/     无 LLM 的取证内核：取仓库、口径、结构图、信�
 src/writing/    唯一花 token 的一层：提示、judge、排序、综述
 src/render/     一层数据两种渲染：叙述 + 可折叠配方、以及 JSON
 src/app/        REA 适配：调用、进度、事实归类、两份对比
-src/commands/   scan / analyze / report / inspect / inspect-app / app-report / app-diff / forget
+src/commands/   scan / analyze / report / inspect / inspect-app / app-report / app-diff / forget / mcp
 eval/           gold 集与召回率脚本（npm run eval）
 ```
 
@@ -173,7 +173,7 @@ LICENSE——116 个文件，而不是裸 `npm pack` 会装进去的 336 个（7
 
 一句话说清，不留悬空：
 
-- 九条命令都可用；`npm run verify` 是唯一闸门（759 个测试、三套 tsconfig、CLI 端到端
+- 九条命令都可用；`npm run verify` 是唯一闸门（765 个测试、三套 tsconfig、CLI 端到端
   跑假模型）
 - **有源码**的仓库：产出带行号证据的设计笔记，每条主张都对着磁盘字节核对过，
   核对不过就不进正文
