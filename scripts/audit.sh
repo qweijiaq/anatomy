@@ -36,8 +36,13 @@ else
 fi
 
 # 2. The tree. A claim about a checkout is a claim about a commit.
-if [ -n "$(git status --porcelain)" ]; then
-  bad tree "uncommitted changes: $(git status --porcelain | wc -l | tr -d ' ') path(s)"
+# The two recorded receipts are outputs of the gate and the audit themselves; they are
+# rewritten by the command that is judging the tree, so counting them would mean the
+# verdict depended on whether it had been recorded. Their own headers say what commit
+# they belong to and that a fresh run wins.
+uncommitted=$(git status --porcelain | grep -vE 'docs/superpowers/(audit|verify)-output\.txt' || true)
+if [ -n "$uncommitted" ]; then
+  bad tree "uncommitted changes: $(printf '%s\n' "$uncommitted" | wc -l | tr -d ' ') path(s)"
 else
   branch=$(git rev-parse --abbrev-ref HEAD)
   head=$(git rev-parse --short HEAD)
