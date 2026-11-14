@@ -151,7 +151,7 @@ const ZH: Labels = {
   // window has no way to ask what those bytes were, so the reader who doubts a claim
   // has to find the file themselves. The command existed; the page never said so.
   howToCheck:
-    '每条引用写作 `path:起止行`。想核对就把这条引用原样交给 `ana inspect`（例如 `ana inspect lib/store.mjs:7-8`），取回的是这一轮真正读过的原文；证据存在分析结果里，删了源码树也一样。',
+    '每条引用写作 `path:起止行`。想核对就把这条引用原样交给 `ana inspect`（例如 `ana inspect path/to/file.ts:12-20`），取回的是这一轮真正读过的原文；证据存在分析结果里，删了源码树也一样。',
 
   source: '来源',
   root: '根目录',
@@ -270,7 +270,7 @@ const EN: Labels = {
   avgEvidence: 'Average evidence per point',
   scopeHeading: 'What was analysed',
   howToCheck:
-    'Every citation is written `path:start-end`. Hand one to `ana inspect` to read the same bytes back (for example `ana inspect lib/store.mjs:7-8`) — the evidence is stored with the run, so this works after the source tree is gone.',
+    'Every citation is written `path:start-end`. Hand one to `ana inspect` to read the same bytes back (for example `ana inspect path/to/file.ts:12-20`) — the evidence is stored with the run, so this works after the source tree is gone.',
   source: 'Source',
   root: 'Root',
   scaleLabel: 'Size',
