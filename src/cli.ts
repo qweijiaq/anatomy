@@ -25,6 +25,7 @@ import {
   type ScanIo,
 } from './commands/scan.js'
 import { FORGET_USAGE, forget, keepRecent, parseForgetArgs } from './commands/forget.js'
+import { RUNS_USAGE, formatRuns, listRuns, parseRunsArgs, runsJson } from './commands/runs.js'
 import { serveMcp } from './commands/mcp.js'
 import {
   APP_DIFF_USAGE,
@@ -180,6 +181,7 @@ Commands:
   inspect-app <dir>  Reconstruct a JS/Electron app from shipped artifacts, via REA
   app-report <name>  Re-render the facts report of a reconstructed application
   app-diff <a> <b>   Compare two surveys: what changed on the boundary
+  runs [--json]      List the stored analyses, newest first
   forget <id>        Delete one stored run; --keep <n> keeps the newest n
   mcp                Serve the deterministic half over MCP stdio (no model calls)
 
@@ -311,6 +313,26 @@ export async function runCli(
       // Stdout is the protocol channel. Anything that would print to it — usage,
       // progress, a stray console.log — corrupts the stream, so the server owns it.
       await serveMcp(process.stdin, process.stdout)
+      return 0
+    }
+    case 'runs': {
+      if (argv[1] === '--help' || argv[1] === '-h') {
+        io.out.write(`${RUNS_USAGE}\n`)
+        return 0
+      }
+      let parsed
+      try {
+        parsed = parseRunsArgs(argv.slice(1))
+      } catch (error) {
+        io.err.write(`ana: ${(error as Error).message}\n\n${RUNS_USAGE}\n`)
+        return 2
+      }
+      if (parsed.help) {
+        io.out.write(`${RUNS_USAGE}\n`)
+        return 0
+      }
+      const stored = await listRuns(parsed.baseDir === undefined ? {} : { baseDir: parsed.baseDir })
+      io.out.write(parsed.json ? runsJson(stored) : formatRuns(stored))
       return 0
     }
     case 'forget': {

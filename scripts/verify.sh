@@ -144,6 +144,12 @@ echo "== sample =="
 sed -n '1,12p' "$report"
 echo
 
+echo "== runs =="
+# The list has to agree with the store, and the only way to know is to compare it with
+# the run this script just produced.
+node dist/cli.js runs | grep -q -- "$run_id" || fail "ana runs does not list the run analyze just wrote"
+node dist/cli.js runs --json | grep -q "\"$run_id\"" || fail "ana runs --json omits the run"
+
 echo "== forget =="
 # The one command that deletes. It runs on the run this script just made, and the
 # refusals are checked first because a delete that accepts a path is the failure

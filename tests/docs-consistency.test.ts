@@ -319,3 +319,33 @@ describe('a document that names a path is naming something', () => {
     expect(missing, missing.join('; ')).toEqual([])
   })
 })
+
+describe('the suite does not write into the repository it is testing', () => {
+  /**
+   * `tests/scan.test.ts` called `runScan` without an `out`, so it persisted a run
+   * under the default `<cwd>/.ana/runs` — the repository's own store. Every `npm test`
+   * left one behind, and the gate runs the suite, so verification polluted the tree it
+   * was verifying. That is how the store reached 282 run directories while nothing in
+   * the product was doing anything wrong.
+   *
+   * The rule is static and therefore cheap: a test that persists a run names where it
+   * goes. `{ out }` shorthand counts; the point is that the call mentions a store.
+   */
+  it('every runScan call in tests names its store', async () => {
+    const { readdirSync } = await import('node:fs')
+    const offenders: string[] = []
+
+    for (const name of readdirSync(path.join(ROOT, 'tests')).filter((entry) => entry.endsWith('.test.ts'))) {
+      // This file quotes the pattern it looks for; it is not a call site.
+      if (name === 'docs-consistency.test.ts') continue
+      for (const line of read(`tests/${name}`).split('\n')) {
+        if (!line.includes('runScan(')) continue
+        if (line.includes('runScan(input')) continue
+        if (/\bout\b/.test(line.split('runScan(')[1] ?? '')) continue
+        offenders.push(`${name}: ${line.trim().slice(0, 80)}`)
+      }
+    }
+
+    expect(offenders, offenders.join('; ')).toEqual([])
+  })
+})

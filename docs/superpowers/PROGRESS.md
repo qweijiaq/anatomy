@@ -19,7 +19,7 @@ VERIFY: PASS (github, run <runId>)
 
 | 步骤 | 断言 |
 |---|---|
-| `tests` | 36 个测试文件、776 个测试全过 |
+| `tests` | 36 个测试文件、777 个测试全过 |
 | `typecheck` | 三套 tsconfig（`tsconfig.json` + `tsconfig.test.json` + `tsconfig.desktop.json`）均无诊断 |
 | `build` | 编译成功，且 `python_index.py` 被复制进 `dist/` |
 | `stub model` | 起一个本地 OpenAI 兼容假模型，回显切片里的真实源码行 |
@@ -30,6 +30,7 @@ VERIFY: PASS (github, run <runId>)
 | `mcp` | 用 stdio JSON-RPC 起 server，依次问 `anatomy_scan` / `anatomy_report` / `anatomy_evidence` / `anatomy_forget` |
 | `packed package` | `npm pack` 出来装进空目录：3 个依赖，`ana scan` 能跑 |
 | `sample` | 抽样脚本对真实仓库给出可核对的候选点 |
+| `runs` | 刚写下的那一轮必须出现在 `ana runs` 与 `runs --json` 里 |
 | `forget` | 拒绝路径、删掉刚生成的那一轮、删第二次报错而不是静默成功 |
 
 模型由仓库内的 `scripts/verify-stub.mjs` 提供（本地 OpenAI 兼容实现，回显切片中的真实源码行），因此**不需要任何 provider key**，结果确定可复现。脚本坚持让产品自己的校验器对着磁盘字节核对引用。网络不可用时自动退回 `tests/fixtures/scan-repo` 并在输出里标明 `(fixture)`，不会静默通过。
@@ -89,6 +90,8 @@ node dist/cli.js analyze https://github.com/<owner>/<repo> --top 8
 - **打包**：`package.json` 的 `files` 列表让 tarball 只含 `dist/` 与文档（有测试问
   `npm pack --dry-run`，而不是相信那个字段）
 - **`npm run audit`**：一条命令给出仓库当前状况的八行结论
+- **`ana runs [--json]`**：窗口一直能列存档，CLI 不能——`report` 和 `forget` 都要 id，
+  而知道 id 的唯一办法是 `ls`。现在 CLI 能列出日期、来源、点数、有没有报告
 - **`ana forget --keep <n>`**：存档目录原本没有上限——这个工作副本攒到过 282 轮、
   1454 个文件，而 `forget` 只能按 id 一轮一轮删。现在可以只留最新 n 轮
 

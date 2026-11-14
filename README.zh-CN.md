@@ -75,6 +75,7 @@ ana inspect <path:起止行>        # 打印某条证据的原文片段（报告
 ana inspect-app <dir>            # 从打包产物重建：模块、IPC、contextBridge、存储关系
 ana app-report <name>            # 单份事实报告
 ana app-diff <a> <b>             # 两份的差异：暴露面变了什么
+ana runs [--json]                # 列出存下来的分析：日期、来源、点数
 ana forget <id> [--app]          # 删掉一份存下来的分析
 ana forget --keep 3              # 只留最新的三轮，其余删掉
 ana mcp                          # 把确定性的一半以 MCP 挂在 stdio 上
@@ -141,7 +142,7 @@ src/kernel/     无 LLM 的取证内核：取仓库、口径、结构图、信�
 src/writing/    唯一花 token 的一层：提示、judge、排序、综述
 src/render/     一层数据两种渲染：叙述 + 可折叠配方、以及 JSON
 src/app/        REA 适配：调用、进度、事实归类、两份对比
-src/commands/   scan / analyze / report / inspect / inspect-app / app-report / app-diff / forget / mcp
+src/commands/   scan / analyze / report / inspect / inspect-app / app-report / app-diff / forget / mcp / runs
 eval/           gold 集与召回率脚本（npm run eval）
 ```
 
@@ -174,7 +175,7 @@ LICENSE——116 个文件，而不是裸 `npm pack` 会装进去的 336 个（7
 
 一句话说清，不留悬空：
 
-- 九条命令都可用；`npm run verify` 是唯一闸门（776 个测试、三套 tsconfig、CLI 端到端
+- 十条命令都可用；`npm run verify` 是唯一闸门（777 个测试、三套 tsconfig、CLI 端到端
   跑假模型）
 - **有源码**的仓库：产出带行号证据的设计笔记，每条主张都对着磁盘字节核对过，
   核对不过就不进正文

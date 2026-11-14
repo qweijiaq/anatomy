@@ -77,6 +77,7 @@ Four that do not, via [REA](https://github.com/morluto/rea) — no model called 
 ana inspect-app <dir>            # reconstruct from shipped artefacts: modules, IPC, contextBridge, storage
 ana app-report <name>            # the facts report for one application
 ana app-diff <a> <b>             # what changed on the boundary between two builds
+ana runs [--json]                # list stored analyses: date, source, points
 ana forget <id> [--app]          # delete one stored analysis
 ana forget --keep 3              # keep the three newest, delete the rest
 ana mcp                          # serve the deterministic half over MCP on stdio
@@ -146,7 +147,7 @@ src/kernel/     LLM-free forensic kernel: acquire, profile, structure map, signa
 src/writing/    the only layer that spends tokens: prompts, judge, ranking, synthesis
 src/render/     one dataset, two renderings: narrative + collapsible recipe, and JSON
 src/app/        REA adapter: the call, its progress, fact grouping, diffs
-src/commands/   scan / analyze / report / inspect / inspect-app / app-report / app-diff / forget / mcp
+src/commands/   scan / analyze / report / inspect / inspect-app / app-report / app-diff / forget / mcp / runs
 eval/           gold set and recall scripts (npm run eval)
 ```
 
@@ -185,7 +186,7 @@ packages, and `ana scan` works.
 
 One unambiguous statement, so nothing is left pending a decision:
 
-- nine commands, all usable; `npm run verify` is the single gate (776 tests, three
+- ten commands, all usable; `npm run verify` is the single gate (777 tests, three
   tsconfigs, and the CLI end to end against a local stub model)
 - a repository **with** source: design notes where every claim cites a line and is
   checked against the bytes on disk; anything unverifiable never reaches the page

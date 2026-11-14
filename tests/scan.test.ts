@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, mkdtempSync } from 'node:fs'
 import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -529,6 +529,14 @@ describe('scan — real repositories are messier than fixtures', () => {
    * that stays true, because each is a plausible crash or hang on a real repository
    * and none of them appears in the fixtures.
    */
+  /**
+   * `runScan` persists a run under `out`, and `out` defaults to `<cwd>/.ana/runs`.
+   * These tests left one scan run in the repository's own store every time — the
+   * suite wrote into the tree it was testing. A scratch store fixes that; the
+   * assertions here are about parsing and line numbers, not about where runs live.
+   */
+  const scratch = mkdtempSync(path.join(tmpdir(), 'ana-messy-runs-'))
+
   async function repoWith(files: Record<string, string | Buffer>): Promise<string> {
     const root = await mkdtemp(path.join(tmpdir(), 'ana-messy-'))
     for (const [name, body] of Object.entries(files)) {
@@ -545,7 +553,7 @@ describe('scan — real repositories are messier than fixtures', () => {
       'src/thing.ts':
         'export function a() {\r\n  // we chose this because it is simpler\r\n  return 1\r\n}\r\n\r\nexport function b() {\r\n  // instead of a class, because reasons\r\n  return 2\r\n}\r\n',
     })
-    const summary = await runScan(root, { topK: 5 })
+    const summary = await runScan(root, { out: scratch, topK: 5 })
     const lines = summary.candidates.map((candidate) => candidate.line).sort((a, b) => a - b)
     // The comments sit on lines 2 and 7 of a CRLF file; an off-by-one from `\r`
     // handling would report 2 and 8, or 1 and 6.
@@ -558,7 +566,7 @@ describe('scan — real repositories are messier than fixtures', () => {
       'package.json': '{invalid json,,',
       'src/a.ts': 'export const x = 1\n',
     })
-    await expect(runScan(root, { topK: 2 })).resolves.toBeDefined()
+    await expect(runScan(root, { out: scratch, topK: 2 })).resolves.toBeDefined()
   })
 
   it('skips a binary file instead of reading it as source', async () => {
@@ -567,7 +575,7 @@ describe('scan — real repositories are messier than fixtures', () => {
       'logo.png': Buffer.from([0xff, 0xfe, 0x00, 0x01, 0x00]),
       'src/a.ts': 'export const x = 1\n',
     })
-    const summary = await runScan(root, { topK: 2 })
+    const summary = await runScan(root, { out: scratch, topK: 2 })
     expect(summary.scope.files.some((file) => file.path === 'logo.png')).toBe(false)
   })
 
@@ -576,7 +584,7 @@ describe('scan — real repositories are messier than fixtures', () => {
       'package.json': '{"name":"utf","version":"1.0.0"}',
       'src/bad.ts': Buffer.from([0x63, 0x6f, 0x6e, 0x73, 0x74, 0x20, 0xff, 0xfe, 0x0a]),
     })
-    await expect(runScan(root, { topK: 2 })).resolves.toBeDefined()
+    await expect(runScan(root, { out: scratch, topK: 2 })).resolves.toBeDefined()
   })
 
   it('does not follow a symlink loop', async () => {
@@ -586,7 +594,7 @@ describe('scan — real repositories are messier than fixtures', () => {
     })
     // `self -> .` and `src/up -> root` are a cycle a naive walk would never leave.
     await symlink(root, path.join(root, 'self'))
-    const summary = await runScan(root, { topK: 3 })
+    const summary = await runScan(root, { out: scratch, topK: 3 })
     // The point is that it returned at all, and that it counted the one real file.
     expect(summary.scope.totals.files).toBeLessThan(10)
   })
