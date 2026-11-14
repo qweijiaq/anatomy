@@ -4,23 +4,23 @@
 
 | | |
 |---|---|
-| 生成于 | 2026-11-14 21:37 |
-| 提交 | `5b2ca3652630ad1eee1dc11d76b2208afbf040a3` |
+| 生成于 | 2026-11-14 22:01 |
+| 提交 | `4a5604442862c8a8e6fe1576ab267c55ab93db33` |
 | 工作区 | clean |
 | 退出码 | 1 |
 
-一行就能把这份记录钉在树上：`git show 5b2ca3652630ad1eee1dc11d76b2208afbf040a3:package.json | grep version`。
-若当前 HEAD 与上面的提交不同，先看 `git diff 5b2ca36 HEAD --stat`：只动了这份记录，
+一行就能把这份记录钉在树上：`git show 4a5604442862c8a8e6fe1576ab267c55ab93db33:package.json | grep version`。
+若当前 HEAD 与上面的提交不同，先看 `git diff 4a56044 HEAD --stat`：只动了这份记录，
 结论就仍然成立；动了别的，以重跑为准。
 
 ```
 anatomy audit
 -----------------------------------------------
-gate           VERIFY: PASS (github, run 1f36f3b485f1, deleted)
-tests          805 passed
-tree           FAIL — main at 5b2ca36 but upstream is 060c344
+gate           VERIFY: PASS (github, run 18033dcbf93c, deleted)
+tests          808 passed
+tree           FAIL — main at 4a56044 but upstream is 51344eb
 artefacts      none tracked
-docs           README (en/zh), EVIDENCE and PROGRESS say 805 tests / 38 files; v0.1.0; snapshot 060c344 predates HEAD
+docs           AGENTS, README (en/zh), EVIDENCE and PROGRESS say 808 tests / 38 files; v0.1.0; snapshot 51344eb predates HEAD
 markers        none in src, renderer, electron, scripts
 surface        10 CLI commands, 4 MCP tools
 docs-files     every document named, and every docs/ path they point at
