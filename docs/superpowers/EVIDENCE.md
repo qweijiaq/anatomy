@@ -3,7 +3,7 @@
 这个文件不解释产品，只做一件事：把"说完成了"和"能被核对"之间的缺口关掉。每条要求后面是
 **能跑出证据的测试名**或**已提交的文件**，两者都可以独立检查。
 
-运行全部测试：`npm test`（38 个文件 / 808 个测试）。最近的完整机器输出提交在
+运行全部测试：`npm test`（39 个文件 / 811 个测试）。最近的完整机器输出提交在
 `docs/superpowers/verify-output.txt`。
 
 那份快照属于它自己记录的那个提交，**不是当前 HEAD**；下面的数字以当前检出上真正跑出来的
@@ -19,7 +19,7 @@
 
 ## 要求 2 — `npm test` 全绿
 
-`docs/superpowers/verify-output.txt`：`Tests  808 passed`（该文件是带日期的运行快照，见其首行）。
+`docs/superpowers/verify-output.txt`：`Tests  811 passed`（该文件是带日期的运行快照，见其首行）。
 
 ## 要求 3 — `npm run typecheck` 全绿
 
@@ -42,7 +42,7 @@
      `lines[evidence.startLine - 1]` 与 `evidence.snippet` 逐字相同，即报告里的行号确实指向那段代码
    - `writes a report that names the repository and its trust numbers` — 断言报告含
      `已取证点占比：\d+\.\d%`、`每点平均证据数`、`## 没看的部分`
-   - `produces a report with lang en, switching only the prompts` — 语言开关只换提示模板
+   - `produces an English report with lang en, frame and prompts alike` — 语言开关只换提示模板
 3. **渲染层面的测试**（`tests/render.test.ts`，46 个测试）— 标题、口径块、`来源：`、两层结构、
    片段逐字不译、以及"没有点也必须是一份完整报告"。
 
@@ -86,7 +86,7 @@ exist. A handoff claim needs the other case: clone it, install it, run it.
 ```
 git clone --depth 1 https://github.com/qweijiaq/anatomy.git /tmp/anatomy-clone
 cd /tmp/anatomy-clone && npm ci && npm run verify
-→ Tests 808 passed | typecheck clean | build ok
+→ Tests 811 passed | typecheck clean | build ok
 → scan+analyze+report+inspect+forget ok on https://github.com/sindresorhus/quick-lru
 → VERIFY: PASS (github, run c33c78ec2c45, deleted)
 ```

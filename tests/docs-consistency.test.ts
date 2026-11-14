@@ -432,3 +432,41 @@ describe('the handoff table names things that exist', () => {
     expect(Number((claim as RegExpExecArray)[2]), 'the file count in AGENTS.md is stale').toBe(files)
   })
 })
+
+describe('every test name EVIDENCE.md cites is still a test', () => {
+  /**
+   * `docs/superpowers/EVIDENCE.md` is where each acceptance requirement points at the
+   * test that proves it — by name. A name is the most fragile possible reference: a
+   * reworded `it(...)` breaks it silently, and the file goes on claiming a proof that
+   * no longer exists under that name.
+   *
+   * Read as a chain rather than as prose: a bullet names a test file, then the titles
+   * it is claiming, until the next file. Only titles are checked, because that is what
+   * can be looked up exactly.
+   */
+  it('names tests that exist under that title', async () => {
+    const { readdirSync } = await import('node:fs')
+    const corpus = readdirSync(path.join(ROOT, 'tests'))
+      .filter((name) => name.endsWith('.test.ts'))
+      .map((name) => read(`tests/${name}`))
+      .join('\n')
+
+    const cited: Array<{ file: string; title: string }> = []
+    let current = ''
+    for (const line of read('docs/superpowers/EVIDENCE.md').split('\n')) {
+      const fileMatch = /`(tests\/[\w.-]+\.test\.ts)`/.exec(line)
+      if (fileMatch) current = fileMatch[1] as string
+      for (const title of line.matchAll(/`([a-z][^`]{15,})`/g)) {
+        const text = title[1] as string
+        // Titles are English sentences with spaces; paths, commands and flags are not.
+        if (!/^[a-z][a-z ,'-]+$/.test(text) || text.split(' ').length < 4) continue
+        if (current === '') continue
+        cited.push({ file: current, title: text })
+      }
+    }
+
+    expect(cited.length, 'no cited test names were found — the parser stopped working').toBeGreaterThan(0)
+    const missing = cited.filter((entry) => !corpus.includes(`'${entry.title}'`))
+    expect(missing.map((entry) => `${entry.file}: ${entry.title}`)).toEqual([])
+  })
+})
