@@ -4,23 +4,23 @@
 
 | | |
 |---|---|
-| 生成于 | 2026-11-14 14:02 |
-| 提交 | `fcba4f3b3834ea7e3287bcc7a45d55b1a773c0cb` |
-| 工作区 | dirty |
+| 生成于 | 2026-11-14 14:31 |
+| 提交 | `0408d2aadab814f4b2066e196853d776805302aa` |
+| 工作区 | clean |
 | 退出码 | 1 |
 
-一行就能把这份记录钉在树上：`git show fcba4f3b3834ea7e3287bcc7a45d55b1a773c0cb:package.json | grep version`。
-若当前 HEAD 与上面的提交不同，先看 `git diff fcba4f3 HEAD --stat`：只动了这份记录，
+一行就能把这份记录钉在树上：`git show 0408d2aadab814f4b2066e196853d776805302aa:package.json | grep version`。
+若当前 HEAD 与上面的提交不同，先看 `git diff 0408d2a HEAD --stat`：只动了这份记录，
 结论就仍然成立；动了别的，以重跑为准。
 
 ```
 anatomy audit
 -----------------------------------------------
-gate           VERIFY: PASS (github, run 0be69aa8c765, deleted)
-tests          795 passed
-tree           FAIL — main at fcba4f3 but upstream is bd9e991
+gate           VERIFY: PASS (github, run 14ecb27ee17c, deleted)
+tests          798 passed
+tree           FAIL — main at 0408d2a but upstream is 934247e
 artefacts      none tracked
-docs           README (en/zh), EVIDENCE and PROGRESS say 795 tests / 36 files; v0.1.0; snapshot fcba4f3 describes HEAD's tree
+docs           README (en/zh), EVIDENCE and PROGRESS say 798 tests / 37 files; v0.1.0; snapshot 934247e predates HEAD
 markers        none in src, renderer, electron, scripts
 surface        10 CLI commands, 4 MCP tools
 docs-files     every document named, and every docs/ path they point at
