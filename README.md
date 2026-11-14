@@ -78,6 +78,7 @@ ana inspect-app <dir>            # reconstruct from shipped artefacts: modules, 
 ana app-report <name>            # the facts report for one application
 ana app-diff <a> <b>             # what changed on the boundary between two builds
 ana forget <id> [--app]          # delete one stored analysis
+ana forget --keep 3              # keep the three newest, delete the rest
 ana mcp                          # serve the deterministic half over MCP on stdio
 ```
 
@@ -184,7 +185,7 @@ packages, and `ana scan` works.
 
 One unambiguous statement, so nothing is left pending a decision:
 
-- nine commands, all usable; `npm run verify` is the single gate (766 tests, three
+- nine commands, all usable; `npm run verify` is the single gate (776 tests, three
   tsconfigs, and the CLI end to end against a local stub model)
 - a repository **with** source: design notes where every claim cites a line and is
   checked against the bytes on disk; anything unverifiable never reaches the page

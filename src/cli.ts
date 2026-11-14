@@ -24,7 +24,7 @@ import {
   ScanUsageError,
   type ScanIo,
 } from './commands/scan.js'
-import { FORGET_USAGE, forget, parseForgetArgs } from './commands/forget.js'
+import { FORGET_USAGE, forget, keepRecent, parseForgetArgs } from './commands/forget.js'
 import { serveMcp } from './commands/mcp.js'
 import {
   APP_DIFF_USAGE,
@@ -180,7 +180,7 @@ Commands:
   inspect-app <dir>  Reconstruct a JS/Electron app from shipped artifacts, via REA
   app-report <name>  Re-render the facts report of a reconstructed application
   app-diff <a> <b>   Compare two surveys: what changed on the boundary
-  forget <id>        Delete one stored run (or one survey with --app)
+  forget <id>        Delete one stored run; --keep <n> keeps the newest n
   mcp                Serve the deterministic half over MCP stdio (no model calls)
 
 Options:
@@ -326,6 +326,14 @@ export async function runCli(
         return 2
       }
       try {
+        if (parsed.mode === 'keep') {
+          const swept = await keepRecent(parsed.keep, {
+            ...(parsed.baseDir === undefined ? {} : { baseDir: parsed.baseDir }),
+          })
+          for (const removed of swept.removed) io.out.write(`已删除 ${removed}\n`)
+          io.out.write(`保留最新的 ${swept.kept.length} 轮，删除 ${swept.removed.length} 轮。\n`)
+          return 0
+        }
         const result = await forget(parsed.id, {
           target: parsed.target,
           ...(parsed.baseDir === undefined ? {} : { baseDir: parsed.baseDir }),
