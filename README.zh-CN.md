@@ -54,6 +54,9 @@ npm run clean                  # 清掉全部构建产物
 
 ## 命令
 
+下面的 `ana` 是这个包的 `bin`，而 `npm install` 不会把它放进 PATH。在检出目录里
+先 `npm link` 一次，或者把下面的 `ana` 换成 `node dist/cli.js`——同一个程序，同样的输出。
+
 需要有源码的四条：
 
 ```bash

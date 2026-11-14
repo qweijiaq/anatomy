@@ -54,6 +54,10 @@ Paste a repository URL into the window and the analysis runs. The model key is c
 
 ## Commands
 
+`ana` below is this package's `bin`, and a plain `npm install` does not put it on
+PATH. From a checkout, either run `npm link` once, or write `node dist/cli.js` where
+these lines say `ana` — same program, same output.
+
 Four that need source:
 
 ```bash

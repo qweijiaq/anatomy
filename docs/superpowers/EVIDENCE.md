@@ -74,3 +74,21 @@ npm run verify        # 末行：VERIFY: PASS (github, run <id>)
 含标题、可信度数、`## 没看的部分`、以及 `` `path:start-end` `` 形式的证据行。模型由仓库内的
 `scripts/verify-stub.mjs` 提供，因此不需要任何 provider key，结果确定可复现；引用仍由产品自己的
 校验器对着磁盘字节核对。
+
+## Clean checkout
+
+The gate has only ever run in the working copy, where `dist/` and `.ana/` already
+exist. A handoff claim needs the other case: clone it, install it, run it.
+
+```
+git clone --depth 1 https://github.com/qweijiaq/anatomy.git /tmp/anatomy-clone
+cd /tmp/anatomy-clone && npm ci && npm run verify
+→ Tests 759 passed | typecheck clean | build ok
+→ scan+analyze+report+inspect+forget ok on https://github.com/sindresorhus/quick-lru
+→ VERIFY: PASS (github, run c33c78ec2c45, deleted)
+```
+
+Nothing but `npm ci` came first: no build, no run directory, no API key. The clone
+also showed what the docs had assumed — `ana` is this package's `bin`, and `npm ci`
+does not put it on PATH, so the commands printed as `ana ...` only run after
+`npm link` or as `node dist/cli.js ...`. Both READMEs now say so.

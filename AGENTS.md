@@ -17,6 +17,9 @@ npm run verify      # ten sections: the gate below, plus the docs and git checks
 `npm run verify:record` also writes the run into `.ana/` under a neutral name, so the
 claim "verify passed" has a receipt instead of a memory.
 
+`ana` is this package's `bin`; `npm install` does not put it on PATH. Use
+`node dist/cli.js` (after `npm run build`) or `npm link` once.
+
 `npm run build` and `npm run build:desktop` produce output that is **not** tracked:
 `dist/`, `dist-renderer/`, `dist-electron/`, `out/`. A clean checkout has none of it,
 and nothing in `src/` reads it. `npm run clean` removes it.
