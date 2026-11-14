@@ -22,7 +22,7 @@ import path from 'node:path'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 
 import { normaliseExcerpt, providerRefusal, resolveModelName, runAnalyze, synthesisGap } from '../src/commands/analyze.js'
-import { DEFAULT_MODEL, ModelRequestError } from '../src/writing/client.js'
+import { DEFAULT_MODEL } from '../src/writing/client.js'
 import type { LearningPoint, RunManifest } from '../src/contracts/types.js'
 import type { AcquireDeps } from '../src/kernel/acquire.js'
 import type { Run } from '../src/store/runs.js'
