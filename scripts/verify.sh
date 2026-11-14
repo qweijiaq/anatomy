@@ -19,6 +19,15 @@ fail() { echo "VERIFY: FAIL — $*"; exit 1; }
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
+# What the store looked like before this run touched it. The gate deletes the runs it
+# knows about, and for three rounds that was read as "the gate leaves nothing behind"
+# — it left seven per run, from sections that create a run without naming one. The
+# snapshot is the only version of the claim that a new section cannot quietly falsify.
+runs_dir=".ana/runs"
+apps_dir=".ana/apps"
+runs_before=$(ls "$runs_dir" 2>/dev/null | sort)
+apps_before=$(ls "$apps_dir" 2>/dev/null | sort)
+
 echo "== tests =="
 npm test --silent > "$work/test.txt" 2>&1 || { tail -30 "$work/test.txt"; fail "tests"; }
 tail -4 "$work/test.txt"
@@ -149,8 +158,20 @@ if node dist/cli.js forget "$run_id" > /dev/null 2>&1; then
   fail "forget reported success for a run that was already gone"
 fi
 
-[ -n "$scan_run" ] && node dist/cli.js forget "$scan_run" > /dev/null 2>&1
-[ -n "$scan_run" ] && [ -d ".ana/runs/$scan_run" ] && fail "the scan run was left behind"
+# Anything the run created and no section claimed: removed here, by name, through the
+# product's own command — not by `rm`, so the deletion path stays the one users have.
+sweep() {
+  local dir=$1 before=$2 left=0 id
+  [ -d "$dir" ] || return 0
+  for id in $(ls "$dir" | sort); do
+    echo "$before" | grep -qx -- "$id" && continue
+    node dist/cli.js forget "$id" $( [ "$dir" = "$apps_dir" ] && echo --app ) > /dev/null 2>&1
+    [ -e "$dir/$id" ] && { left=$((left + 1)); echo "  left behind: $dir/$id"; }
+  done
+  return "$left"
+}
+sweep "$runs_dir" "$runs_before" || fail "the gate left $? run(s) behind"
+sweep "$apps_dir" "$apps_before" || fail "the gate left $? app director(ies) behind"
 
 echo "SUMMARY: ${counts:-tests passed} | typecheck clean | build ok"
 echo "SUMMARY: scan+analyze+report+inspect+forget ok on $target"
