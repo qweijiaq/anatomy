@@ -14,7 +14,10 @@ cd "$(dirname "$0")/.." || exit 1
 commit=$(git rev-parse HEAD)
 short=$(git rev-parse --short HEAD)
 stamp=$(date '+%Y-%m-%d %H:%M')
-clean=$( [ -z "$(git status --porcelain)" ] && echo clean || echo "dirty" )
+# The file this script writes is not a change to the reason for the verdict; counting
+# it would make every recorded run describe the previous record instead of the tree.
+dirty=$(git status --porcelain | grep -v 'docs/superpowers/audit-output.txt' || true)
+clean=$( [ -z "$dirty" ] && echo clean || echo "dirty" )
 
 log=$(npm run audit --silent 2>&1)
 status=$?
