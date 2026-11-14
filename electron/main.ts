@@ -19,7 +19,8 @@ import { fileURLToPath } from 'node:url'
 
 import { activeModelConfig, getSettingsView, readKey, rememberRepo, saveSettings } from './settings.js'
 import { createModelClient, MissingCredentialsError } from '../src/writing/client.js'
-import { runAnalyze } from '../src/commands/analyze.js'
+import { describeRunFailure, runAnalyze } from '../src/commands/analyze.js'
+import { listRuns } from '../src/commands/runs.js'
 import { runScan } from '../src/commands/scan.js'
 import { forget } from '../src/commands/forget.js'
 import { NoSuchRunError, runReport } from '../src/commands/report.js'
@@ -257,6 +258,15 @@ ipcMain.handle('analysis:run', async (event, payload: unknown) => {
         }),
     })
     send({ phase: 'done' })
+
+    // The run finished, but "finished" is not "worked". A provider that rejects every
+    // request — a revoked key, a model it does not serve — produces a report with no
+    // points, and this handler used to return ok with it: the window showed a quiet
+    // empty report for what was really a configuration failure. The CLI had already
+    // learned this; `describeRunFailure` is the one place both ask.
+    const failure = describeRunFailure(result)
+    if (failure !== '') return { ok: false, message: failure }
+
     const markdown = await runReport(result.runId)
     return { ok: true, runId: result.runId, reportPath: result.reportPath, markdown }
   } catch (error) {
@@ -281,51 +291,33 @@ type ReportSummary = {
 }
 
 ipcMain.handle('runs:list', async () => {
+  // The list is `listRuns`'s answer, not a second opinion. Until now the window and
+  // `ana runs` each decided for themselves what "has a report" means — the window
+  // required `synthesis` and `validation`, the CLI required `synthesis` and a points
+  // array — so a run could be listed in one and invisible in the other, and the two
+  // copies had no reason to stay in step.
   const baseDir = path.resolve(process.cwd(), DEFAULT_RUNS_DIR)
-  let entries: string[]
-  try {
-    entries = await readdir(baseDir)
-  } catch {
-    // No run has ever finished here; an empty history is not an error.
-    return { ok: true, runs: [] }
-  }
+  const stored = await listRuns({ baseDir })
 
   const runs: ReportSummary[] = []
-  for (const runId of entries) {
-    const manifest = await readRunArtifact<RunManifest>(baseDir, runId, 'manifest')
-    // `complete` is the only status that guarantees the artifacts below exist.
-    if (manifest === null || manifest.status !== 'complete') continue
-
-    // A `scan` run completes too — and has no report. Neither does an analysis that
-    // died after the scan stage. Listing either one offers a history entry that can
-    // only fail when opened, with an error about a missing artifact. The question
-    // this list asks is "can I read a report here", so that is the question it must
-    // actually check.
-    const synthesis = await readRunArtifact<{ problem?: string; topFive?: string[] }>(
-      baseDir,
-      runId,
-      'synthesis',
-    )
-    const validation = await readRunArtifact<{ kept?: unknown[] }>(baseDir, runId, 'validation')
-    if (synthesis === null || validation === null) continue
-    const topFive = Array.isArray(synthesis.topFive) ? synthesis.topFive : []
+  for (const run of stored) {
+    // A `scan` run completes too, and has no report. The question this list asks is
+    // "can I read a report here", so that is the question it must actually check.
+    if (!run.hasReport) continue
     runs.push({
-      runId,
-      source: manifest.source,
-      startedAt: manifest.startedAt,
-      points: topFive.length,
+      runId: run.runId,
+      source: run.source,
+      startedAt: run.startedAt,
+      points: run.points ?? 0,
       // The best one-line label available without a network call: the repo's last
       // path segment, falling back to the run id.
       title: (() => {
-        const cleaned = manifest.source.replace(/[/\\]+$/, '')
+        const cleaned = run.source.replace(/[/\\]+$/, '')
         const segment = cleaned.slice(cleaned.lastIndexOf('/') + 1)
-        return segment === '' ? runId : segment
+        return segment === '' ? run.runId : segment
       })(),
     })
   }
-
-  // Newest first: the thing a person just ran belongs at the top.
-  runs.sort((a, b) => b.startedAt.localeCompare(a.startedAt))
   return { ok: true, runs }
 })
 

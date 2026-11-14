@@ -3,7 +3,7 @@ import { realpathSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 
-import { providerRefusal, runAnalyze, type AnalyzeOptions } from './commands/analyze.js'
+import { describeRunFailure, runAnalyze, type AnalyzeOptions } from './commands/analyze.js'
 import {
   INSPECT_USAGE,
   InspectUsageError,
@@ -288,22 +288,11 @@ export async function runCli(
         // status, which is the failure a script cannot see. Client errors (4xx) are
         // not retried, so a non-empty list means the provider refused the whole run.
         // Zero points for a reason the model is responsible for is not the same answer
-        // as zero points because there was nothing to learn. A provider that answers
-        // prose where JSON was asked produced the former, and it used to exit 0 too.
-        if (result.replyFailures > 0 && result.modelFailures.length === 0) {
-          io.err.write(
-            `ana: ${result.replyFailures} candidate(s) got no usable reply from the model; the report was written but holds no points.\n`,
-          )
-          return 1
-        }
-
-        const refused = providerRefusal(result.modelFailures)
-        if (refused.length > 0) {
-          const detail = refused.map((failure: { status: number | null; count: number }) => `HTTP ${String(failure.status)} ×${failure.count}`).join(', ')
-          const count = refused.reduce((sum: number, failure: { count: number }) => sum + failure.count, 0)
-          io.err.write(
-            `ana: the provider rejected ${count} request(s) (${detail}); the report was written but holds no points.\n`,
-          )
+        // as zero points because there was nothing to learn. The wording lives in
+        // `describeRunFailure` because the window asks the same question.
+        const failure = describeRunFailure(result)
+        if (failure !== '') {
+          io.err.write(`ana: ${failure}.\n`)
           return 1
         }
         return 0

@@ -184,6 +184,33 @@ export function normaliseExcerpt(excerpt: string): string {
  * 429 and 5xx are excluded on purpose: the client already retried those, and a run
  * that hit its retry budget is a different failure with its own message.
  */
+/**
+ * Why a finished run should not be treated as a success, or '' when it should.
+ *
+ * Both surfaces ask this question and had answered it differently: the CLI grew this
+ * check after a wrong API key produced an empty report with a clean exit status, and
+ * the window kept returning `ok: true` for the same run — a provider answering 401 to
+ * every request looked like a successful analysis with a quiet report. One function,
+ * two callers, so the answer cannot diverge again.
+ */
+export function describeRunFailure(result: {
+  modelFailures: ModelFailure[]
+  replyFailures: number
+}): string {
+  const refused = providerRefusal(result.modelFailures)
+  if (refused.length > 0) {
+    const detail = refused
+      .map((failure) => `HTTP ${String(failure.status)} ×${failure.count}`)
+      .join(', ')
+    const count = refused.reduce((sum, failure) => sum + failure.count, 0)
+    return `the provider rejected ${count} request(s) (${detail}); the report was written but holds no points`
+  }
+  if (result.replyFailures > 0) {
+    return `${result.replyFailures} candidate(s) got no usable reply from the model; the report was written but holds no points`
+  }
+  return ''
+}
+
 export function providerRefusal(failures: ModelFailure[]): ModelFailure[] {
   return failures.filter(
     (failure) => failure.status !== null && failure.status >= 400 && failure.status < 500 && failure.status !== 429,

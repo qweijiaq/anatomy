@@ -37,8 +37,11 @@ const ARTIFACTS: Record<string, { readers: string[]; outputOnly?: string }> = {
   structure: { readers: ['src/commands/report.ts'] },
   candidates: { readers: ['src/commands/report.ts'] },
   points: { readers: ['src/commands/report.ts', 'src/commands/inspect.ts'] },
-  validation: { readers: ['src/commands/report.ts', 'electron/main.ts'] },
-  synthesis: { readers: ['src/commands/report.ts', 'electron/main.ts'] },
+  // The window used to read these two straight out of the run to decide what its
+  // history could open. It asks `listRuns` now — one definition of "has a report"
+  // instead of two — so the reader moved with the question.
+  validation: { readers: ['src/commands/report.ts'] },
+  synthesis: { readers: ['src/commands/report.ts', 'src/commands/runs.ts'] },
   skipped: { readers: ['src/commands/report.ts'] },
   report: {
     readers: [],
