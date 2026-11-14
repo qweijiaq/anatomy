@@ -16,8 +16,10 @@
 
 ## 分析口径
 
+每条引用写作 `path:起止行`。想核对就把这条引用原样交给 `ana inspect`（例如 `ana inspect path/to/file.ts:12-20`），取回的是这一轮真正读过的原文；证据存在分析结果里，删了源码树也一样。
+
 - 来源：https://github.com/unjs/destr
-- 根目录：<repo-root>/eval/quality-sample/.runs/6b56e9f1c24c/tree/destr-541b6f9aeada9fc30de9c5a7e086dbfc1c6fcdc7
+- 根目录：<repo-root>/quality-sample/.runs/42ea3cd5da7c/tree/destr-541b6f9aeada9fc30de9c5a7e086dbfc1c6fcdc7
 - 规模：19 个文件 / 30892 字节 / 1046 行
 - 语言：ts 3、mjs 2、cjs 1
 - 排除：lockfile 1
@@ -27,7 +29,7 @@
 - 类型：数据模型
 - 置信度：高
 
-**约束**：待模型补全（待模型补全）
+**约束**：待模型补全 —— 待模型补全
 
 **常见做法与代价**
 
@@ -50,6 +52,48 @@
 **代价**
 
 - 待模型补全 —— 待模型补全
+
+## 值得自己去看的位置
+
+扫描共给出 2 个候选点。**分数是规则命中累加，不是质量评分**——它只说明这里同时符合几条启发式，不说明这里一定值得学。
+
+| 位置 | 所在声明 | 类型 | 分 | 命中的规则 |
+| --- | --- | --- | --- | --- |
+| `src/index.ts:16` | `jsonParseTransform` (function) | idiom | 2 | idiom:structural-check |
+| `src/index.ts:32` | `destr` (function) | complexity | 1 | complexity:guard-ladder、complexity:long-function |
+
+**信号分布**：complexity 1、idiom 1
+
+## 这个仓库的形状
+
+- 模块：6 个；其中 5 个没有任何文件导入它
+- 被依赖最多: `src/index.ts` (1)
+- 未解析的导入：1 条（多半是外部依赖或路径别名）
+- 入口: `lib/index.cjs`、`src/index.ts`
+- 清单文件: `package.json`
+- 测试 / CI / 文档：有 / 有 / 有
+
+这些数字来自结构索引，没有经过模型。它们只说明代码长什么样，不说明写得好不好。
+
+## 代码集中在哪
+
+按行数排的前 10 个文件（共 19 个）：
+
+| 文件 | 行 | 字节 | 占全部行数 |
+| --- | --- | --- | --- |
+| `CHANGELOG.md` | 245 | 8577 | 23% |
+| `test/index.test.ts` | 200 | 6340 | 19% |
+| `README.md` | 132 | 3292 | 13% |
+| `src/index.ts` | 99 | 2475 | 9% |
+| `BENCH.md` | 96 | 3708 | 9% |
+| `test/bench.mjs` | 81 | 1722 | 8% |
+| `package.json` | 47 | 1308 | 4% |
+| `.github/workflows/autofix.yml` | 26 | 618 | 2% |
+| `.github/workflows/ci.yml` | 25 | 478 | 2% |
+| `LICENSE` | 21 | 1078 | 2% |
+
+行数是文件的物理行数，包含空行和注释——它衡量的是「要翻多久」，不是「逻辑有多重」。
+
 
 ## 没看的部分
 

@@ -22,7 +22,7 @@ the answer should not cost more to obtain than the project costs to read.
 ```bash
 npm run audit       # one command, eight computed lines, one verdict
 npm run typecheck   # three configs: src, tests+eval, renderer+electron
-npm run test        # ~760 tests, no network
+npm run test        # 808 tests, no network
 npm run verify      # the gate: tests, typecheck, build, then the CLI end to end
 ```
 
@@ -68,7 +68,7 @@ says about itself; the right column is where that claim can be falsified.
 
 | Claim | Falsified by |
 |---|---|
-| 805 tests pass in 36 files | `npm test`, or `docs/superpowers/verify-output.txt` for the recorded run |
+| 808 tests pass in 38 files | `npm test`, or `docs/superpowers/verify-output.txt` for the recorded run |
 | Typecheck is clean in three configs | `npm run typecheck` (src, tests+eval, renderer+electron) |
 | The CLI works end to end with no API key | `npm run verify` — `scripts/verify.sh`, twelve sections, local stub model |
 | Every citation points at the line it names | `tests/evidence.test.ts`; `ana inspect <path:start-end>` re-reads it |

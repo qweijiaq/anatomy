@@ -394,3 +394,41 @@ describe('the definition of done names things that exist', () => {
     }
   })
 })
+
+describe('the handoff table names things that exist', () => {
+  /**
+   * `AGENTS.md` carries the table of what this project claims about itself and what
+   * would falsify each claim — and it is hand-written, in the file a reader is told to
+   * start from. Its own numbers drifted: it said "36 files" two test files after that
+   * stopped being true, because nothing checked this document the way the audit checks
+   * the others.
+   */
+  const agents = (): string => read('AGENTS.md')
+
+  it('every test file and script it names is real', async () => {
+    const { existsSync } = await import('node:fs')
+    const missing: string[] = []
+    for (const match of agents().matchAll(/`(tests\/[\w.-]+\.test\.ts|scripts\/[\w.-]+|docs\/[\w./-]+)`/g)) {
+      const target = match[1] as string
+      if (!existsSync(path.join(ROOT, target))) missing.push(target)
+    }
+    expect(missing, `AGENTS.md names what is not there: ${missing.join(', ')}`).toEqual([])
+  })
+
+  it('every npm script it names exists', () => {
+    const scripts = (JSON.parse(read('package.json')) as { scripts: Record<string, string> }).scripts
+    const missing: string[] = []
+    for (const match of agents().matchAll(/`npm run ([a-z:-]+)`/g)) {
+      if (!((match[1] as string) in scripts)) missing.push(match[1] as string)
+    }
+    expect(missing, `AGENTS.md names missing scripts: ${missing.join(', ')}`).toEqual([])
+  })
+
+  it('its test and file counts are the ones on disk', async () => {
+    const { readdirSync } = await import('node:fs')
+    const files = readdirSync(path.join(ROOT, 'tests')).filter((name) => name.endsWith('.test.ts')).length
+    const claim = /(\d+) tests pass in (\d+) files/.exec(agents())
+    expect(claim, 'AGENTS.md no longer states the suite size').not.toBeNull()
+    expect(Number((claim as RegExpExecArray)[2]), 'the file count in AGENTS.md is stale').toBe(files)
+  })
+})

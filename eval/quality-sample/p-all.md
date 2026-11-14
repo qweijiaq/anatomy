@@ -16,8 +16,10 @@
 
 ## 分析口径
 
+每条引用写作 `path:起止行`。想核对就把这条引用原样交给 `ana inspect`（例如 `ana inspect path/to/file.ts:12-20`），取回的是这一轮真正读过的原文；证据存在分析结果里，删了源码树也一样。
+
 - 来源：https://github.com/sindresorhus/p-all
-- 根目录：<repo-root>/eval/quality-sample/.runs/b91155ef1a64/tree/p-all-633bce632b8b12a79966038b23a0ed9cae91e705
+- 根目录：<repo-root>/quality-sample/.runs/6b364d5d91b9/tree/p-all-633bce632b8b12a79966038b23a0ed9cae91e705
 - 规模：13 个文件 / 8438 字节 / 320 行
 - 语言：js 2、ts 2
 - 排除：没有文件被排除
@@ -27,7 +29,7 @@
 - 类型：数据模型
 - 置信度：高
 
-**约束**：待模型补全（待模型补全）
+**约束**：待模型补全 —— 待模型补全
 
 **常见做法与代价**
 
@@ -56,7 +58,7 @@ export default async function pAll(iterable, options) {
 - 类型：数据模型
 - 置信度：高
 
-**约束**：待模型补全（待模型补全）
+**约束**：待模型补全 —— 待模型补全
 
 **常见做法与代价**
 
@@ -79,6 +81,46 @@ export default async function pAll(iterable, options) {
 **代价**
 
 - 待模型补全 —— 待模型补全
+
+## 值得自己去看的位置
+
+扫描共给出 2 个候选点。**分数是规则命中累加，不是质量评分**——它只说明这里同时符合几条启发式，不说明这里一定值得学。
+
+| 位置 | 所在声明 | 类型 | 分 | 命中的规则 |
+| --- | --- | --- | --- | --- |
+| `index.js:4` | `pAll` (function) | idiom | 2 | idiom:delegates-whole-body |
+| `index.test-d.ts:67` | `result` (const) | idiom | 2 | idiom:pre-bound-arguments |
+
+**信号分布**：idiom 2
+
+## 这个仓库的形状
+
+- 模块：3 个；其中 2 个没有任何文件导入它
+- 被依赖最多: `index.js` (2)
+- 清单文件: `package.json`
+- 测试 / CI / 文档：无 / 有 / 有
+
+这些数字来自结构索引，没有经过模型。它们只说明代码长什么样，不说明写得好不好。
+
+## 代码集中在哪
+
+按行数排的前 10 个文件（共 13 个）：
+
+| 文件 | 行 | 字节 | 占全部行数 |
+| --- | --- | --- | --- |
+| `readme.md` | 77 | 2378 | 24% |
+| `index.test-d.ts` | 74 | 1583 | 23% |
+| `package.json` | 59 | 1038 | 18% |
+| `index.d.ts` | 31 | 927 | 10% |
+| `.github/workflows/main.yml` | 22 | 436 | 7% |
+| `test.js` | 22 | 410 | 7% |
+| `.editorconfig` | 12 | 175 | 4% |
+| `license` | 9 | 1117 | 3% |
+| `.github/security.md` | 5 | 173 | 2% |
+| `index.js` | 5 | 140 | 2% |
+
+行数是文件的物理行数，包含空行和注释——它衡量的是「要翻多久」，不是「逻辑有多重」。
+
 
 ## 没看的部分
 

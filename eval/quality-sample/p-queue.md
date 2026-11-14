@@ -16,8 +16,10 @@
 
 ## 分析口径
 
+每条引用写作 `path:起止行`。想核对就把这条引用原样交给 `ana inspect`（例如 `ana inspect path/to/file.ts:12-20`），取回的是这一轮真正读过的原文；证据存在分析结果里，删了源码树也一样。
+
 - 来源：https://github.com/sindresorhus/p-queue
-- 根目录：<repo-root>/eval/quality-sample/.runs/8459a35d3062/tree/p-queue-7f272ab5ff2254c0dc2537b7977e88ede1cd55e8
+- 根目录：<repo-root>/quality-sample/.runs/e41c3cdf11f3/tree/p-queue-7f272ab5ff2254c0dc2537b7977e88ede1cd55e8
 - 规模：27 个文件 / 315700 字节 / 10732 行
 - 语言：ts 17
 - 排除：没有文件被排除
@@ -27,7 +29,7 @@
 - 类型：数据模型
 - 置信度：高
 
-**约束**：待模型补全（待模型补全）
+**约束**：待模型补全 —— 待模型补全
 
 **常见做法与代价**
 
@@ -56,7 +58,7 @@
 - 类型：数据模型
 - 置信度：高
 
-**约束**：待模型补全（待模型补全）
+**约束**：待模型补全 —— 待模型补全
 
 **常见做法与代价**
 
@@ -79,6 +81,52 @@
 **代价**
 
 - 待模型补全 —— 待模型补全
+
+## 值得自己去看的位置
+
+扫描共给出 8 个候选点。**分数是规则命中累加，不是质量评分**——它只说明这里同时符合几条启发式，不说明这里一定值得学。
+
+| 位置 | 所在声明 | 类型 | 分 | 命中的规则 |
+| --- | --- | --- | --- | --- |
+| `source/index.ts:193` | `PQueue` (class) | decision-trace | 8 | decision-trace:because、decision-trace:explains-the-next-declaration、abstraction:returns-a-function、custom-infra:member |
+| `source/index.ts:670` | `PQueue` (class) | decision-trace | 6 | decision-trace:because、custom-infra:member |
+| `source/index.ts:714` | `PQueue` (class) | decision-trace | 6 | decision-trace:because、decision-trace:instead of、custom-infra:member |
+| `source/priority-queue.ts:29` | `PriorityQueue` (class) | decision-trace | 6 | decision-trace:because、custom-infra:member |
+| `source/priority-queue.ts:40` | `PriorityQueue` (class) | decision-trace | 6 | decision-trace:because、decision-trace:explains-the-next-declaration、custom-infra:member |
+| `source/priority-queue.ts:58` | `PriorityQueue` (class) | custom-infra | 6 | custom-infra:member、decision-trace:because、decision-trace:explains-the-next-declaration |
+| `source/index.ts:613` | `PQueue` (class) | decision-trace | 5 | complexity:long-function、decision-trace:because |
+| `source/index.ts:986` | `PQueue` (class) | decision-trace | 4 | decision-trace:because、evolution:removed |
+
+**信号分布**：decision-trace 7、custom-infra 1
+
+## 这个仓库的形状
+
+- 模块：17 个；其中 11 个没有任何文件导入它
+- 被依赖最多: `source/index.ts` (10)、`test/helpers.ts` (6)、`source/priority-queue.ts` (4)、`source/queue.ts` (3)、`source/options.ts` (2)、`source/lower-bound.ts` (1)
+- 清单文件: `package.json`
+- 测试 / CI / 文档：无 / 有 / 有
+
+这些数字来自结构索引，没有经过模型。它们只说明代码长什么样，不说明写得好不好。
+
+## 代码集中在哪
+
+按行数排的前 10 个文件（共 27 个）：
+
+| 文件 | 行 | 字节 | 占全部行数 |
+| --- | --- | --- | --- |
+| `test/advanced.ts` | 2462 | 71447 | 23% |
+| `test/basic.ts` | 1811 | 47729 | 17% |
+| `source/index.ts` | 1302 | 44078 | 12% |
+| `test/rate-limit.ts` | 1149 | 32997 | 11% |
+| `readme.md` | 1035 | 30085 | 10% |
+| `test/strict.ts` | 782 | 19812 | 7% |
+| `test/validation.ts` | 449 | 13911 | 4% |
+| `test/debug.ts` | 443 | 12892 | 4% |
+| `test/priority-queue.ts` | 385 | 12268 | 4% |
+| `test/fixtures/types.ts` | 208 | 8398 | 2% |
+
+行数是文件的物理行数，包含空行和注释——它衡量的是「要翻多久」，不是「逻辑有多重」。
+
 
 ## 没看的部分
 

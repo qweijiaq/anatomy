@@ -88,6 +88,8 @@ check_tests() {
   [ -z "$got" ] && return 0
   [ "$got" = "$tests" ] || stale="$stale $file says $got"
 }
+# AGENTS.md states the suite size too, in the table a reader is told to start from.
+check_tests AGENTS.md '[0-9]+ tests'
 check_tests README.md '[0-9]+ tests'
 # `[^文]` keeps `73 个测试文件` — the count of test files inside the npm tarball —
 # out of a check about how many tests the suite runs. Two different numbers that read
@@ -127,7 +129,7 @@ if [ -z "$tests" ]; then
 elif [ -n "$stale" ]; then
   bad docs "stale numbers:$stale (measured: $tests tests, $measure_files files)"
 else
-  line docs "README (en/zh), EVIDENCE and PROGRESS say $tests tests / $measure_files files; v$version; $snapshot_note"
+  line docs "AGENTS, README (en/zh), EVIDENCE and PROGRESS say $tests tests / $measure_files files; v$version; $snapshot_note"
 fi
 
 # 5. Markers that mean somebody stopped mid-thought.
