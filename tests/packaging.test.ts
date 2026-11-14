@@ -252,3 +252,56 @@ describe('every source file is typechecked by some config', () => {
     }
   })
 })
+
+describe('the gate still guards what it claims to', () => {
+  /**
+   * `npm run verify` is the single thing everything else points at — the READMEs,
+   * the transcripts, the evidence in every round of work. Nothing guarded it.
+   *
+   * A step can be deleted, or its assertions removed, and the script still exits 0
+   * and still prints `VERIFY: PASS`. That is the same failure this project spent
+   * several rounds fixing in the typecheck gate: a check that cannot fail is worse
+   * than no check, because it is believed. This test pins the sections and a floor
+   * on the number of assertions, so weakening the gate is a visible change.
+   */
+  const sections = [
+    'tests',
+    'typecheck',
+    'build',
+    'scan',
+    'report (tree deleted)',
+    'inspect',
+    'mcp',
+    'packed package',
+    'sample',
+    'forget',
+  ]
+
+  it('still runs every section it documents', async () => {
+    const { readFileSync } = await import('node:fs')
+    const script = readFileSync(path.join(ROOT, 'scripts/verify.sh'), 'utf8')
+    for (const section of sections) {
+      expect(script, `verify.sh no longer runs "== ${section} =="`).toContain(`== ${section}`)
+    }
+  })
+
+  it('still asserts rather than merely running', async () => {
+    const { readFileSync } = await import('node:fs')
+    const script = readFileSync(path.join(ROOT, 'scripts/verify.sh'), 'utf8')
+    const assertions = (script.match(/\bfail "/g) ?? []).length
+    // Measured at 33. A drop means an assertion was removed; a rise is fine only if
+    // someone meant it, and then this number moves in the same commit.
+    expect(assertions).toBeGreaterThanOrEqual(30)
+    expect(script).toContain('VERIFY: PASS')
+  })
+
+  it('fails loudly rather than exiting 0 with a verdict of FAIL', async () => {
+    const { readFileSync } = await import('node:fs')
+    const script = readFileSync(path.join(ROOT, 'scripts/verify.sh'), 'utf8')
+    // `fail` must exit non-zero; a function that prints and returns would make every
+    // assertion above decorative.
+    // Single-line definition: `fail() { echo …; exit 1; }`.
+    const failBody = /^fail\(\)\s*\{([^\n]*)\}/m.exec(script)?.[1] ?? ''
+    expect(failBody).toContain('exit 1')
+  })
+})
