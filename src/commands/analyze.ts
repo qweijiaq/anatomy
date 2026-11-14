@@ -250,13 +250,23 @@ function locationOf(candidate: { path: string; line: number }): string {
  * ranking. What the reader can act on is *which* ones were left out, so the
  * titles go in — those are the search keys they would use to find the code.
  */
-function synthesisGap(synthesis: Synthesis, rendered: LearningPoint[]): string {
+export function synthesisGap(synthesis: Synthesis, rendered: LearningPoint[], lang: Lang): string {
   const shown = synthesis.topFive.length
   const total = rendered.length
-  if (shown >= total) return `全部 ${total} 个已核实的点都写进了报告。`
-
   const chosen = new Set(synthesis.topFive)
   const left = rendered.map((point) => point.title).filter((title) => !chosen.has(title))
+
+  // These lines land in the report's "not read" section, so they are page text and
+  // have to speak the page's language. They used to be Chinese unconditionally: an
+  // English report carried one Chinese line under `skipped:` — found by extracting
+  // every CJK character from a real English run, not by reading the code.
+  if (lang === 'en') {
+    if (shown >= total) return `All ${total} verified points were written into the report.`
+    const head = `The body carries ${shown} of ${total} verified points`
+    return left.length === 0 ? `${head}.` : `${head}. Left out: ${left.join('; ')}.`
+  }
+
+  if (shown >= total) return `全部 ${total} 个已核实的点都写进了报告。`
   const head = `报告正文写了 ${shown} 个点，另有 ${left.length} 个已核实但没有写进正文`
   return left.length === 0 ? `${head}。` : `${head}：${left.join('；')}。`
 }
@@ -563,7 +573,7 @@ export async function runAnalyze(
         line: 0,
         reason: redactReason(
           synthesisFailure === ''
-            ? synthesisGap(synthesis, renderedPoints)
+            ? synthesisGap(synthesis, renderedPoints, lang)
             : synthesisFailure,
         ),
       },

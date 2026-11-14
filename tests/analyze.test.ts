@@ -21,7 +21,7 @@ import path from 'node:path'
 
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 
-import { resolveModelName, runAnalyze } from '../src/commands/analyze.js'
+import { resolveModelName, runAnalyze, synthesisGap } from '../src/commands/analyze.js'
 import { DEFAULT_MODEL } from '../src/writing/client.js'
 import type { LearningPoint, RunManifest } from '../src/contracts/types.js'
 import type { AcquireDeps } from '../src/kernel/acquire.js'
@@ -686,5 +686,34 @@ describe('which model a run uses', () => {
     delete process.env['ANA_MODEL']
     expect(resolveModelName(undefined)).toBe(DEFAULT_MODEL)
     expect(resolveModelName('')).toBe(DEFAULT_MODEL)
+  })
+})
+
+describe('the note about points left out of the body', () => {
+  /**
+   * A real English run had exactly one Chinese line in it: this note. It was built
+   * without a language argument, so `--lang en` produced an English page with one
+   * Chinese sentence under `skipped:`. The fixture reports never reached it because
+   * their synthesiser selects every point, so the "left out" branch never ran.
+   */
+  const points = ['a', 'b', 'c'].map((title) => ({ title }) as LearningPoint)
+
+  it('speaks English when the run asked for English', () => {
+    const text = synthesisGap({ problem: '', topFive: ['a'] } as never, points, 'en')
+    expect(/[\u4e00-\u9fff]/.test(text)).toBe(false)
+    expect(text).toContain('1 of 3')
+    expect(text).toContain('b; c')
+  })
+
+  it('speaks Chinese when the run asked for Chinese', () => {
+    const text = synthesisGap({ problem: '', topFive: ['a'] } as never, points, 'zh')
+    expect(text).toContain('另有 2 个已核实')
+    expect(text).toContain('b；c')
+  })
+
+  it('says so when every point made it in, in both languages', () => {
+    const synthesis = { problem: '', topFive: ['a', 'b', 'c'] } as never
+    expect(synthesisGap(synthesis, points, 'en')).toBe('All 3 verified points were written into the report.')
+    expect(synthesisGap(synthesis, points, 'zh')).toBe('全部 3 个已核实的点都写进了报告。')
   })
 })
