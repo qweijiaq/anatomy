@@ -119,7 +119,12 @@ else
   snapshot_note="snapshot ${snapshot:0:7} predates HEAD"
 fi
 
-if [ -n "$stale" ]; then
+if [ -z "$tests" ]; then
+  # The gate failed before it could report a count, so there is nothing to compare
+  # against. Saying "stale numbers" here invented a second failure out of the first
+  # one — and named a measurement that never happened.
+  line docs "not checked — the gate produced no test count (see the gate line)"
+elif [ -n "$stale" ]; then
   bad docs "stale numbers:$stale (measured: $tests tests, $measure_files files)"
 else
   line docs "README (en/zh), EVIDENCE and PROGRESS say $tests tests / $measure_files files; v$version; $snapshot_note"
