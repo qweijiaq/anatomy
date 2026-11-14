@@ -4,13 +4,13 @@
 
 | | |
 |---|---|
-| 生成于 | 2026-11-14 14:31 |
-| 提交 | `934247efcc25824d10963bb505c20aacc8e1cdb3` |
-| 退出码 | 0 |
-| 当时跟踪的文件数 | 242 |
-| 当时的测试文件数 | 36 |
+| 生成于 | 2026-11-14 14:41 |
+| 提交 | `048325c8ec6cafa31689fe45ca848baef80e7cda` |
+| 退出码 | 1 |
+| 当时跟踪的文件数 | 244 |
+| 当时的测试文件数 | 37 |
 
-一行就能把这份记录钉在树上：`git show 934247efcc25824d10963bb505c20aacc8e1cdb3:package.json | grep version`。
+一行就能把这份记录钉在树上：`git show 048325c8ec6cafa31689fe45ca848baef80e7cda:package.json | grep version`。
 若当前 HEAD 与上面的提交不同，数字就属于旧树，以重跑为准。
 
 ```
@@ -19,45 +19,37 @@
 > bash scripts/verify.sh
 
 == tests ==
-      Tests  798 passed (798)
-   Start at  14:31:05
-   Duration  13.74s (transform 2.97s, setup 0ms, collect 23.63s, tests 45.95s, environment 8ms, prepare 7.20s)
+   ✓ indexPython > runs one interpreter for the whole run, not one per file 384ms
+   ✓ indexPython > speaks utf-8 to an interpreter whose locale codec is not 332ms
+   ✓ indexPython > keeps serving after a file raises during collection 353ms
+ ❯ tests/packaging.test.ts (13 tests | 1 failed) 4314ms
+   ✓ what npm would publish > ships the built CLI and the text, not the working tree 1879ms
+   ✓ what npm would publish > never ships tests, fixtures or eval data 1584ms
+   × what npm would publish > ships the Python sidecar the structure stage needs 836ms
+     → Command failed: npm pack --dry-run --json
+ ✓ tests/cli.test.ts (19 tests) 3205ms
 
-== typecheck ==
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
 
-== build ==
-== stub model ==
-== scan (github) ==
-run 6d40e1d79268  13 files, 2606 lines  nothing excluded
-index.js:105  5  custom-infra
-index.js:120  5  custom-infra
-== analyze (github) ==
-== report (tree deleted) ==
-== inspect ==
-== app ==
-== mcp ==
-  initialize + tools/list + report + scan ok
-== packed package ==
-  installed from tarball, scanned ok, runtime deps: tokenx,typescript
-== sample ==
-# quick-lru
+ FAIL  tests/packaging.test.ts > what npm would publish > ships the Python sidecar the structure stage needs
+Error: Command failed: npm pack --dry-run --json
+ ❯ packed tests/packaging.test.ts:32:15
+     30|     execFileSync('npm', ['run', 'build'], { cwd: ROOT, stdio: 'ignore'…
+     31|   }
+     32|   const out = execFileSync('npm', ['pack', '--dry-run', '--json'], {
+       |               ^
+     33|     cwd: ROOT,
+     34|     encoding: 'utf8',
+ ❯ tests/packaging.test.ts:63:12
 
-## 这次分析在解决什么
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
 
-一个小型工具库，用语言内建结构替代显式的数据结构。
+ Test Files  1 failed | 37 passed (38)
+      Tests  1 failed | 800 passed (801)
+   Start at  14:41:41
+   Duration  6.00s (transform 1.88s, setup 0ms, collect 11.74s, tests 20.50s, environment 18ms, prepare 3.64s)
 
-## 最值得学的 1 件事
-
-1. 用插入顺序维护淘汰顺序，不额外维护链表
-
-## 这次分析的可信度
-
-
-== runs ==
-== forget ==
-SUMMARY: Tests  798 passed | typecheck clean | build ok
-SUMMARY: scan+analyze+report+inspect+forget ok on https://github.com/sindresorhus/quick-lru
-VERIFY: PASS (github, run 1cb3f8b27108, deleted)
+VERIFY: FAIL — tests
 ```
 
-末行：`VERIFY: PASS (github, run 1cb3f8b27108, deleted)`
+末行：`VERIFY: FAIL — tests`

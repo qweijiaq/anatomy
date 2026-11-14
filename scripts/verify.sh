@@ -80,6 +80,13 @@ grep -q '已取证点占比' "$report" || fail "report has no trust numbers"
 grep -q '没看的部分' "$report" || fail "report has no coverage tail"
 grep -qE '^`[^`]+:[0-9]+-[0-9]+`$' "$report" || fail "report cites no path:line"
 
+# `--json` is a second rendering of the same run, and nothing had ever asserted that it
+# is JSON — the flag was advertised and untested.
+node dist/cli.js analyze "$target" --model stub --top 1 --json > "$work/report.json" 2>"$work/json.err" \
+  || fail "analyze --json: $(cat "$work/json.err")"
+node -e 'const d=require(process.argv[1]);if(!Array.isArray(d.points))process.exit(1)' "$work/report.json" \
+  || fail "analyze --json did not print a report document with a points array"
+
 echo "== report (tree deleted) =="
 run_id=$(basename "$run_dir")
 rm -rf "$run_dir/tree"

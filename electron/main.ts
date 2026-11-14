@@ -228,7 +228,11 @@ ipcMain.handle('analysis:run', async (event, payload: unknown) => {
   }
 
   try {
-    send({ phase: 'acquire', detail: repo })
+    // No phase is announced here. `runAnalyze` emits its own — acquire, judge, rank,
+    // synthesise — and announcing "analyse" first made the progress bar move backwards
+    // into "acquire" a moment later. Observed by driving the real window: the sequence
+    // was acquire, analyse, acquire, judge… with the second acquire arriving after
+    // the label had already moved on.
     const client = createModelClient({
       model: config.model,
       baseUrl: config.baseUrl,
@@ -237,7 +241,6 @@ ipcMain.handle('analysis:run', async (event, payload: unknown) => {
       maxRetries: 2,
       timeoutMs: 120_000,
     })
-    send({ phase: 'analyse' })
     const result = await runAnalyze(repo, {
       client,
       top: typeof request?.top === 'number' ? request.top : settings.topN,
