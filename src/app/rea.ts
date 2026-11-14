@@ -272,7 +272,15 @@ export async function findRea(): Promise<ReaLocation> {
     )
   }
 
-  const nodes = [process.execPath, path.join(homedir(), '.local', 'node-v24.22.3-darwin-arm64', 'bin', 'node')]
+  // `ANA_REA_NODE` was named in the error message below for two rounds without ever
+  // being read — the same shape as `$ANA_MODEL`: documented, believed, inert. A
+  // machine whose Node is too old had no way to point at one that is not.
+  const explicitNode = process.env['ANA_REA_NODE']
+  const nodes = [
+    ...(typeof explicitNode === 'string' && explicitNode !== '' ? [explicitNode] : []),
+    process.execPath,
+    path.join(homedir(), '.local', 'node-v24.22.3-darwin-arm64', 'bin', 'node'),
+  ]
   for (const node of nodes) {
     if (!existsSync(node)) continue
     if (!(await nodeVersionOk(node))) continue

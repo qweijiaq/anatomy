@@ -99,6 +99,32 @@ process.stdout.write(first?.theirs.evidence[0].id ?? "")
 node dist/cli.js inspect "$evidence" > "$work/inspect.txt" 2>&1 || fail "inspect"
 grep -qE '^[^ ]+:[0-9]+-[0-9]+$' "$work/inspect.txt" || fail "inspect printed no range"
 
+echo "== app =="
+# The no-source half, end to end: locate REA, spawn it, read its progress off stderr,
+# parse the document, write the evidence file, render the facts report, compare two
+# surveys. `inspect-app`, `app-report` and `app-diff` were the only commands the gate
+# never ran — their tests fed fixtures straight into the adapters, so the path a user
+# takes was never executed. REA is stubbed for the same reason the model is.
+app_src="$work/app-src"
+app_next="$work/app-next"
+mkdir -p "$app_src" "$app_next"
+printf 'module.exports = { main: 1 }\n' > "$app_src/main.js"
+cp "$app_src/main.js" "$app_next/main.js"
+# A second build that differs by one exposed member, so the diff has something to say.
+printf 'module.exports = { extra: 1 }\n' > "$app_next/extra.js"
+ANA_REA="$PWD/scripts/rea-stub.mjs" node dist/cli.js inspect-app "$app_src" --out "$work/app-a" > "$work/app-a.txt" 2>&1 \
+  || fail "inspect-app: $(tail -3 "$work/app-a.txt")"
+grep -q 'stub-app' "$work/app-a.txt" || fail "inspect-app did not name the application"
+ANA_REA="$PWD/scripts/rea-stub.mjs" node dist/cli.js inspect-app "$app_next" --out "$work/app-b" > /dev/null 2>&1 \
+  || fail "inspect-app (second survey)"
+grep -q '事实报告' "$work/app-a/report.md" || fail "the facts report has no opening"
+grep -q 'contextBridge API' "$work/app-a/report.md" || fail "the facts report has no boundary table"
+node dist/cli.js app-report "$work/app-a" > "$work/app-report.txt" 2>&1 || fail "app-report: $(tail -2 "$work/app-report.txt")"
+grep -q 'stub-app' "$work/app-report.txt" || fail "app-report rendered nothing"
+node dist/cli.js app-diff "$work/app-a" "$work/app-b" > "$work/app-diff.txt" 2>&1 || fail "app-diff: $(tail -2 "$work/app-diff.txt")"
+grep -q '两份分析的差异' "$work/app-diff.txt" || fail "app-diff rendered nothing"
+grep -q '暴露成员' "$work/app-diff.txt" || fail "app-diff reported no change although the builds differ"
+
 echo "== mcp =="
 # The new surface gets gate coverage like everything else. `ana mcp` speaks
 # JSON-RPC on stdout, so this drives a real handshake and two tool calls against the

@@ -22,6 +22,9 @@ import {
 } from '../app/rea.js'
 import { renderAppReport } from '../render/app-report.js'
 
+/** Where `inspect-app` leaves a survey, and where `app-report` looks for one. */
+const DEFAULT_APPS_DIR = path.join('.ana', 'apps')
+
 export const INSPECT_APP_USAGE = `Usage: ana inspect-app <dir> [options]
 
 Statically reconstruct a JavaScript/Electron application with REA — no source needed,
@@ -226,7 +229,7 @@ export async function runInspectApp(args: InspectAppArgs): Promise<void> {
   try {
     const report = progressReporter(process.stderr)
     survey = await surveyApplication(target, {
-      outputDir: outDir ?? path.join(process.cwd(), '.ana', 'apps', 'staging'),
+      outputDir: outDir ?? path.join(process.cwd(), DEFAULT_APPS_DIR, 'staging'),
       sourcePaths: args.paths,
       onStart: () => process.stderr.write(`分析 ${target}\n`),
       onProgress: report,
@@ -243,7 +246,7 @@ export async function runInspectApp(args: InspectAppArgs): Promise<void> {
   }
 
   // The digest names the analysis, so the directory is renamed once it is known.
-  const finalDir = outDir ?? path.join(process.cwd(), '.ana', 'apps', slugOf(target, survey.digest))
+  const finalDir = outDir ?? path.join(process.cwd(), DEFAULT_APPS_DIR, slugOf(target, survey.digest))
   if (outDir === null) {
     await mkdir(path.dirname(finalDir), { recursive: true })
     const { rename, rm } = await import('node:fs/promises')
@@ -272,6 +275,36 @@ export async function runInspectApp(args: InspectAppArgs): Promise<void> {
 }
 
 /**
+ * Where a survey lives, given the name `inspect-app` printed.
+ *
+ * The name is relative to the store, not to the shell: `inspect-app` writes to
+ * `.ana/apps/<name>-<digest>/` and prints that path, so `app-report <name>` and
+ * `app-diff <a> <b>` used to fail with "先跑 ana inspect-app" for a survey that was
+ * right there — the message told the reader to look in `.ana/apps` while the code
+ * looked in the current directory.
+ *
+ * An explicit path still wins: someone who passes a directory means that directory.
+ */
+async function findSurvey(name: string): Promise<string | null> {
+  const explicit = path.join(path.resolve(name), 'survey.json')
+  const stored = path.join(path.resolve(DEFAULT_APPS_DIR), name, 'survey.json')
+  for (const candidate of explicit === stored ? [explicit] : [explicit, stored]) {
+    try {
+      await readFile(candidate, 'utf8')
+      return candidate
+    } catch {
+      continue
+    }
+  }
+  return null
+}
+
+function unsurveyedMessage(name: string): string {
+  const tried = [path.resolve(name), path.resolve(DEFAULT_APPS_DIR, name)]
+  return `ana: 没找到 survey.json。找过：${tried.join(' 和 ')}。先跑 ana inspect-app <dir>，它把 survey.json 留在 ${DEFAULT_APPS_DIR}/<name>-<digest>/ 下。\n`
+}
+
+/**
  * `ana app-report <name>` — re-render a survey's facts report.
  *
  * Reads the survey, not the rendered file, so a change to the renderer applies to
@@ -279,15 +312,17 @@ export async function runInspectApp(args: InspectAppArgs): Promise<void> {
  * only thing on disk that matters is `survey.json` and the evidence beside it.
  */
 export async function runAppReport(name: string, io: { out: { write(chunk: string): unknown } }): Promise<void> {
-  const dir = path.resolve(name)
-  const surveyPath = path.join(dir, 'survey.json')
+  const surveyPath = await findSurvey(name)
   let raw: string
+  if (surveyPath === null) {
+    process.stderr.write(unsurveyedMessage(name))
+    process.exitCode = 1
+    return
+  }
   try {
     raw = await readFile(surveyPath, 'utf8')
   } catch {
-    process.stderr.write(
-      `ana: 找不到 ${surveyPath}。先跑 ana inspect-app <dir>，它会把 survey.json 留在 .ana/apps/<name>-<digest>/ 下。\n`,
-    )
+    process.stderr.write(unsurveyedMessage(name))
     process.exitCode = 1
     return
   }
@@ -307,10 +342,15 @@ export async function runAppDiff(
   io: { out: { write(chunk: string): unknown } },
 ): Promise<void> {
   const load = async (dir: string): Promise<AppSurvey | null> => {
+    const found = await findSurvey(dir)
+    if (found === null) {
+      process.stderr.write(unsurveyedMessage(dir))
+      return null
+    }
     try {
-      return JSON.parse(await readFile(path.join(path.resolve(dir), 'survey.json'), 'utf8')) as AppSurvey
+      return JSON.parse(await readFile(found, 'utf8')) as AppSurvey
     } catch {
-      process.stderr.write(`ana: ${path.resolve(dir)} 里没有可读的 survey.json。\n`)
+      process.stderr.write(`ana: ${found} 读不出来。\n`)
       return null
     }
   }

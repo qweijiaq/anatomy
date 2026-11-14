@@ -19,7 +19,7 @@ VERIFY: PASS (github, run <runId>)
 
 | 步骤 | 断言 |
 |---|---|
-| `tests` | 36 个测试文件、795 个测试全过 |
+| `tests` | 37 个测试文件、798 个测试全过 |
 | `typecheck` | 三套 tsconfig（`tsconfig.json` + `tsconfig.test.json` + `tsconfig.desktop.json`）均无诊断 |
 | `build` | 编译成功，且 `python_index.py` 被复制进 `dist/` |
 | `stub model` | 起一个本地 OpenAI 兼容假模型，回显切片里的真实源码行 |
@@ -27,6 +27,7 @@ VERIFY: PASS (github, run <runId>)
 | `analyze` | 写出 `report.md` 等产物；报告含标题、`已取证点占比`、`没看的部分`、`` `path:start-end` `` 证据行 |
 | `report` | 删掉已分析树之后仍能重渲染出报告 |
 | `inspect` | 打印 `path:start-end` 与原文片段；id 或报告里写的那种引用都行 |
+| `app` | 用仓库内的假 REA 跑 `inspect-app` → `app-report` → `app-diff`：定位 REA、读数它的进度、写证据文件、渲染两份报告、比对两次构建 |
 | `mcp` | 用 stdio JSON-RPC 起 server，依次问 `anatomy_scan` / `anatomy_report` / `anatomy_evidence` / `anatomy_forget` |
 | `packed package` | `npm pack` 出来装进空目录：3 个依赖，`ana scan` 能跑 |
 | `sample` | 抽样脚本对真实仓库给出可核对的候选点 |
