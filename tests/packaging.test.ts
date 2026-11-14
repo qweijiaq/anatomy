@@ -11,14 +11,24 @@
  */
 
 import { execFileSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import path from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
 const ROOT = path.resolve(__dirname, '..')
 
-/** Every path `npm pack` would include, from its dry-run listing. */
+/**
+ * Every path `npm pack` would include, from its dry-run listing.
+ *
+ * `dist/` is what ships, so the tarball is only meaningful once it exists: this
+ * builds if a previous `npm run clean` removed it, rather than asserting against a
+ * half-empty package and calling it a packaging bug.
+ */
 function packed(): string[] {
+  if (!existsSync(path.join(ROOT, 'dist', 'cli.js'))) {
+    execFileSync('npm', ['run', 'build'], { cwd: ROOT, stdio: 'ignore', timeout: 180_000 })
+  }
   const out = execFileSync('npm', ['pack', '--dry-run', '--json'], {
     cwd: ROOT,
     encoding: 'utf8',
@@ -116,6 +126,70 @@ describe('runtime dependencies', () => {
     // And nothing heavy rides along silently.
     for (const name of ['electron', 'vite', 'react', 'react-dom']) {
       expect(deps, `${name} must not be a runtime dependency of a CLI`).not.toContain(name)
+    }
+  })
+})
+
+describe('the window bridge', () => {
+  /**
+   * The renderer and the preload script are separate TypeScript programs with
+   * separate tsconfigs, and `renderer/src/api.ts` declares the bridge shape by hand.
+   * Nothing type-checks one against the other, so a method added to the preload and
+   * forgotten in the renderer — or the other way round — compiles clean on both
+   * sides and fails at runtime, in the window, for a user.
+   *
+   * Twenty rounds of work added `report.forget`, `surveys.list`, `surveys.diff` and
+   * `app.pickFolder`. Each was correct, and nothing would have noticed if one had
+   * not been.
+   */
+  it('exposes exactly what the renderer declares', async () => {
+    const { readFileSync } = await import('node:fs')
+    const preload = readFileSync(path.join(ROOT, 'electron/preload.ts'), 'utf8')
+    const api = readFileSync(path.join(ROOT, 'renderer/src/api.ts'), 'utf8')
+
+    /** The namespaces and members of the `api` object literal in preload.ts. */
+    const exposed = new Map<string, Set<string>>()
+    let current: string | null = null
+    for (const line of preload.split('\n')) {
+      const namespace = /^  ([a-z][\w]*): \{$/.exec(line)
+      if (namespace !== null) {
+        current = namespace[1] as string
+        exposed.set(current, new Set())
+        continue
+      }
+      if (line === '  },') {
+        current = null
+        continue
+      }
+      const member = /^    ([a-z][\w]*):/.exec(line)
+      if (current !== null && member !== null) exposed.get(current)?.add(member[1] as string)
+    }
+
+    /** The same, from the `AnaBridge` type the renderer codes against. */
+    const bridgeBlock = /type AnaBridge = \{([\s\S]*?)\n\}/.exec(api)?.[1] ?? ''
+    const declared = new Map<string, Set<string>>()
+    let declaring: string | null = null
+    for (const line of bridgeBlock.split('\n')) {
+      const namespace = /^  ([a-z][\w]*): \{$/.exec(line)
+      if (namespace !== null) {
+        declaring = namespace[1] as string
+        declared.set(declaring, new Set())
+        continue
+      }
+      if (line === '  }') {
+        declaring = null
+        continue
+      }
+      const member = /^    ([a-z][\w]*)[(:]/.exec(line)
+      if (declaring !== null && member !== null) declared.get(declaring)?.add(member[1] as string)
+    }
+
+    // A namespace on one side and not the other is the same failure, larger.
+    expect([...declared.keys()].sort()).toEqual([...exposed.keys()].sort())
+    for (const [namespace, members] of declared) {
+      expect([...(exposed.get(namespace) ?? [])].sort(), `${namespace} drifted`).toEqual(
+        [...members].sort(),
+      )
     }
   })
 })
