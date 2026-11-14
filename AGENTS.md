@@ -9,10 +9,16 @@ state without reading all of `src/` first.
 ## Establish the state
 
 ```bash
+npm run audit       # one command, eight computed lines, one verdict
 npm run typecheck   # three configs: src, tests+eval, renderer+electron
-npm run test        # ~750 tests, no network
-npm run verify      # ten sections: the gate below, plus the docs and git checks
+npm run test        # ~760 tests, no network
+npm run verify      # the gate: tests, typecheck, build, then the CLI end to end
 ```
+
+`audit` runs `verify` and then states the rest: whether the tree is the commit that
+was pushed, whether generated output is tracked, whether the documentation's numbers
+still describe the suite, and whether anything is left as a TODO. Start there — it
+answers "what condition is this in" in one call, and every line is measured.
 
 `npm run verify:record` also writes the run into `.ana/` under a neutral name, so the
 claim "verify passed" has a receipt instead of a memory.

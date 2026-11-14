@@ -29,6 +29,10 @@ That is the whole check. It runs the tests, the typecheck, the build, and then t
 CLI end to end against a local stub model — no API key and no network — and it
 cleans up after itself. Nothing else needs to run to know the repository is sound.
 
+`npm run audit` runs that gate and then states the rest of the condition — the tree
+against the commit that was pushed, the documentation's numbers against the suite,
+anything left as a TODO — in eight lines ending in `AUDIT: READY`.
+
 Do not use `npm run start:desktop` or `npm run dev:*` to verify anything: they open
 a window and never exit.
 
