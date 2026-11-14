@@ -4,26 +4,26 @@
 
 | | |
 |---|---|
-| 生成于 | 2026-11-14 12:18 |
-| 提交 | `1d72da712e8d4edbca0ddd7b60c9d66cecaeecf2` |
+| 生成于 | 2026-11-14 12:37 |
+| 提交 | `3f2e8b5c7da42724f19deeb86a1a03bf3ecb173d` |
 | 工作区 | dirty |
 | 退出码 | 1 |
 
-一行就能把这份记录钉在树上：`git show 1d72da712e8d4edbca0ddd7b60c9d66cecaeecf2:package.json | grep version`。
-若当前 HEAD 与上面的提交不同，先看 `git diff 1d72da7 HEAD --stat`：只动了这份记录，
+一行就能把这份记录钉在树上：`git show 3f2e8b5c7da42724f19deeb86a1a03bf3ecb173d:package.json | grep version`。
+若当前 HEAD 与上面的提交不同，先看 `git diff 3f2e8b5 HEAD --stat`：只动了这份记录，
 结论就仍然成立；动了别的，以重跑为准。
 
 ```
 anatomy audit
 -----------------------------------------------
-gate           VERIFY: PASS (github, run dba118ea116c, deleted)
-tests          785 passed
-tree           FAIL — main at 1d72da7 but upstream is 2aab714
+gate           VERIFY: PASS (github, run 7abcecb7fba0, deleted)
+tests          788 passed
+tree           FAIL — main at 3f2e8b5 but upstream is c542907
 artefacts      none tracked
-docs           README (en/zh), EVIDENCE and PROGRESS say 785 tests / 36 files; v0.1.0; snapshot 1d72da7 describes HEAD's tree
+docs           FAIL — stale numbers: README.md says 789 README.zh-CN.md says 789 docs/superpowers/EVIDENCE.md says 789 docs/superpowers/PROGRESS.md says 789 (measured: 788 tests, 36 files)
 markers        none in src, renderer, electron, scripts
 surface        10 CLI commands, 4 MCP tools
 docs-files     every document named, and every docs/ path they point at
 -----------------------------------------------
-AUDIT: NOT READY — 1 check(s) failed.
+AUDIT: NOT READY — 2 check(s) failed.
 ```
