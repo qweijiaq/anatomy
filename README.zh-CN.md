@@ -155,6 +155,10 @@ npm run eval:recall
 `0.1.0` —— 第一个报告值得读的版本。没有发到 npm：`ana` 从 checkout 跑
 （`npm run build && node dist/cli.js …`）。MCP server 在这一版里，`publish` 不在。
 
+`package.json` 带 `files` 列表，所以万一发布，tarball 是 `dist/` 加两份 README 和
+LICENSE——116 个文件，而不是裸 `npm pack` 会装进去的 336 个（73 个测试文件、
+64 个 eval 样本）。有测试直接问 `npm pack --dry-run`，而不是相信那个字段。
+
 ## 这一版是什么
 
 一句话说清，不留悬空：

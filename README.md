@@ -159,6 +159,11 @@ npm run eval:recall
 from a checkout (`npm run build && node dist/cli.js …`). The MCP server is in this
 version; `publish` is not.
 
+`package.json` carries a `files` list, so if it is ever published the tarball is
+`dist/` plus the READMEs and LICENSE — 116 files, not the 336 a bare `npm pack`
+picked up (73 test files, 64 eval fixtures). A test asks `npm pack --dry-run` rather
+than trusting the field.
+
 ## What this version is
 
 One unambiguous statement, so nothing is left pending a decision:

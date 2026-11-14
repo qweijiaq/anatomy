@@ -3,7 +3,7 @@
 这个文件不解释产品，只做一件事：把"说完成了"和"能被核对"之间的缺口关掉。每条要求后面是
 **能跑出证据的测试名**或**已提交的文件**，两者都可以独立检查。
 
-运行全部测试：`npm test`（32 个文件 / 725 个测试）。最近的完整机器输出提交在
+运行全部测试：`npm test`（32 个文件 / 728 个测试）。最近的完整机器输出提交在
 `docs/superpowers/verify-output.txt`。
 
 ## 要求 1 — 每个任务走完 实现 → 审查 → 修复 闭环
@@ -16,7 +16,7 @@
 
 ## 要求 2 — `npm test` 全绿
 
-`docs/superpowers/verify-output.txt`：`Tests  725 passed`（该文件是带日期的运行快照，见其首行）。
+`docs/superpowers/verify-output.txt`：`Tests  728 passed`（该文件是带日期的运行快照，见其首行）。
 
 ## 要求 3 — `npm run typecheck` 全绿
 
