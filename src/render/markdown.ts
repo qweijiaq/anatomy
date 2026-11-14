@@ -137,6 +137,9 @@ function brief(doc: ReportDocument, L: Labels): string {
   lines.push('')
 
   lines.push(`## ${L.scopeHeading}`, '')
+  // How to check a citation, said once, at the top of the block that introduces
+  // them. Without it the page prints locations nobody can act on.
+  lines.push(L.howToCheck, '')
   if (doc.source !== '') lines.push(`- ${L.source}${L.colon}${proseOr(doc.source, L.unknown)}`)
   lines.push(`- ${L.root}${L.colon}${proseOr(doc.analysis.root, L.unknown)}`)
   lines.push(

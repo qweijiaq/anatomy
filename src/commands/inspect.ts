@@ -19,7 +19,10 @@ import type { Evidence, LearningPoint } from '../contracts/types.js'
 import { DEFAULT_RUNS_DIR } from '../kernel/pipeline.js'
 import { isArtifactName, readRunArtifact } from '../store/runs.js'
 
-export const INSPECT_USAGE = 'Usage: ana inspect <evidenceId>'
+export const INSPECT_USAGE = `Usage: ana inspect <evidenceId | path:start-end>
+
+The id — \`<runId>-<digest>\` — is the stable name; the location is what the report
+prints, so either one works: \`ana inspect lib/store.mjs:7-8\`.`
 
 export type InspectOptions = {
   /** Run directory parent. Defaults to `<cwd>/.ana/runs`. */
@@ -41,10 +44,33 @@ export class InspectUsageError extends Error {
   }
 }
 
+/**
+ * `path:start-end`, the form the report prints.
+ *
+ * The id is a digest — `0c1cd4e7b0ec-3476f2` — and no page shows it, so the only
+ * thing a reader can copy off the report is the location. Accepting both is what
+ * makes the command reachable from the artifact it exists to verify: without this,
+ * `ana inspect lib/store.mjs:7-8` answered "no such evidence", which is true and
+ * useless — the reader had the right line and the wrong spelling.
+ */
+const LOCATION = /^(.+):(\d+)-(\d+)$/
+
+/** A `path:start-end` reference, or `null` when the argument is an id. */
+export function asLocation(evidenceId: string): { path: string; startLine: number; endLine: number } | null {
+  const match = LOCATION.exec(evidenceId)
+  if (match === null) return null
+  const startLine = Number(match[2])
+  const endLine = Number(match[3])
+  if (!Number.isInteger(startLine) || !Number.isInteger(endLine)) return null
+  if (startLine < 1 || endLine < startLine) return null
+  return { path: match[1] as string, startLine, endLine }
+}
+
 /** The id is in no stored point of any run. */
 export class NoSuchEvidenceError extends Error {
   constructor(evidenceId: string, baseDir: string) {
-    super(`anatomy: no such evidence "${evidenceId}" in ${baseDir}`)
+    const hint = asLocation(evidenceId) === null ? '' : ' (a location was given; no run cites it)'
+    super(`anatomy: no such evidence "${evidenceId}"${hint} in ${baseDir}`)
     this.name = 'NoSuchEvidenceError'
   }
 }
@@ -61,7 +87,7 @@ export function parseInspectArgs(argv: string[]): InspectArgs {
     positional.push(arg)
   }
 
-  if (positional.length === 0) throw new InspectUsageError('inspect needs an evidence id')
+  if (positional.length === 0) throw new InspectUsageError('inspect needs an evidence id or a path:start-end')
   if (positional.length > 1) {
     throw new InspectUsageError(`inspect takes one evidence id, got ${positional.length}`)
   }
@@ -123,17 +149,63 @@ export async function findEvidence(
     throw new NoSuchEvidenceError(evidenceId, baseDir)
   }
 
+  const all: Array<{ runId: string; evidence: Evidence }> = []
   for (const runId of entries) {
     for (const point of await pointsOf(baseDir, runId)) {
       const evidence = (point as LearningPoint | undefined)?.theirs?.evidence
       if (!Array.isArray(evidence)) continue
       for (const item of evidence) {
-        if (isEvidence(item) && item.id === evidenceId) return { runId, evidence: item }
+        if (!isEvidence(item)) continue
+        if (item.id === evidenceId) return { runId, evidence: item }
+        all.push({ runId, evidence: item })
       }
     }
   }
 
+  // Not an id — so try the form the report actually prints. More than one run may
+  // cite the same range, and run ids are digests, so their order says nothing about
+  // time; the answer that helps is the most recent run, which is the one whose
+  // report the reader is most likely holding. Ordered by mtime, first match wins.
+  const location = asLocation(evidenceId)
+  if (location !== null) {
+    const matches = all.filter(
+      (hit) =>
+        hit.evidence.path === location.path &&
+        hit.evidence.startLine === location.startLine &&
+        hit.evidence.endLine === location.endLine,
+    )
+    if (matches.length > 0) {
+      const order = await newestFirst(baseDir, matches)
+      return order[0] as { runId: string; evidence: Evidence }
+    }
+  }
+
   throw new NoSuchEvidenceError(evidenceId, baseDir)
+}
+
+/**
+ * The same matches, ordered by how recently their run was written.
+ *
+ * `manifest.json` is written once when a run finishes, so its mtime is the run's
+ * age. A run whose manifest cannot be stated sorts last rather than failing: one
+ * unreadable directory must not hide evidence that is otherwise found.
+ */
+async function newestFirst(
+  baseDir: string,
+  matches: Array<{ runId: string; evidence: Evidence }>,
+): Promise<Array<{ runId: string; evidence: Evidence }>> {
+  const { stat } = await import('node:fs/promises')
+  const stamps = new Map<string, number>()
+  for (const hit of matches) {
+    if (stamps.has(hit.runId)) continue
+    try {
+      const info = await stat(path.join(baseDir, hit.runId, 'manifest.json'))
+      stamps.set(hit.runId, info.mtimeMs)
+    } catch {
+      stamps.set(hit.runId, -1)
+    }
+  }
+  return [...matches].sort((a, b) => (stamps.get(b.runId) ?? -1) - (stamps.get(a.runId) ?? -1))
 }
 
 /** Finds the evidence and, when a writer was given, prints it. */

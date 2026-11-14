@@ -60,7 +60,7 @@ npm run clean                  # 清掉全部构建产物
 ana scan <repo>                  # 零模型调用：告诉你哪里最值得看
 ana analyze <repo> [--top 12]    # 完整分析，产出报告
 ana report <runId>               # 用已存产物重渲染（分析树已删也能出）
-ana inspect <evidenceId>         # 打印某条证据的文件与原文片段
+ana inspect <path:起止行>        # 打印某条证据的原文片段（报告里的引用可直接粘）
 ```
 
 没有源码也行的四条（走 [REA](https://github.com/morluto/rea) 取证，全程不调模型）：

@@ -60,7 +60,7 @@ Four that need source:
 ana scan <repo>                  # zero model calls: tells you where to look
 ana analyze <repo> [--top 12]    # full analysis, writes a report
 ana report <runId>               # re-render from stored artefacts (works after the tree is deleted)
-ana inspect <evidenceId>         # print one piece of evidence: file and verbatim snippet
+ana inspect <path:start-end>     # print one piece of evidence: the snippet the run stored
 ```
 
 Four that do not, via [REA](https://github.com/morluto/rea) — no model called at all:

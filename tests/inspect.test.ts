@@ -16,7 +16,7 @@ import path from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 
 import { runAnalyze } from '../src/commands/analyze.js'
-import { parseInspectArgs, runInspect } from '../src/commands/inspect.js'
+import { asLocation, findEvidence, formatEvidence, parseInspectArgs, runInspect } from '../src/commands/inspect.js'
 import type { Evidence, LearningPoint } from '../src/contracts/types.js'
 import {
   artifact,
@@ -128,5 +128,70 @@ describe('parseInspectArgs', () => {
 
   it('refuses a flag it does not have', () => {
     expect(() => parseInspectArgs(['--id', 'ev-1'])).toThrow(/unknown option/)
+  })
+})
+
+describe('a citation the reader can actually copy', () => {
+  /**
+   * The report prints `path:start-end` and no page shows the digest id. So the only
+   * string a doubting reader could hand to this command was the one form it rejected:
+   * `ana inspect lib/store.mjs:7-8` answered "no such evidence" — true, and useless.
+   * The command existed to verify the report and could not be reached from it.
+   */
+  const evidence: Evidence = {
+    id: 'aaaa1111-3476f2',
+    path: 'lib/store.mjs',
+    startLine: 7,
+    endLine: 8,
+    snippet: "export const FEEDBACK_STATUSES = ['new', 'accepted']",
+  }
+
+  it('takes the form the report prints', async () => {
+    const baseDir = temporaryDir('ana-inspect-location-')
+    storedRun(baseDir, 'run-a', { evidence })
+
+    const text = await runInspect('lib/store.mjs:7-8', { baseDir })
+    expect(text).toBe(formatEvidence(evidence))
+  })
+
+  it('says which of the two things went wrong', async () => {
+    const baseDir = temporaryDir('ana-inspect-miss-')
+    storedRun(baseDir, 'run-a', { evidence })
+
+    // A location nothing cites: the right spelling, the wrong lines.
+    await expect(runInspect('lib/store.mjs:9999-10000', { baseDir })).rejects.toThrow(/location was given/)
+    // A bare string is not a location, so the message must not imply it was one.
+    await expect(runInspect('zzzz', { baseDir })).rejects.not.toThrow(/location/)
+  })
+
+  it('prefers the most recent run when two cite the same range', async () => {
+    const baseDir = temporaryDir('ana-inspect-newest-')
+    storedRun(baseDir, 'run-old', { evidence: { ...evidence, id: 'oldold00-111111', snippet: 'old' } })
+    storedRun(baseDir, 'run-new', { evidence: { ...evidence, id: 'newnew00-222222', snippet: 'new' } })
+
+    // Ids are digests and sort arbitrarily, so age can only come from the manifest.
+    const { utimes } = await import('node:fs/promises')
+    await utimes(
+      path.join(baseDir, 'run-new', 'manifest.json'),
+      new Date('2026-11-01T00:00:00Z'),
+      new Date('2026-11-01T00:00:00Z'),
+    )
+    await utimes(
+      path.join(baseDir, 'run-old', 'manifest.json'),
+      new Date('2026-10-01T00:00:00Z'),
+      new Date('2026-10-01T00:00:00Z'),
+    )
+
+    const hit = await findEvidence('lib/store.mjs:7-8', { baseDir })
+    expect(hit.runId).toBe('run-new')
+    expect(hit.evidence.snippet).toBe('new')
+  })
+
+  it('parses only a real range', () => {
+    expect(asLocation('lib/a.mjs:7-8')).toEqual({ path: 'lib/a.mjs', startLine: 7, endLine: 8 })
+    expect(asLocation('0c1cd4e7b0ec-3476f2')).toBeNull()
+    expect(asLocation('lib/a.mjs:7')).toBeNull()
+    expect(asLocation('lib/a.mjs:0-1')).toBeNull()
+    expect(asLocation('lib/a.mjs:9-2')).toBeNull()
   })
 })

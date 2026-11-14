@@ -176,7 +176,7 @@ Commands:
   scan <repo>        Analyse a repository and list candidate signals (no model calls)
   analyze <repo>     Full analysis: report with evidence-backed learning points
   report <runId>     Re-render a previous run without re-running analysis
-  inspect <evId>     Print the source behind one evidence id
+  inspect <ref>      Print the source behind one citation (id or path:start-end)
   inspect-app <dir>  Reconstruct a JS/Electron app from shipped artifacts, via REA
   app-report <name>  Re-render the facts report of a reconstructed application
   app-diff <a> <b>   Compare two surveys: what changed on the boundary

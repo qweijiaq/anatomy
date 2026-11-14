@@ -19,13 +19,13 @@ VERIFY: PASS (github, run <runId>)
 
 | 步骤 | 断言 |
 |---|---|
-| `npm test` | 35 个测试文件、755 个测试全过 |
+| `npm test` | 35 个测试文件、759 个测试全过 |
 | `npm run typecheck` | 三套 tsconfig（`tsconfig.json` + `tsconfig.test.json` + `tsconfig.desktop.json`）均无诊断 |
 | `npm run build` | 编译成功，且 `python_index.py` 被复制进 `dist/` |
 | `ana scan <真实仓库>` | 取回 GitHub 归档，输出 `path:line` 形式的候选 |
 | `ana analyze` | 写出 `report.md` 等产物；报告含标题、`已取证点占比`、`没看的部分`、以及 `` `path:start-end` `` 证据行 |
 | 删除已分析树后 `ana report` | 仍能重渲染出报告 |
-| `ana inspect <evidenceId>` | 打印 `path:start-end` 与原文片段 |
+| `ana inspect <ref>` | 打印 `path:start-end` 与原文片段；id 或报告里的引用都行 |
 
 模型由仓库内的 `scripts/verify-stub.mjs` 提供（本地 OpenAI 兼容实现，回显切片中的真实源码行），因此**不需要任何 provider key**，结果确定可复现。脚本坚持让产品自己的校验器对着磁盘字节核对引用。网络不可用时自动退回 `tests/fixtures/scan-repo` 并在输出里标明 `(fixture)`，不会静默通过。
 
