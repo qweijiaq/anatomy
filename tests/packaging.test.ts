@@ -222,3 +222,33 @@ describe('the packaged renderer is sandboxed by a policy', () => {
     expect(policy).toContain("object-src 'none'")
   })
 })
+
+describe('every source file is typechecked by some config', () => {
+  /**
+   * Found by planting a type error in `electron/main.ts` and watching `typecheck`
+   * pass. `tsconfig.json` covers `src`, `tsconfig.test.json` covers `src`/`tests`/
+   * `eval`, and `tsconfig.desktop.json` covered only `renderer/src` — so the entire
+   * `electron/` directory, four files including the main process and the preload
+   * bridge, was never type-checked. `npm run build:desktop` bundles it with esbuild,
+   * which strips types without reading them.
+   *
+   * A directory that no config includes is worse than a failing check: it looks
+   * covered, and everything in it can be wrong.
+   */
+  it('has no directory outside all three configs', async () => {
+    const { readdirSync, readFileSync } = await import('node:fs')
+    const configs = ['tsconfig.json', 'tsconfig.test.json', 'tsconfig.desktop.json'].map((name) => {
+      const raw = readFileSync(path.join(ROOT, name), 'utf8').replace(/\/\/.*$/gm, '')
+      return (JSON.parse(raw) as { include?: string[] }).include ?? []
+    })
+    const included = (dir: string): boolean =>
+      configs.some((roots) => roots.some((root) => dir === root || dir.startsWith(`${root}/`)))
+
+    // Only directories that actually hold TypeScript. `scripts/` is `.mjs` and is
+    // deliberately outside every config; listing it would fail for the right reason
+    // in the wrong place.
+    for (const dir of ['src', 'electron', 'renderer/src', 'tests', 'eval']) {
+      expect(included(dir), `${dir} holds TypeScript and is in no tsconfig include`).toBe(true)
+    }
+  })
+})
