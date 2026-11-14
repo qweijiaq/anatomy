@@ -89,6 +89,16 @@ export type JudgeDeps = {
   /** Maximum number of candidates to judge. The rest are reported, not hidden. */
   limit?: number
   /**
+   * Called once per distinct provider failure, with what the provider actually said.
+   *
+   * The report records "model request failed: HTTP 400" and no more, because provider
+   * bodies are untrusted text that ends up in a document. The person running the
+   * command is not a document, and a status code with no explanation is not a
+   * diagnosis — it is what made a real DeepSeek run unreadable until the body was
+   * fetched by hand.
+   */
+  onProviderError?: (detail: { status: number | null; excerpt: string }) => void
+  /**
    * Prefix for the evidence ids minted by `validatePoints`. Required: a default
    * here would stamp every id in every report with a run that never happened.
    */
@@ -721,6 +731,9 @@ export async function judgeCandidates(deps: JudgeDeps): Promise<JudgeResult> {
         // failure. Another attempt here would multiply the latency, not the odds.
         if (error instanceof ModelRequestError) {
           lastReason = error.message
+          if (error.detail !== '') {
+            deps.onProviderError?.({ status: error.status, excerpt: error.detail })
+          }
           break
         }
         lastReason = `model call failed: ${messageOf(error)}`

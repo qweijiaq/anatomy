@@ -23,6 +23,24 @@
 
 export type Usage = { in: number; out: number }
 
+/**
+ * A short, single-line description of a failed response, for the terminal.
+ *
+ * Bounded because provider bodies can quote the request back, collapsed because an
+ * error is one line, and never empty because "HTTP 400" on its own has already cost
+ * one debugging session.
+ */
+async function readErrorExcerpt(response: Response): Promise<string> {
+  let text = ''
+  try {
+    text = await response.text()
+  } catch {
+    return ''
+  }
+  const collapsed = text.replace(/\s+/g, ' ').trim()
+  return collapsed.length <= 300 ? collapsed : `${collapsed.slice(0, 300)}…`
+}
+
 export type ModelRequest = { system: string; user: string; schema: object }
 
 export type ModelResponse = { json: unknown; usage: Usage }
@@ -82,15 +100,21 @@ export class MissingCredentialsError extends Error {
 export class ModelRequestError extends Error {
   readonly retryable: boolean
   readonly status: number | null
+  /**
+   * What the provider said, bounded and on one line — for the terminal, never for a
+   * report. `message` stays the status because that is what gets published.
+   */
+  readonly detail: string
 
   constructor(
     message: string,
-    options: { retryable: boolean; status?: number | null; cause?: unknown },
+    options: { retryable: boolean; status?: number | null; cause?: unknown; detail?: string },
   ) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause })
     this.name = 'ModelRequestError'
     this.retryable = options.retryable
     this.status = options.status ?? null
+    this.detail = options.detail ?? ''
   }
 }
 
@@ -394,10 +418,19 @@ export function createModelClient(cfg: ModelClientConfig = {}): ModelClient {
           const retryable = response.status === 429 || response.status >= 500
           // The status is the part of the failure that is ours to publish. The
           // body is provider text, sometimes echoed request content, and it is
-          // copied verbatim into the run report by later stages, so it stays out.
+          // copied verbatim into the run report by later stages, so `message` stays
+          // the status alone.
+          //
+          // It is still the only description of the problem that exists. Without it
+          // a 400 from a provider reads "HTTP 400" and nothing else, which is not a
+          // diagnosis — running this against DeepSeek produced eight of those and no
+          // way to tell a bad key from a rejected parameter. So a bounded, single-line
+          // excerpt rides along as `detail`, printed to the terminal and never into
+          // the report.
           const error = new ModelRequestError(`model request failed: HTTP ${response.status}`, {
             retryable,
             status: response.status,
+            detail: await readErrorExcerpt(response),
           })
           // A 401 or a 400 will fail again identically: spend no more tokens.
           if (!retryable) throw error

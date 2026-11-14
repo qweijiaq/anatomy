@@ -21,7 +21,8 @@ import path from 'node:path'
 
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 
-import { runAnalyze } from '../src/commands/analyze.js'
+import { resolveModelName, runAnalyze } from '../src/commands/analyze.js'
+import { DEFAULT_MODEL } from '../src/writing/client.js'
 import type { LearningPoint, RunManifest } from '../src/contracts/types.js'
 import type { AcquireDeps } from '../src/kernel/acquire.js'
 import type { Run } from '../src/store/runs.js'
@@ -650,5 +651,40 @@ describe('runAnalyze', () => {
       expect(manifest.status).toBe('failed')
       expect(manifest.completedAt).toBeUndefined()
     }
+  })
+})
+
+describe('which model a run uses', () => {
+  /**
+   * `--model` > `$ANA_MODEL` > the built-in default, which is what the usage text says
+   * and what did not happen. `runAnalyze` resolved the model with
+   * `opts.model ?? DEFAULT_MODEL` and passed the result as an explicit value, so the
+   * client never consulted the environment: every run used `gpt-4o-mini` no matter
+   * what `ANA_MODEL` said.
+   *
+   * Found by pointing a real run at DeepSeek, which answered HTTP 400 once per
+   * candidate — "you passed gpt-4o-mini" — and produced an empty report. No test could
+   * see it because tests inject a client and never reach this branch.
+   */
+  const original = process.env['ANA_MODEL']
+  afterEach(() => {
+    if (original === undefined) delete process.env['ANA_MODEL']
+    else process.env['ANA_MODEL'] = original
+  })
+
+  it('prefers the flag', () => {
+    process.env['ANA_MODEL'] = 'from-env'
+    expect(resolveModelName('from-flag')).toBe('from-flag')
+  })
+
+  it('falls back to $ANA_MODEL', () => {
+    process.env['ANA_MODEL'] = 'from-env'
+    expect(resolveModelName(undefined)).toBe('from-env')
+  })
+
+  it('falls back to the built-in default only when nothing else is set', () => {
+    delete process.env['ANA_MODEL']
+    expect(resolveModelName(undefined)).toBe(DEFAULT_MODEL)
+    expect(resolveModelName('')).toBe(DEFAULT_MODEL)
   })
 })

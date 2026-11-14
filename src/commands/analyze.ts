@@ -94,6 +94,22 @@ export const BUDGET_CUT_REASON = 'cut by token budget'
 const SLICE_COST_CHARS = 8_000
 const SLICE_PADDING = 'x'.repeat(SLICE_COST_CHARS)
 
+/**
+ * `--model`, then `$ANA_MODEL`, then the built-in default — the order the usage text
+ * has always promised, and which did not hold.
+ *
+ * This line used to read `opts.model ?? DEFAULT_MODEL` and hand the result to
+ * `createModelClient` as an explicit value, so the client's own fallback to
+ * `$ANA_MODEL` never ran: every run used `gpt-4o-mini` whatever the environment said.
+ * Pointed at DeepSeek that is HTTP 400 ("you passed gpt-4o-mini") once per candidate,
+ * and the report came back empty with nothing saying why.
+ */
+export function resolveModelName(explicit: string | undefined): string {
+  if (typeof explicit === 'string' && explicit !== '') return explicit
+  const fromEnv = process.env['ANA_MODEL']
+  return typeof fromEnv === 'string' && fromEnv !== '' ? fromEnv : DEFAULT_MODEL
+}
+
 export type AnalyzeOptions = {
   /** Model name; also what the budget is clamped against. */
   model?: string
@@ -125,6 +141,11 @@ export type AnalyzeOptions = {
    * still produces the same report, so a dropped callback cannot change output.
    */
   onStage?: (stage: AnalyzeStage) => void
+  /**
+   * What the provider said when a request failed. The run's artifacts record the
+   * status code only; this is for whatever surface the caller owns.
+   */
+  onProviderError?: (detail: { status: number | null; excerpt: string }) => void
   /**
    * Injected acquisition dependencies, so tests never touch the network.
    *
@@ -404,7 +425,7 @@ export async function runAnalyze(
   opts: AnalyzeOptions = {},
 ): Promise<AnalyzeResult> {
   const lang: Lang = opts.lang ?? 'zh'
-  const model = opts.model ?? DEFAULT_MODEL
+  const model = resolveModelName(opts.model)
 
   // The two things the run cannot do without are settled before it acquires
   // anything: a caller with no key, or a model whose budget cannot be clamped,
@@ -450,6 +471,7 @@ export async function runAnalyze(
     const cut = scanned.candidates.filter((candidate) => !affordable.has(candidate))
 
     opts.onStage?.({ stage: 'judge', done: 0, total: fitted.kept.length })
+    const seenProviderErrors = new Set<string>()
     const judged = await judgeCandidates({
       client,
       root: scanned.root,
@@ -458,6 +480,14 @@ export async function runAnalyze(
       lang,
       runId: scanned.runId,
       onCandidate: (done, total, path) => opts.onStage?.({ stage: 'judge', done, total, detail: path }),
+      // Printed once per distinct provider failure. Without this a rejected request
+      // is a status code and nothing else — the terminal is the one place the
+      // provider's own words can go, since the report cannot carry them.
+      onProviderError: (detail) => {
+        if (seenProviderErrors.has(detail.excerpt)) return
+        seenProviderErrors.add(detail.excerpt)
+        opts.onProviderError?.(detail)
+      },
       // The budget already decided how many candidates there are; the judge must
       // not add a second, invisible cut on top of it.
       limit: fitted.kept.length,

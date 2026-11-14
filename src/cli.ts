@@ -268,7 +268,14 @@ export async function runCli(
         return 0
       }
       try {
-        const result = await runAnalyze(args.input, args.options)
+        const result = await runAnalyze(args.input, {
+          ...args.options,
+          // The provider's own words, once per distinct failure. The report records
+          // the status only; this is the terminal's copy.
+          onProviderError: ({ status, excerpt }) => {
+            io.err.write(`ana: provider said${status === null ? '' : ` (HTTP ${status})`}: ${excerpt}\n`)
+          },
+        })
         if (args.json) {
           const jsonPath = result.reportPath.replace(/report\.md$/, 'report.json')
           io.out.write(`${await readFile(jsonPath, 'utf8')}\n`)
