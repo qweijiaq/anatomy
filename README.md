@@ -180,7 +180,7 @@ packages, and `ana scan` works.
 
 One unambiguous statement, so nothing is left pending a decision:
 
-- eight commands, all usable; `npm run verify` is the single gate (709 tests, three
+- nine commands, all usable; `npm run verify` is the single gate (759 tests, three
   tsconfigs, and the CLI end to end against a local stub model)
 - a repository **with** source: design notes where every claim cites a line and is
   checked against the bytes on disk; anything unverifiable never reaches the page

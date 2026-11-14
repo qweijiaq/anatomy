@@ -43,7 +43,8 @@ and nothing in `src/` reads it. `npm run clean` removes it.
 
 - `docs/superpowers/PROGRESS.md` — what was built and why, in order.
 - `docs/superpowers/EVIDENCE.md` — what each claim rests on.
-- `docs/architecture.md` — the data flow from `survey` to `synthesize` to a report.
+- `docs/superpowers/specs/2026-11-12-anatomy-design.md` — the design: the data flow from
+  `survey` to `synthesize` to a report, and the decisions behind it.
 - `docs/desktop.md` — the window, what it deliberately does not do, and why.
 - `docs/decisions/` — the choices that had alternatives.
 

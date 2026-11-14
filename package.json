@@ -38,7 +38,8 @@
     "dev:desktop": "ANA_DEV_SERVER=http://127.0.0.1:5199 node run-electron.mjs",
     "start:desktop": "npm run build:desktop && node run-electron.mjs",
     "dev:renderer": "vite --config vite.config.ts --host 127.0.0.1",
-    "verify:record": "bash scripts/record-verify.sh"
+    "verify:record": "bash scripts/record-verify.sh",
+    "audit": "bash scripts/audit.sh"
   },
   "dependencies": {
     "tokenx": "^0.4.1",
