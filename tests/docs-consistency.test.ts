@@ -293,3 +293,29 @@ describe('the audit cannot quietly lose a line', () => {
     expect(audit()).toContain('verify-output.txt')
   })
 })
+
+describe('a document that names a path is naming something', () => {
+  /**
+   * `AGENTS.md` pointed at `docs/architecture.md` and then at `docs/decisions/`. Neither
+   * exists. Both times the audit's `docs-files` check passed, because it listed the
+   * files it knew about instead of reading the paths out of the documents.
+   *
+   * The rule: a `docs/...` path named in a handoff document must exist. Anything under
+   * `out/` or `.ana/` is produced by running the project and is not expected.
+   */
+  it('every docs/ path named in README or AGENTS exists', async () => {
+    const { existsSync } = await import('node:fs')
+    const missing: string[] = []
+
+    for (const doc of ['README.md', 'README.zh-CN.md', 'AGENTS.md', 'docs/desktop.md']) {
+      const text = read(doc)
+      for (const match of text.matchAll(/`(docs\/[A-Za-z0-9_./-]+)`/g)) {
+        const target = match[1] as string
+        if (target.includes('out/')) continue
+        if (!existsSync(path.join(ROOT, target))) missing.push(`${doc} names ${target}`)
+      }
+    }
+
+    expect(missing, missing.join('; ')).toEqual([])
+  })
+})

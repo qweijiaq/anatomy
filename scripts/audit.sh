@@ -139,15 +139,33 @@ commands=$(node dist/cli.js --help 2>/dev/null | sed -n '/^Commands:/,/^Options:
 tools=$(grep -ohE "name: 'anatomy_[a-z_]+'" src/commands/mcp.ts 2>/dev/null | wc -l | tr -d ' ')
 line surface "$commands CLI commands, $tools MCP tools"
 
-# 7. The documents a handoff rests on.
+# 7. The documents a handoff rests on — and every `docs/` path they point at.
+#
+# Listing the files this script happens to know about was not enough: AGENTS.md
+# pointed twice at documents that did not exist (`docs/architecture.md` and
+# `docs/decisions/`), and each time the list was satisfied. So the paths are read out
+# of the documents themselves.
 missing=""
 for doc in README.md README.zh-CN.md AGENTS.md docs/desktop.md docs/superpowers/PROGRESS.md docs/superpowers/EVIDENCE.md docs/superpowers/specs/2026-11-12-anatomy-design.md; do
   [ -f "$doc" ] || missing="$missing $doc"
 done
+
+# A `docs/...` path named in a handoff document must exist. Paths under `out/` and
+# `.ana/` are produced by running the project, so they are not expected here.
+for doc in README.md README.zh-CN.md AGENTS.md docs/desktop.md; do
+  [ -f "$doc" ] || continue
+  for path in $(grep -oE '`docs/[A-Za-z0-9_./-]+`' "$doc" | tr -d '`' | sort -u); do
+    case "$path" in
+      *out/*|\.ana/*) continue ;;
+    esac
+    [ -e "$path" ] || missing="$missing $path (named in $doc)"
+  done
+done
+
 if [ -n "$missing" ]; then
   bad docs-files "missing:$missing"
 else
-  line docs-files "README (en/zh), AGENTS, design spec, desktop, progress, evidence"
+  line docs-files "every document named, and every docs/ path they point at"
 fi
 
 echo "-----------------------------------------------"

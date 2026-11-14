@@ -45,6 +45,26 @@ and nothing in `src/` reads it. `npm run clean` removes it.
   — each comes from a command in this file or from `git`. If a change moves one, the
   command that shows it moves in the same commit.
 
+## What is claimed, and what proves it
+
+Every row is checkable without trusting this file. The left column is what the project
+says about itself; the right column is where that claim can be falsified.
+
+| Claim | Falsified by |
+|---|---|
+| 766 tests pass in 36 files | `npm test`, or `docs/superpowers/verify-output.txt` for the recorded run |
+| Typecheck is clean in three configs | `npm run typecheck` (src, tests+eval, renderer+electron) |
+| The CLI works end to end with no API key | `npm run verify` — `scripts/verify.sh`, twelve sections, local stub model |
+| Every citation points at the line it names | `tests/evidence.test.ts`; `ana inspect <path:start-end>` re-reads it |
+| The analysed repository's code is never executed | `tests/structure-python.test.ts`, `tests/acquire.test.ts` |
+| The documentation's numbers match the artifacts | `tests/docs-consistency.test.ts`, and the `docs` line of `npm run audit` |
+| The window's bridge cannot drift from the preload | `tests/packaging.test.ts` |
+| The MCP server serves four tools | `tests/mcp.test.ts`, and the `mcp` section of the gate |
+| A clean checkout reproduces all of it | `docs/superpowers/EVIDENCE.md`, section "Clean checkout" |
+| Candidate recall is 61% | `npm run eval:recall` — 55 of 90 annotated points |
+
+If a row here and a command disagree, the command is right and this file is the defect.
+
 ## Where the reasoning lives
 
 - `docs/superpowers/PROGRESS.md` — what was built and why, in order.
@@ -52,7 +72,9 @@ and nothing in `src/` reads it. `npm run clean` removes it.
 - `docs/superpowers/specs/2026-11-12-anatomy-design.md` — the design: the data flow from
   `survey` to `synthesize` to a report, and the decisions behind it.
 - `docs/desktop.md` — the window, what it deliberately does not do, and why.
-- `docs/decisions/` — the choices that had alternatives.
+- The rulings that had alternatives are in the design spec above, under its decisions
+  section; there is no separate `decisions/` directory, and saying there was cost a
+  reader a lookup that returned nothing.
 
 ## Known limits, stated rather than hidden
 
