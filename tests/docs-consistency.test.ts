@@ -63,3 +63,69 @@ describe('documentation matches the artifacts', () => {
     expect(read('README.md')).toContain(`\`${version}\``)
   })
 })
+
+describe('the README command list matches the CLI', () => {
+  /**
+   * The README's command block is the first thing a reader copies from, and it is
+   * hand-maintained. A command added to the CLI and not to the list is invisible; a
+   * command listed and not dispatched sends the reader to an error message.
+   *
+   * Extracted from the fenced `bash` block, so prose mentioning a command does not
+   * count as documenting it.
+   */
+  function readmeCommands(): Set<string> {
+    const names = new Set<string>()
+    for (const file of ['README.md']) {
+      const text = read(file)
+      // All fenced blocks: the command list is split across two of them (those that
+      // need source, those that do not), so reading only the first finds none.
+      for (const block of text.matchAll(/```bash\n([\s\S]*?)```/g)) {
+        for (const match of (block[1] as string).matchAll(/^ana ([a-z][a-z-]*)/gm)) {
+          names.add(match[1] as string)
+        }
+      }
+    }
+    return names
+  }
+
+  /** The command names the CLI's own usage text advertises. */
+  function cliCommands(): Set<string> {
+    const usage = /const USAGE = `Usage: ana <command> \[options\]([\s\S]*?)`/.exec(read('src/cli.ts'))?.[1] ?? ''
+    const names = new Set<string>()
+    for (const match of usage.matchAll(/^ {2}([a-z][a-z-]*)(?: |$)/gm)) names.add(match[1] as string)
+    return names
+  }
+
+  it('documents every command the CLI advertises', () => {
+    const documented = readmeCommands()
+    for (const command of cliCommands()) {
+      expect(documented, `README does not list \`ana ${command}\``).toContain(command)
+    }
+  })
+
+  it('lists no command the CLI does not advertise', () => {
+    const advertised = cliCommands()
+    for (const command of readmeCommands()) {
+      expect(advertised, `README lists \`ana ${command}\` but the CLI does not`).toContain(command)
+    }
+  })
+})
+
+describe('no test file is silently empty', () => {
+  /**
+   * A test file with no `it()` passes, and the suite count drops without anything
+   * complaining — the same shape as a gate whose assertion was deleted. This is
+   * cheap and it only fires when a file was emptied rather than trimmed.
+   */
+  it('every test file asserts something', async () => {
+    const { readdirSync, readFileSync } = await import('node:fs')
+    const files = readdirSync(path.join(ROOT, 'tests'))
+      .filter((name) => name.endsWith('.test.ts'))
+      .sort()
+    expect(files.length).toBeGreaterThan(30)
+    for (const name of files) {
+      const text = readFileSync(path.join(ROOT, 'tests', name), 'utf8')
+      expect(/(^|\s)(it|test)\(/.test(text), `tests/${name} contains no test`).toBe(true)
+    }
+  })
+})
