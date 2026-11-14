@@ -4,13 +4,13 @@
 
 | | |
 |---|---|
-| 生成于 | 2026-11-14 10:26 |
-| 提交 | `4100ea03e546f57bf4b04ea86b12313fbbedbf91` |
+| 生成于 | 2026-11-14 10:35 |
+| 提交 | `c26849d4a480d63f91ccf27b31cfb810a0af4eb7` |
 | 退出码 | 0 |
 | 当时跟踪的文件数 | 234 |
 | 当时的测试文件数 | 35 |
 
-一行就能把这份记录钉在树上：`git show 4100ea03e546f57bf4b04ea86b12313fbbedbf91:package.json | grep version`。
+一行就能把这份记录钉在树上：`git show c26849d4a480d63f91ccf27b31cfb810a0af4eb7:package.json | grep version`。
 若当前 HEAD 与上面的提交不同，数字就属于旧树，以重跑为准。
 
 ```
@@ -19,16 +19,16 @@
 > bash scripts/verify.sh
 
 == tests ==
-      Tests  749 passed (749)
-   Start at  10:26:08
-   Duration  4.24s (transform 1.42s, setup 0ms, collect 8.45s, tests 15.32s, environment 4ms, prepare 2.82s)
+      Tests  755 passed (755)
+   Start at  10:35:46
+   Duration  3.93s (transform 1.16s, setup 0ms, collect 7.89s, tests 14.71s, environment 5ms, prepare 2.37s)
 
 == typecheck ==
 
 == build ==
 == stub model ==
 == scan (github) ==
-run a5d0671bbcb2  13 files, 2606 lines  nothing excluded
+run 2f569c68fccb  13 files, 2606 lines  nothing excluded
 index.js:105  5  custom-infra
 index.js:120  5  custom-infra
 == analyze (github) ==
@@ -53,9 +53,9 @@ index.js:120  5  custom-infra
 
 
 == forget ==
-SUMMARY: Tests  749 passed | typecheck clean | build ok
+SUMMARY: Tests  755 passed | typecheck clean | build ok
 SUMMARY: scan+analyze+report+inspect+forget ok on https://github.com/sindresorhus/quick-lru
-VERIFY: PASS (github, run 8a04fd6d6dcf, deleted)
+VERIFY: PASS (github, run ca838c0c333d, deleted)
 ```
 
-末行：`VERIFY: PASS (github, run 8a04fd6d6dcf, deleted)`
+末行：`VERIFY: PASS (github, run ca838c0c333d, deleted)`

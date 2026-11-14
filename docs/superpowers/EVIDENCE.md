@@ -16,7 +16,7 @@
 
 ## 要求 2 — `npm test` 全绿
 
-`docs/superpowers/verify-output.txt`：`Tests  749 passed`（该文件是带日期的运行快照，见其首行）。
+`docs/superpowers/verify-output.txt`：`Tests  755 passed`（该文件是带日期的运行快照，见其首行）。
 
 ## 要求 3 — `npm run typecheck` 全绿
 

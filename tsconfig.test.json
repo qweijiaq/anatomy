@@ -8,7 +8,7 @@
   // nothing in `src` imports it, and the base config's `rootDir: src` cannot hold
   // it. This config already widens rootDir to the project, so it typechecks it
   // here rather than in a third tsconfig.
-  "include": ["src", "tests", "eval", "vitest.config.ts"],
+    "include": ["src", "tests", "eval", "vitest.config.ts"],
   // Fixtures are raw bytes on purpose (lone CR, invalid UTF-8, BOM) and are never
   // imported by tests, only read by path. Typechecking them yields a bogus
   // TS1490 "File appears to be binary" plus parser noise instead of signal.
