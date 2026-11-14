@@ -4,23 +4,23 @@
 
 | | |
 |---|---|
-| 生成于 | 2026-11-14 14:41 |
-| 提交 | `76f5f5a5ab644ea4f24a2472a59294dbfa2e592c` |
+| 生成于 | 2026-11-14 14:45 |
+| 提交 | `f226b4887720e409e88813112fb077e868abc33d` |
 | 工作区 | clean |
 | 退出码 | 1 |
 
-一行就能把这份记录钉在树上：`git show 76f5f5a5ab644ea4f24a2472a59294dbfa2e592c:package.json | grep version`。
-若当前 HEAD 与上面的提交不同，先看 `git diff 76f5f5a HEAD --stat`：只动了这份记录，
+一行就能把这份记录钉在树上：`git show f226b4887720e409e88813112fb077e868abc33d:package.json | grep version`。
+若当前 HEAD 与上面的提交不同，先看 `git diff f226b48 HEAD --stat`：只动了这份记录，
 结论就仍然成立；动了别的，以重跑为准。
 
 ```
 anatomy audit
 -----------------------------------------------
-gate           VERIFY: PASS (github, run ce702ea3910c, deleted)
+gate           VERIFY: PASS (github, run 74279ee850b6, deleted)
 tests          801 passed
-tree           FAIL — main at 76f5f5a but upstream is 048325c
+tree           FAIL — main at f226b48 but upstream is 0514bb9
 artefacts      none tracked
-docs           README (en/zh), EVIDENCE and PROGRESS say 801 tests / 38 files; v0.1.0; snapshot 048325c predates HEAD
+docs           README (en/zh), EVIDENCE and PROGRESS say 801 tests / 38 files; v0.1.0; snapshot 0514bb9 predates HEAD
 markers        none in src, renderer, electron, scripts
 surface        10 CLI commands, 4 MCP tools
 docs-files     every document named, and every docs/ path they point at
