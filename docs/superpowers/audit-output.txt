@@ -1,0 +1,29 @@
+# audit 输出 — 快照
+
+**这是一次运行的历史记录，不是实时数据。** 要当前结论就重新跑 `npm run audit`。
+
+| | |
+|---|---|
+| 生成于 | 2026-11-14 11:42 |
+| 提交 | `e89dfd7f6a8c54ba81a526f9af5a8c589f32cab8` |
+| 工作区 | dirty |
+| 退出码 | 1 |
+
+一行就能把这份记录钉在树上：`git show e89dfd7f6a8c54ba81a526f9af5a8c589f32cab8:package.json | grep version`。
+若当前 HEAD 与上面的提交不同，先看 `git diff e89dfd7 HEAD --stat`：只动了这份记录，
+结论就仍然成立；动了别的，以重跑为准。
+
+```
+anatomy audit
+-----------------------------------------------
+gate           VERIFY: PASS (github, run 498b461f1d58, deleted)
+tests          777 passed
+tree           FAIL — uncommitted changes: 2 path(s)
+artefacts      none tracked
+docs           README (en/zh), EVIDENCE and PROGRESS say 777 tests / 36 files; v0.1.0; snapshot 17ce6cb describes HEAD's tree
+markers        none in src, renderer, electron, scripts
+surface        10 CLI commands, 4 MCP tools
+docs-files     every document named, and every docs/ path they point at
+-----------------------------------------------
+AUDIT: NOT READY — 1 check(s) failed.
+```

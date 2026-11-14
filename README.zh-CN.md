@@ -28,6 +28,9 @@ npm run verify        # 末行应为 VERIFY: PASS
 这一条就够了：它跑测试、类型检查、构建，然后用本地假模型把 CLI 端到端走一遍，
 不需要 Key、不需要外网，跑完自己清理。判断这个仓库是否健康，不需要再跑别的。
 
+`npm run audit:record` 把这个结论写进 `docs/superpowers/audit-output.txt`——不能执行任何
+东西的读者，也能看到上一次记录的状态和它对应的提交。
+
 `npm run audit` 在这个闸门之上再陈述其余的状态——工作区是否就是推上去的那个提交、
 文档里的数字是否还对得上测试、有没有留下 TODO——八行，最后一句是 `AUDIT: READY`。
 

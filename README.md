@@ -29,6 +29,10 @@ That is the whole check. It runs the tests, the typecheck, the build, and then t
 CLI end to end against a local stub model — no API key and no network — and it
 cleans up after itself. Nothing else needs to run to know the repository is sound.
 
+`npm run audit:record` writes that verdict to `docs/superpowers/audit-output.txt`, so a
+reader who cannot execute anything can still see the last recorded state and the commit
+it describes.
+
 `npm run audit` runs that gate and then states the rest of the condition — the tree
 against the commit that was pushed, the documentation's numbers against the suite,
 anything left as a TODO — in eight lines ending in `AUDIT: READY`.

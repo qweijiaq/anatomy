@@ -6,6 +6,13 @@ dataset rendered three ways (terminal markdown, a file, and the desktop window).
 This file is for anyone — human or agent — who needs to establish the repository's
 state without reading all of `src/` first.
 
+## Is this done?
+
+Read `docs/superpowers/audit-output.txt` — the last recorded eight-line verdict, with
+the commit it belongs to in its header — or run `npm run audit` for a fresh one. The
+last line is either `AUDIT: READY` or the checks that failed. That file exists because
+the answer should not cost more to obtain than the project costs to read.
+
 ## Establish the state
 
 ```bash
