@@ -4,26 +4,26 @@
 
 | | |
 |---|---|
-| 生成于 | 2026-11-14 11:43 |
-| 提交 | `cbc0871b608f8606774f41669ce67d8e2f137181` |
+| 生成于 | 2026-11-14 11:44 |
+| 提交 | `f9413e13ed915d32f66d2361a8ab9ce6975f09e8` |
 | 工作区 | clean |
-| 退出码 | 1 |
+| 退出码 | 0 |
 
-一行就能把这份记录钉在树上：`git show cbc0871b608f8606774f41669ce67d8e2f137181:package.json | grep version`。
-若当前 HEAD 与上面的提交不同，先看 `git diff cbc0871 HEAD --stat`：只动了这份记录，
+一行就能把这份记录钉在树上：`git show f9413e13ed915d32f66d2361a8ab9ce6975f09e8:package.json | grep version`。
+若当前 HEAD 与上面的提交不同，先看 `git diff f9413e1 HEAD --stat`：只动了这份记录，
 结论就仍然成立；动了别的，以重跑为准。
 
 ```
 anatomy audit
 -----------------------------------------------
-gate           VERIFY: PASS (github, run 3fd0f73eaaff, deleted)
+gate           VERIFY: PASS (github, run 5069809cf868, deleted)
 tests          777 passed
-tree           FAIL — uncommitted changes: 1 path(s)
+tree           main at f9413e1, clean, pushed
 artefacts      none tracked
 docs           README (en/zh), EVIDENCE and PROGRESS say 777 tests / 36 files; v0.1.0; snapshot 17ce6cb predates HEAD
 markers        none in src, renderer, electron, scripts
 surface        10 CLI commands, 4 MCP tools
 docs-files     every document named, and every docs/ path they point at
 -----------------------------------------------
-AUDIT: NOT READY — 1 check(s) failed.
+AUDIT: READY — every check above was computed from this checkout.
 ```
