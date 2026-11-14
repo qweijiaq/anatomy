@@ -19,7 +19,7 @@ VERIFY: PASS (github, run <runId>)
 
 | 步骤 | 断言 |
 |---|---|
-| `tests` | 36 个测试文件、777 个测试全过 |
+| `tests` | 36 个测试文件、779 个测试全过 |
 | `typecheck` | 三套 tsconfig（`tsconfig.json` + `tsconfig.test.json` + `tsconfig.desktop.json`）均无诊断 |
 | `build` | 编译成功，且 `python_index.py` 被复制进 `dist/` |
 | `stub model` | 起一个本地 OpenAI 兼容假模型，回显切片里的真实源码行 |
@@ -90,6 +90,7 @@ node dist/cli.js analyze https://github.com/<owner>/<repo> --top 8
 - **打包**：`package.json` 的 `files` 列表让 tarball 只含 `dist/` 与文档（有测试问
   `npm pack --dry-run`，而不是相信那个字段）
 - **`npm run audit`**：一条命令给出仓库当前状况的八行结论
+- **`docs/DONE.md`**：十二条可判真假的完成条件，各自附一条命令和一个文件，外加四条明确不做的事
 - **`ana runs [--json]`**：窗口一直能列存档，CLI 不能——`report` 和 `forget` 都要 id，
   而知道 id 的唯一办法是 `ls`。现在 CLI 能列出日期、来源、点数、有没有报告
 - **`ana forget --keep <n>`**：存档目录原本没有上限——这个工作副本攒到过 282 轮、

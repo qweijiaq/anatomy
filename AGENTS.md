@@ -8,7 +8,11 @@ state without reading all of `src/` first.
 
 ## Is this done?
 
-Read `docs/superpowers/audit-output.txt` — the last recorded eight-line verdict, with
+`docs/DONE.md` enumerates the twelve conditions under which this project is finished,
+each with a command and a file to check it against, plus the four things deliberately
+left out. That is the file to read if the question is "should any more work happen".
+
+For the mechanical half, read `docs/superpowers/audit-output.txt` — the last recorded eight-line verdict, with
 the commit it belongs to in its header — or run `npm run audit` for a fresh one. The
 last line is either `AUDIT: READY` or the checks that failed. That file exists because
 the answer should not cost more to obtain than the project costs to read.
@@ -64,7 +68,7 @@ says about itself; the right column is where that claim can be falsified.
 
 | Claim | Falsified by |
 |---|---|
-| 777 tests pass in 36 files | `npm test`, or `docs/superpowers/verify-output.txt` for the recorded run |
+| 779 tests pass in 36 files | `npm test`, or `docs/superpowers/verify-output.txt` for the recorded run |
 | Typecheck is clean in three configs | `npm run typecheck` (src, tests+eval, renderer+electron) |
 | The CLI works end to end with no API key | `npm run verify` — `scripts/verify.sh`, twelve sections, local stub model |
 | Every citation points at the line it names | `tests/evidence.test.ts`; `ana inspect <path:start-end>` re-reads it |
@@ -79,6 +83,7 @@ If a row here and a command disagree, the command is right and this file is the 
 
 ## Where the reasoning lives
 
+- `docs/DONE.md` — the twelve conditions that define "finished", and what is out of scope.
 - `docs/superpowers/PROGRESS.md` — what was built and why, in order.
 - `docs/superpowers/EVIDENCE.md` — what each claim rests on.
 - `docs/superpowers/specs/2026-11-12-anatomy-design.md` — the design: the data flow from

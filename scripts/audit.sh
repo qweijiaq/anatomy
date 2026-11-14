@@ -151,7 +151,7 @@ line surface "$commands CLI commands, $tools MCP tools"
 # `docs/decisions/`), and each time the list was satisfied. So the paths are read out
 # of the documents themselves.
 missing=""
-for doc in README.md README.zh-CN.md AGENTS.md docs/desktop.md docs/superpowers/PROGRESS.md docs/superpowers/EVIDENCE.md docs/superpowers/specs/2026-11-12-anatomy-design.md; do
+for doc in README.md README.zh-CN.md AGENTS.md docs/DONE.md docs/desktop.md docs/superpowers/PROGRESS.md docs/superpowers/EVIDENCE.md docs/superpowers/specs/2026-11-12-anatomy-design.md; do
   [ -f "$doc" ] || missing="$missing $doc"
 done
 
@@ -171,6 +171,7 @@ if [ -n "$missing" ]; then
   bad docs-files "missing:$missing"
 else
   line docs-files "every document named, and every docs/ path they point at"
+  # docs/DONE.md is in that list, so a handoff without a definition of done fails here.
 fi
 
 echo "-----------------------------------------------"

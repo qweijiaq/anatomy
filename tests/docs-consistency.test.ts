@@ -349,3 +349,48 @@ describe('the suite does not write into the repository it is testing', () => {
     expect(offenders, offenders.join('; ')).toEqual([])
   })
 })
+
+describe('the definition of done names things that exist', () => {
+  /**
+   * `docs/DONE.md` enumerates the conditions under which this project is finished —
+   * the one question "is it done" that no amount of testing answers by itself. A
+   * checklist is only worth the refusal it carries, so every command and test file it
+   * names is checked to exist: a condition that points at nothing is not a condition.
+   */
+  it('every npm script and test file it references is real', async () => {
+    const { existsSync } = await import('node:fs')
+    const done = read('docs/DONE.md')
+    const scripts = (JSON.parse(read('package.json')) as { scripts: Record<string, string> }).scripts
+
+    const missing: string[] = []
+    for (const match of done.matchAll(/`npm run ([a-z:-]+)`/g)) {
+      const name = match[1] as string
+      if (!(name in scripts)) missing.push(`npm run ${name}`)
+    }
+    for (const match of done.matchAll(/`(tests\/[\w.-]+\.test\.ts)`/g)) {
+      const file = match[1] as string
+      if (!existsSync(path.join(ROOT, file))) missing.push(file)
+    }
+    for (const match of done.matchAll(/`(scripts\/[\w.-]+)`/g)) {
+      const file = match[1] as string
+      if (!existsSync(path.join(ROOT, file))) missing.push(file)
+    }
+    for (const match of done.matchAll(/`(docs\/[\w./-]+\.md)`/g)) {
+      const file = match[1] as string
+      if (!existsSync(path.join(ROOT, file))) missing.push(file)
+    }
+
+    expect(missing, `DONE.md names things that do not exist: ${missing.join(', ')}`).toEqual([])
+  })
+
+  it('every condition has both a command and a file to check it against', () => {
+    const rows = read('docs/DONE.md').split('\n').filter((line) => /^\| \d+ \|/.test(line))
+    expect(rows.length).toBeGreaterThanOrEqual(12)
+    for (const row of rows) {
+      const cells = row.split('|').map((cell) => cell.trim())
+      // #, condition, run, read — an empty right-hand side would be a condition nobody
+      // can check, which is the failure mode a checklist is supposed to prevent.
+      expect(cells[3], `a condition has no way to check it: ${row}`).not.toBe('')
+    }
+  })
+})
