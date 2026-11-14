@@ -1,0 +1,49 @@
+{
+  "root": "/Users/weijia/Desktop/anatomy/tests/fixtures/scan-repo",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 303,
+      "lines": 8,
+      "language": null
+    },
+    {
+      "path": "package.json",
+      "bytes": 96,
+      "lines": 6,
+      "language": null
+    },
+    {
+      "path": "src/index.ts",
+      "bytes": 65,
+      "lines": 3,
+      "language": "ts"
+    },
+    {
+      "path": "src/scheduler.ts",
+      "bytes": 785,
+      "lines": 28,
+      "language": "ts"
+    },
+    {
+      "path": "tests/scheduler.test.ts",
+      "bytes": 377,
+      "lines": 11,
+      "language": "ts"
+    }
+  ],
+  "excluded": [
+    {
+      "reason": "vendored",
+      "count": 1
+    }
+  ],
+  "totals": {
+    "files": 5,
+    "bytes": 1626,
+    "lines": 56
+  },
+  "byLanguage": {
+    "ts": 3
+  }
+}

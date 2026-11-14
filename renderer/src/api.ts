@@ -135,6 +135,15 @@ type AnaBridge = {
     test(): Promise<TestResult>
   }
   analysis: {
+    scan(
+      repo: string,
+      top?: number,
+    ): Promise<{
+      ok: boolean
+      message?: string
+      runId?: string
+      candidates?: Array<{ path: string; line: number; kind: string; score: number; matched: string[] }>
+    }>
     run(request: { repo: string; top?: number; lang?: 'zh' | 'en' }): Promise<RunResult>
     onProgress(listener: (progress: Progress) => void): () => void
   }

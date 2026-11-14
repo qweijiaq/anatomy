@@ -305,3 +305,23 @@ describe('the gate still guards what it claims to', () => {
     expect(failBody).toContain('exit 1')
   })
 })
+
+describe('the window offers the zero-token path', () => {
+  /**
+   * `ana scan` costs nothing and the CLI has always had it; the window did not, so
+   * the only way to look at a repository from the app was the full analysis, which
+   * spends tokens. That is the wrong first step for an unfamiliar repository, and
+   * the gap sat in `docs/desktop.md` as a known omission.
+   *
+   * The renderer is never mounted in the suite, so this checks the two halves that
+   * can be checked here: the bridge exposes `analysis.scan`, and the document has a
+   * control bound to it. The click itself was exercised in Electron against a real
+   * scan — button present, two rows, no console errors.
+   */
+  it('exposes a scan through the bridge and a control that calls it', async () => {
+    const { readFileSync } = await import('node:fs')
+    expect(readFileSync(path.join(ROOT, 'electron/preload.ts'), 'utf8')).toContain('analysis:scan')
+    expect(readFileSync(path.join(ROOT, 'electron/main.ts'), 'utf8')).toContain("ipcMain.handle('analysis:scan'")
+    expect(readFileSync(path.join(ROOT, 'renderer/src/App.tsx'), 'utf8')).toContain('先扫一眼')
+  })
+})

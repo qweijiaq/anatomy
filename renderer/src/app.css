@@ -1316,3 +1316,59 @@
   align-items: center;
   gap: var(--space-2);
 }
+
+/* 预扫结果。它不是报告，所以刻意做得比报告轻：一张没有边框的窄表，
+   位置用等宽，分数右对齐——读者是竖着扫位置的。 */
+.preview {
+  margin: var(--space-5) 0 var(--space-4);
+}
+
+.preview__title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.preview__note {
+  font-weight: 400;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+.preview__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.preview__table th {
+  padding: 4px var(--space-2);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-faint);
+  font-weight: 500;
+  text-align: left;
+}
+
+.preview__table td {
+  padding: 4px var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.preview__table td:nth-child(2),
+.preview__table td:nth-child(3),
+.preview__table th:nth-child(2),
+.preview__table th:nth-child(3) {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.preview__hint {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}

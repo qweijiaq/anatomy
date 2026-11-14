@@ -17,6 +17,8 @@ const api = {
   },
   analysis: {
     run: (request: unknown) => ipcRenderer.invoke('analysis:run', request),
+    // 零 token 的预扫：只看哪里值得看，不花钱。
+    scan: (repo: string, top?: number) => ipcRenderer.invoke('analysis:scan', { repo, top }),
     onProgress: (
       listener: (progress: {
         phase: string

@@ -177,6 +177,9 @@ export function App(): React.JSX.Element {
   const [surveyDir, setSurveyDir] = useState('')
   // 对比：打开时固定两份，人自己挑，不靠「最新的两份」猜。
   const [diffOpen, setDiffOpen] = useState(false)
+  // 零 token 预扫的结果。它不是报告，只是一张「哪里值得看」的清单。
+  const [preview, setPreview] = useState<Array<{ path: string; line: number; kind: string; score: number; matched: string[] }>>([])
+  const [scanning, setScanning] = useState(false)
   const [diffBefore, setDiffBefore] = useState('')
   const [diffAfter, setDiffAfter] = useState('')
 
@@ -298,6 +301,33 @@ export function App(): React.JSX.Element {
     },
     [forgetting, runId, refreshHistory],
   )
+
+  /**
+   * 先扫一眼：不花 token，只列候选项。
+   *
+   * 绝大多数人打开一个陌生仓库时想先知道「哪里有料」，而不是先付一次完整分析的
+   * 钱。CLI 一直有 `ana scan`，窗口没有——这是把最便宜的那一步补上。
+   */
+  const previewScan = useCallback(async (): Promise<void> => {
+    if (repo.trim() === '') {
+      setError('先填一个仓库地址，或者点「选择文件夹」。')
+      return
+    }
+    setScanning(true)
+    setError('')
+    try {
+      const result = await api().analysis.scan(repo, 12)
+      if (result.ok && Array.isArray(result.candidates)) {
+        setPreview(result.candidates)
+      } else {
+        setError(result.message ?? '扫不出来。')
+      }
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure))
+    } finally {
+      setScanning(false)
+    }
+  }, [repo])
 
   /** 打开一份旧报告：走和刚跑完完全相同的渲染路径。 */
   const openReport = useCallback(async (id: string): Promise<void> => {
@@ -456,6 +486,15 @@ export function App(): React.JSX.Element {
               >
                 选择文件夹
               </button>
+              <button
+                className="btn btn--ghost btn--lg"
+                type="button"
+                onClick={() => void previewScan()}
+                disabled={running || scanning}
+                title="不花 token，只列出值得看的位置"
+              >
+                {scanning ? '扫描中…' : '先扫一眼'}
+              </button>
               <button className="btn btn--primary btn--lg" type="button" onClick={() => void run()} disabled={running}>
                 {running ? '分析中…' : '开始拆解'}
               </button>
@@ -464,6 +503,40 @@ export function App(): React.JSX.Element {
             {running && <ProgressLine progress={progress} />}
 
             {error !== '' && <p className="notice notice--error">{error}</p>}
+
+            {preview.length > 0 && (
+              <section className="preview" aria-label="预扫结果">
+                <h2 className="preview__title">
+                  值得先看的 {preview.length} 处
+                  <span className="preview__note">没有调用模型，也没有花 token</span>
+                </h2>
+                <table className="preview__table">
+                  <thead>
+                    <tr>
+                      <th>位置</th>
+                      <th>类型</th>
+                      <th>分</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.map((candidate) => (
+                      <tr key={`${candidate.path}:${candidate.line}`}>
+                        <td>
+                          <code className="inline-code">
+                            {candidate.path}:{candidate.line}
+                          </code>
+                        </td>
+                        <td>{candidate.kind}</td>
+                        <td>{candidate.score}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="preview__hint">
+                  分数是规则命中累加，不是质量评分。要读得懂这些位置在做什么，才需要开始拆解。
+                </p>
+              </section>
+            )}
 
             <ul className="hints">
               <li>先跑 `npm run scan` 之类不花 token 的步骤？命令行版本有，界面版第一版只做完整分析。</li>

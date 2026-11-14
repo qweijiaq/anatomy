@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url'
 import { activeModelConfig, getSettingsView, readKey, rememberRepo, saveSettings } from './settings.js'
 import { createModelClient, MissingCredentialsError } from '../src/writing/client.js'
 import { runAnalyze } from '../src/commands/analyze.js'
+import { runScan } from '../src/commands/scan.js'
 import { forget } from '../src/commands/forget.js'
 import { NoSuchRunError, runReport } from '../src/commands/report.js'
 import { diffSurveys, isEmptyDiff } from '../src/app/diff.js'
@@ -169,6 +170,42 @@ ipcMain.handle('settings:test', async () => {
           ? error.message
           : String(error)
     return { ok: false, message }
+  }
+})
+
+// --- zero-token scan --------------------------------------------------------
+//
+// The CLI has had `ana scan` from the start — no model, no key, tells you where to
+// look. The window did not, so the only way to look at a repository from the app was
+// the full analysis, which spends tokens. That is the wrong shape for the first
+// thing a person does with an unfamiliar repository.
+//
+// Scans overwrite one scratch directory rather than accumulating runs: a scan is a
+// glance, not a record, and twenty glances should not leave twenty directories. The
+// full analysis is what gets a durable run id.
+
+ipcMain.handle('analysis:scan', async (_event, request: unknown) => {
+  const repo = typeof (request as { repo?: unknown })?.repo === 'string' ? (request as { repo: string }).repo : ''
+  if (repo.trim() === '') return { ok: false, message: '需要一个仓库地址或本地路径。' }
+  const top = typeof (request as { top?: unknown })?.top === 'number' ? (request as { top: number }).top : 12
+  try {
+    const summary = await runScan(repo, {
+      out: path.resolve(process.cwd(), '.ana', 'scratch'),
+      topK: top,
+    })
+    return {
+      ok: true,
+      runId: summary.runId,
+      candidates: summary.candidates.map((candidate) => ({
+        path: candidate.path,
+        line: candidate.line,
+        kind: candidate.kind,
+        score: candidate.score,
+        matched: candidate.matched,
+      })),
+    }
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
   }
 })
 
