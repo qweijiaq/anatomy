@@ -322,6 +322,21 @@ async function readBoundedBody(
 }
 
 /** Fetches the tarball `source` points at and returns the digest of what arrived. */
+/**
+ * What a status code means here, in one clause.
+ *
+ * `download failed (404) for https://codeload.github.com/…` is true and unhelpful: the
+ * three things a reader can do about it — check the name, get access, wait — are
+ * distinguished by the status and nothing in the message said so.
+ */
+function whyStatus(status: number): string {
+  if (status === 404) return ' — 仓库不存在，或者是私有的（令牌这条路这一版没接）'
+  if (status === 401 || status === 403) return ' — 拒绝访问：私有仓库，或者限流'
+  if (status === 429) return ' — 被限流了，过一会儿再试'
+  if (status >= 500) return ' — 对面服务端出错，不是这个仓库的问题'
+  return ''
+}
+
 export async function downloadArchive(
   source: ResolvedSource,
   destFile: string,
@@ -333,7 +348,7 @@ export async function downloadArchive(
   const fetchImpl = deps.fetchImpl ?? globalThis.fetch
   const response = await fetchImpl(source.url)
   if (!response.ok) {
-    throw new Error(`anatomy: download failed (${response.status}) for ${source.url}`)
+    throw new Error(`anatomy: download failed (${response.status}) for ${source.url}${whyStatus(response.status)}`)
   }
   const bytes = await readBoundedBody(response, deps.maxBytes ?? DEFAULT_MAX_BYTES, 'download')
   await mkdir(path.dirname(destFile), { recursive: true })

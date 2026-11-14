@@ -1,3 +1,7 @@
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -149,5 +153,25 @@ describe('a network failure says what happened', () => {
     await expect(client.complete({ system: 's', user: 'u', schema: {} })).rejects.toThrow(
       /fetch failed \(connect ECONNREFUSED 127\.0\.0\.1:5299\)/,
     )
+  })
+})
+
+describe('a download failure names what to do about it', () => {
+  /**
+   * `download failed (404) for https://codeload.github.com/…` is true and unhelpful:
+   * a typo, a private repository and a rate limit all looked the same, and they want
+   * three different actions. The status code is the only thing that distinguishes
+   * them, so the message says what it means.
+   */
+  it('a 404 says the repository may be private', async () => {
+    const { downloadArchive } = await import('../src/kernel/acquire.js')
+    const refusing: typeof fetch = async () => new Response('nope', { status: 404 })
+    const dest = path.join(await mkdtemp(path.join(tmpdir(), 'ana-dl-')), 'a.tar.gz')
+
+    await expect(
+      downloadArchive({ kind: 'archive', url: 'https://example.test/x.tar.gz' } as never, dest, {
+        fetchImpl: refusing,
+      }),
+    ).rejects.toThrow(/404.*仓库不存在.*私有/)
   })
 })

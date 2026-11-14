@@ -67,7 +67,11 @@ function manifestPath(): string {
       // try the next candidate
     }
   }
-  throw new Error('package.json not found for the anatomy engine')
+  // Naming the places it looked turns "not found" into something a reader can act on:
+  // a nested install and a broken one fail the same way otherwise.
+  throw new Error(
+    `package.json not found for the anatomy engine; looked in ${candidates.map((base) => path.join(base, 'package.json')).join(', ')}`,
+  )
 }
 
 export function readVersion(): string {
