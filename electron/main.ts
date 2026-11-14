@@ -84,9 +84,11 @@ function createWindow(): void {
     void window.loadFile(path.join(here, '../dist-renderer/index.html'))
   }
 
-  // Content Security Policy, applied from the main process rather than a meta tag:
-  // the dev server needs a websocket for hot reload, and a meta-tag policy would
-  // block it while the packaged app needs the strict form. One rule, two audiences.
+  // Content Security Policy for the dev server, which needs a websocket for hot
+  // reload. The packaged app gets its policy from a `<meta>` tag injected at build
+  // time by `vite.config.ts`: measured on the built app, this hook fires for a
+  // `file://` document but the policy is not enforced, so relying on it alone left
+  // the packaged renderer with no CSP at all while this comment claimed otherwise.
   const isDev = typeof devUrl === 'string' && devUrl !== ''
   window.webContents.session.webRequest.onHeadersReceived((details, callback) => {
     const policy = isDev

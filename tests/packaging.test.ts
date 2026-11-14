@@ -193,3 +193,32 @@ describe('the window bridge', () => {
     }
   })
 })
+
+describe('the packaged renderer is sandboxed by a policy', () => {
+  /**
+   * Found by loading the built page in Electron and asking it two questions.
+   *
+   * The main process installs a Content-Security-Policy through
+   * `ses.webRequest.onHeadersReceived`, and the comment there said the packaged app
+   * got the strict form. Measured on the built app: the hook fires for a `file://`
+   * document, but the policy is not enforced — `new Function('return 1')()` ran.
+   * The packaged renderer therefore had no CSP while the code claimed it did.
+   *
+   * A `<meta>` tag is enforced for `file://`, so the build injects one. This asserts
+   * the tag is in the built document, which is what makes the claim true.
+   */
+  it('carries a Content-Security-Policy in the built document', async () => {
+    const { readFileSync, existsSync } = await import('node:fs')
+    const built = path.join(ROOT, 'dist-renderer/index.html')
+    if (!existsSync(built)) {
+      execFileSync('npm', ['run', 'build:desktop'], { cwd: ROOT, stdio: 'ignore', timeout: 180_000 })
+    }
+    const html = readFileSync(built, 'utf8')
+    const policy = /http-equiv="Content-Security-Policy" content="([^"]+)"/.exec(html)?.[1] ?? ''
+    expect(policy).not.toBe('')
+    // The three that matter for an app that renders model-authored text.
+    expect(policy).toContain("script-src 'self'")
+    expect(policy).not.toContain('unsafe-eval')
+    expect(policy).toContain("object-src 'none'")
+  })
+})
