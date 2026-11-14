@@ -157,3 +157,29 @@ describe('no committed file carries a machine-specific path', () => {
     expect(hits).toEqual([])
   })
 })
+
+describe('runtime output stays out of the repository', () => {
+  /**
+   * Caught immediately after this was committed: the window's new scan writes to
+   * `.ana/scratch`, that directory was not in `.gitignore`, and `git add -A` swept
+   * five scratch files into the tree. `.ana/runs/` and `.ana/apps/` were ignored
+   * individually, so each new runtime location needed a line of its own — a shape
+   * that will recur every time the product writes somewhere new.
+   */
+  it('tracks nothing under .ana', async () => {
+    const { spawnSync } = await import('node:child_process')
+    const result = spawnSync('git', ['ls-files', '.ana'], { cwd: ROOT, encoding: 'utf8' })
+    const tracked = (result.stdout ?? '').trim()
+    expect(tracked).toBe('')
+  })
+
+  it('ignores every directory the product writes to at runtime', async () => {
+    const { readFileSync } = await import('node:fs')
+    const ignore = readFileSync(path.join(ROOT, '.gitignore'), 'utf8')
+    // Named individually because `.ana/` as a whole would also hide anything a
+    // maintainer meant to commit there.
+    for (const dir of ['.ana/runs/', '.ana/apps/', '.ana/scratch/']) {
+      expect(ignore, `${dir} is not ignored`).toContain(dir)
+    }
+  })
+})
