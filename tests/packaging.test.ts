@@ -26,7 +26,14 @@ const ROOT = path.resolve(__dirname, '..')
  * half-empty package and calling it a packaging bug.
  */
 function packed(): string[] {
-  if (!existsSync(path.join(ROOT, 'dist', 'cli.js'))) {
+  // Build when either artifact the tarball is asserted to contain is missing. Checking
+  // only for `dist/cli.js` was not enough: `npm run verify` runs the suite *before* its
+  // build step, so on a tree whose `dist/` predates the sidecar copy — or whose last
+  // build stopped between `tsc` and `copy-sidecar` — this test failed with "the package
+  // does not ship the Python sidecar" against a source tree that does. That is a
+  // packaging assertion reporting a stale directory as a product defect.
+  const sidecar = path.join(ROOT, 'dist', 'kernel', 'structure', 'python_index.py')
+  if (!existsSync(path.join(ROOT, 'dist', 'cli.js')) || !existsSync(sidecar)) {
     execFileSync('npm', ['run', 'build'], { cwd: ROOT, stdio: 'ignore', timeout: 180_000 })
   }
   const out = execFileSync('npm', ['pack', '--dry-run', '--json'], {
