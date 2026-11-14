@@ -164,6 +164,12 @@ version; `publish` is not.
 picked up (73 test files, 64 eval fixtures). A test asks `npm pack --dry-run` rather
 than trusting the field.
 
+`dependencies` holds two packages, `tokenx` and `typescript`, because those are what
+the shipped code imports. It used to hold `electron`, `vite`, `react`, `react-dom`
+and three `@types` packages: the whole desktop toolchain, downloaded by anyone who
+installed a CLI. Verified by installing the tarball into an empty project — three
+packages, and `ana scan` works.
+
 ## What this version is
 
 One unambiguous statement, so nothing is left pending a decision:

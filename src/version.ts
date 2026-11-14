@@ -15,6 +15,7 @@
 
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 /**
  * Where `package.json` sits relative to the running process.
@@ -26,8 +27,37 @@ import path from 'node:path'
  * a bundler rewrites to an empty object.
  */
 declare const __dirname: string | undefined
+
+/**
+ * The directory this module was loaded from, under either module system.
+ *
+ * `dist/cli.js` is ESM, where `__dirname` does not exist; the desktop bundle is CJS,
+ * where `import.meta.url` is rewritten to an empty object by the bundler. Reading
+ * whichever one is real covers both. Without this, an installed `ana` looked only at
+ * `process.cwd()` and threw `package.json not found for the anatomy engine` whenever
+ * it was run from anywhere else — which is always, for an installed package.
+ */
+function ownDir(): string {
+  try {
+    // `import.meta.url` is a real URL under ESM and an empty object under the
+    // bundler; `fileURLToPath` throws on the latter rather than returning nonsense.
+    return path.dirname(fileURLToPath(import.meta.url))
+  } catch {
+    return typeof __dirname === 'string' ? __dirname : ''
+  }
+}
+
 function manifestPath(): string {
-  const candidates = [process.cwd(), ...(typeof __dirname === 'string' ? [__dirname, path.join(__dirname, '..')] : [])]
+  const here = ownDir()
+  const candidates = [
+    process.cwd(),
+    // Walk up from the module as well: `dist/version.js` → the package root, and
+    // one level further for a nested install layout.
+    ...(here === '' ? [] : [here, path.join(here, '..'), path.join(here, '..', '..')]),
+    ...(typeof __dirname === 'string'
+      ? [__dirname, path.join(__dirname, '..'), path.join(__dirname, '..', '..')]
+      : []),
+  ]
   for (const base of candidates) {
     const candidate = path.join(base, 'package.json')
     try {

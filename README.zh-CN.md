@@ -159,6 +159,10 @@ npm run eval:recall
 LICENSE——116 个文件，而不是裸 `npm pack` 会装进去的 336 个（73 个测试文件、
 64 个 eval 样本）。有测试直接问 `npm pack --dry-run`，而不是相信那个字段。
 
+`dependencies` 只有两个包：`tokenx` 和 `typescript`——因为发布出去的代码只 import 这两个。
+它一度还包含 `electron`、`vite`、`react`、`react-dom` 和三个 `@types`：整套桌面工具链，
+会被每一个只是想装个 CLI 的人下载。验证方式是把它装进一个空项目：3 个包，`ana scan` 正常。
+
 ## 这一版是什么
 
 一句话说清，不留悬空：

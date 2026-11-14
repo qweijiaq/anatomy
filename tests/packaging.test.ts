@@ -53,3 +53,69 @@ describe('what npm would publish', () => {
     expect(packed()).toContain('dist/kernel/structure/python_index.py')
   })
 })
+
+describe('the installed package actually runs', () => {
+  /**
+   * Found by installing the tarball rather than by reading it.
+   *
+   * `readVersion()` located `package.json` from `process.cwd()` and `__dirname`.
+   * `dist/cli.js` is ESM, where `__dirname` is undefined, so an installed `ana` run
+   * from any other directory threw `package.json not found for the anatomy engine` —
+   * which is every invocation of an installed CLI. The package looked fine, packed
+   * fine, and could not run.
+   */
+  it('resolves the engine manifest from the module, not the working directory', async () => {
+    const versionModule = await import('../src/version.js')
+    const fromElsewhere = process.cwd()
+    try {
+      process.chdir(require('node:os').tmpdir())
+      // The important property: it does not depend on where the process was started.
+      expect(versionModule.readVersion()).toMatch(/^\d+\.\d+\.\d+$/)
+    } finally {
+      process.chdir(fromElsewhere)
+    }
+  })
+})
+
+describe('runtime dependencies', () => {
+  /**
+   * `dependencies` is what `npm install anatomy` downloads. It held `electron`,
+   * `vite`, `react`, `react-dom` and three `@types` packages — the entire desktop UI
+   * toolchain, several hundred megabytes, for a CLI whose bundled code imports two
+   * packages. The tarball's own manifest looked unremarkable; the install did not.
+   */
+  it('contains only what the shipped code imports', async () => {
+    const { readdirSync, readFileSync } = await import('node:fs')
+    const deps = Object.keys((JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8')) as {
+      dependencies: Record<string, string>
+    }).dependencies)
+
+    // Everything `src/` — the code that becomes `dist/` — imports from outside Node.
+    const imported = new Set<string>()
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const absolute = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          walk(absolute)
+          continue
+        }
+        if (!entry.name.endsWith('.ts')) continue
+        const source = readFileSync(absolute, 'utf8')
+        for (const match of source.matchAll(/from '([^.][^']*)'/g)) {
+          const specifier = match[1] as string
+          if (specifier.startsWith('node:')) continue
+          imported.add(specifier.split('/')[0] as string)
+        }
+      }
+    }
+    walk(path.join(ROOT, 'src'))
+
+    for (const name of imported) {
+      expect(deps, `src/ imports ${name} but it is not a runtime dependency`).toContain(name)
+    }
+    // And nothing heavy rides along silently.
+    for (const name of ['electron', 'vite', 'react', 'react-dom']) {
+      expect(deps, `${name} must not be a runtime dependency of a CLI`).not.toContain(name)
+    }
+  })
+})
