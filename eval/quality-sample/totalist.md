@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/lukeed/totalist
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/c48d12c83059/tree/totalist-4b071d3e54d466a4059de89006c752da782c8b02
+- 根目录：<repo-root>/eval/quality-sample/.runs/c48d12c83059/tree/totalist-4b071d3e54d466a4059de89006c752da782c8b02
 - 规模：18 个文件 / 11091 字节 / 401 行
 - 语言：js 7、ts 2
 - 排除：没有文件被排除

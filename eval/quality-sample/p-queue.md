@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/sindresorhus/p-queue
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/8459a35d3062/tree/p-queue-7f272ab5ff2254c0dc2537b7977e88ede1cd55e8
+- 根目录：<repo-root>/eval/quality-sample/.runs/8459a35d3062/tree/p-queue-7f272ab5ff2254c0dc2537b7977e88ede1cd55e8
 - 规模：27 个文件 / 315700 字节 / 10732 行
 - 语言：ts 17
 - 排除：没有文件被排除

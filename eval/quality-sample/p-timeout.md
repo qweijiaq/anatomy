@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/sindresorhus/p-timeout
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/c907348428ae/tree/p-timeout-4a2445f4e9b7cc5b1902cbc54ef55e210acafd45
+- 根目录：<repo-root>/eval/quality-sample/.runs/c907348428ae/tree/p-timeout-4a2445f4e9b7cc5b1902cbc54ef55e210acafd45
 - 规模：13 个文件 / 58287 字节 / 1656 行
 - 语言：js 2、ts 2
 - 排除：没有文件被排除

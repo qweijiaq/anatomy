@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/jshttp/etag
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/a453fcb6a5e5/tree/etag-5df2cfdd46d310ccf51638d5b702375cbd99da44
+- 根目录：<repo-root>/eval/quality-sample/.runs/a453fcb6a5e5/tree/etag-5df2cfdd46d310ccf51638d5b702375cbd99da44
 - 规模：21 个文件 / 36859 字节 / 1439 行
 - 语言：js 9
 - 排除：没有文件被排除

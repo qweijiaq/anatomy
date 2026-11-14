@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/sindresorhus/delay
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/ca7f12b9bf94/tree/delay-6fce5d9d1c1789b1627c14f1293950004beea57c
+- 根目录：<repo-root>/eval/quality-sample/.runs/ca7f12b9bf94/tree/delay-6fce5d9d1c1789b1627c14f1293950004beea57c
 - 规模：13 个文件 / 15173 字节 / 584 行
 - 语言：js 2、ts 2
 - 排除：没有文件被排除

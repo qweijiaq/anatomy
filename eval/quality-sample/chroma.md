@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/alecthomas/chroma
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/5c9560834e1e/tree/chroma-08dd759d11a8f31603634ecbeb6b35bca6810ffb
+- 根目录：<repo-root>/eval/quality-sample/.runs/5c9560834e1e/tree/chroma-08dd759d11a8f31603634ecbeb6b35bca6810ffb
 - 规模：1566 个文件 / 11100788 字节 / 287655 行
 - 语言：go 74、js 3、py 3
 - 排除：binary 2

@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/natemoo-re/clack
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/ea8ae11a76c6/tree/clack-5f274603f0a4c15633d46b1060eb1d4eb69609f2
+- 根目录：<repo-root>/eval/quality-sample/.runs/ea8ae11a76c6/tree/clack-5f274603f0a4c15633d46b1060eb1d4eb69609f2
 - 规模：161 个文件 / 958278 字节 / 33488 行
 - 语言：ts 100、cjs 1
 - 排除：lockfile 1、binary 2

@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/vercel/ms
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/8d3c3d704f55/tree/ms-4ff48cec099f0514c3e9bbca18706c9c21122bfb
+- 根目录：<repo-root>/eval/quality-sample/.runs/8d3c3d704f55/tree/ms-4ff48cec099f0514c3e9bbca18706c9c21122bfb
 - 规模：22 个文件 / 52402 字节 / 1849 行
 - 语言：ts 8
 - 排除：lockfile 1

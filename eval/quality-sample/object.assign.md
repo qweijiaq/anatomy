@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/ljharb/object.assign
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/0f1f405d1d5a/tree/object.assign-7f6aa5ae8a297c4e227648a52fd6e03a564b0f8a
+- 根目录：<repo-root>/eval/quality-sample/.runs/0f1f405d1d5a/tree/object.assign-7f6aa5ae8a297c4e227648a52fd6e03a564b0f8a
 - 规模：30 个文件 / 39012 字节 / 1266 行
 - 语言：js 13
 - 排除：没有文件被排除

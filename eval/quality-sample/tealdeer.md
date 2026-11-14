@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/dbrgn/tealdeer
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/06f6eae32300/tree/tealdeer-993a8e0232ef42c4d9935ff5598796b6e98bf213
+- 根目录：<repo-root>/eval/quality-sample/.runs/06f6eae32300/tree/tealdeer-993a8e0232ef42c4d9935ff5598796b6e98bf213
 - 规模：69 个文件 / 1142369 字节 / 9645 行
 - 语言：rust 11
 - 排除：binary 4

@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/spf13/cast
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/4953856cb850/tree/cast-d8e892d16caba3fc13f781dcf4b3f4dd8976999c
+- 根目录：<repo-root>/eval/quality-sample/.runs/4953856cb850/tree/cast-d8e892d16caba3fc13f781dcf4b3f4dd8976999c
 - 规模：39 个文件 / 112119 字节 / 4358 行
 - 语言：go 21
 - 排除：没有文件被排除

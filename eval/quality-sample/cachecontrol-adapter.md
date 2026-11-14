@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/psf/cachecontrol
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/9ca2f903311b/tree/cachecontrol-e57bdcd7b811811a9ad915e3269e2046c5417bc6
+- 根目录：<repo-root>/eval/quality-sample/.runs/9ca2f903311b/tree/cachecontrol-e57bdcd7b811811a9ad915e3269e2046c5417bc6
 - 规模：57 个文件 / 397393 字节 / 6664 行
 - 语言：py 31
 - 排除：没有文件被排除

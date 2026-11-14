@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/jorgebucaran/colorette
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/7d4e360d6829/tree/colorette-fdfab65a93faa31f4335eb0bb945a306a732f023
+- 根目录：<repo-root>/eval/quality-sample/.runs/7d4e360d6829/tree/colorette-fdfab65a93faa31f4335eb0bb945a306a732f023
 - 规模：15 个文件 / 18824 字节 / 667 行
 - 语言：js 6、ts 1
 - 排除：gitignore 1

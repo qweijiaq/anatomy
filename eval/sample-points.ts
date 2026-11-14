@@ -124,7 +124,11 @@ for (const file of files) {
   })
 
   const markdown = await runReport(result.runId, { baseDir: path.join(outDir, '.runs') })
-  writeFileSync(path.join(outDir, `${slug}.md`), markdown)
+  // The machine's own directory goes into `scope.root` and from there into every
+  // sample. These files are committed, so an absolute home path here would ship a
+  // username to everyone who clones the repository, and would make the samples
+  // specific to one machine for no benefit.
+  writeFileSync(path.join(outDir, `${slug}.md`), markdown.replaceAll(here, '<repo-root>'))
   produced += 1
   process.stdout.write(`${slug}: ${markdown.split('\n').length} lines\n`)
 }

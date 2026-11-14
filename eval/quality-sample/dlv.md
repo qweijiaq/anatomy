@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/lukeed/dlv
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/22cb434ee902/tree/dlv-827954487f2ac84b36672f925a0e57ca7c94dcd3
+- 根目录：<repo-root>/eval/quality-sample/.runs/22cb434ee902/tree/dlv-827954487f2ac84b36672f925a0e57ca7c94dcd3
 - 规模：6 个文件 / 4989 字节 / 197 行
 - 语言：js 2
 - 排除：没有文件被排除

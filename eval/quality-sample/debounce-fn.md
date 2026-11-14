@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/sindresorhus/debounce-fn
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/e1dca51bf6fd/tree/debounce-fn-6cce35773725f039e004afbb8012c2f1f8881c9f
+- 根目录：<repo-root>/eval/quality-sample/.runs/e1dca51bf6fd/tree/debounce-fn-6cce35773725f039e004afbb8012c2f1f8881c9f
 - 规模：13 个文件 / 17615 字节 / 739 行
 - 语言：js 2、ts 2
 - 排除：没有文件被排除

@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/lukeed/klona
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/fbf0eb30a86c/tree/klona-e563341d88f433e74a9b4c3c0372d4ba55d2f79e
+- 根目录：<repo-root>/eval/quality-sample/.runs/fbf0eb30a86c/tree/klona-e563341d88f433e74a9b4c3c0372d4ba55d2f79e
 - 规模：45 个文件 / 54184 字节 / 2373 行
 - 语言：js 36、ts 1
 - 排除：binary 1

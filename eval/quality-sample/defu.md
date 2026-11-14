@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/unjs/defu
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/e6f862f68ed5/tree/defu-82632b66f5914e9946edce300e10633a3d5c0cb7
+- 根目录：<repo-root>/eval/quality-sample/.runs/e6f862f68ed5/tree/defu-82632b66f5914e9946edce300e10633a3d5c0cb7
 - 规模：22 个文件 / 236868 字节 / 1566 行
 - 语言：ts 7、cjs 1
 - 排除：lockfile 1

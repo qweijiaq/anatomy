@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/sindresorhus/merge-streams
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/9372e5b7167c/tree/merge-streams-948560b5183a67cdff03a3aaebd78c69bd194904
+- 根目录：<repo-root>/eval/quality-sample/.runs/9372e5b7167c/tree/merge-streams-948560b5183a67cdff03a3aaebd78c69bd194904
 - 规模：13 个文件 / 39084 字节 / 1257 行
 - 语言：js 2、ts 2
 - 排除：没有文件被排除

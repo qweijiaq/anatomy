@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/sindresorhus/p-all
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/b91155ef1a64/tree/p-all-633bce632b8b12a79966038b23a0ed9cae91e705
+- 根目录：<repo-root>/eval/quality-sample/.runs/b91155ef1a64/tree/p-all-633bce632b8b12a79966038b23a0ed9cae91e705
 - 规模：13 个文件 / 8438 字节 / 320 行
 - 语言：js 2、ts 2
 - 排除：没有文件被排除

@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/lukeed/dequal
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/6d16369aeadd/tree/dequal-37c21f675c1f538f2d4b63ebf19a161411e7a5fd
+- 根目录：<repo-root>/eval/quality-sample/.runs/6d16369aeadd/tree/dequal-37c21f675c1f538f2d4b63ebf19a161411e7a5fd
 - 规模：17 个文件 / 31540 字节 / 1493 行
 - 语言：js 8、ts 1
 - 排除：没有文件被排除

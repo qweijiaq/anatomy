@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/developit/mitt
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/caa815981add/tree/mitt-6b41670516ed8e8b738612f60491995470aa63b3
+- 根目录：<repo-root>/eval/quality-sample/.runs/caa815981add/tree/mitt-6b41670516ed8e8b738612f60491995470aa63b3
 - 规模：13 个文件 / 23251 字节 / 866 行
 - 语言：ts 3
 - 排除：没有文件被排除

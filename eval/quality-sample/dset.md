@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/lukeed/dset
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/effcd5bd96af/tree/dset-05b1ec0f8cebe3b5d5667285bc7da90f38a7215e
+- 根目录：<repo-root>/eval/quality-sample/.runs/effcd5bd96af/tree/dset-05b1ec0f8cebe3b5d5667285bc7da90f38a7215e
 - 规模：23 个文件 / 27450 字节 / 1275 行
 - 语言：js 12、ts 2
 - 排除：没有文件被排除

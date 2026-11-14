@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/sindresorhus/p-retry
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/1cc6480ff620/tree/p-retry-ac3c4cdb7f015e1f71825e4274e2323a49b615eb
+- 根目录：<repo-root>/eval/quality-sample/.runs/1cc6480ff620/tree/p-retry-ac3c4cdb7f015e1f71825e4274e2323a49b615eb
 - 规模：16 个文件 / 135506 字节 / 4251 行
 - 语言：js 5、ts 2
 - 排除：没有文件被排除

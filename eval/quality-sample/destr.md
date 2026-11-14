@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/unjs/destr
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/6b56e9f1c24c/tree/destr-541b6f9aeada9fc30de9c5a7e086dbfc1c6fcdc7
+- 根目录：<repo-root>/eval/quality-sample/.runs/6b56e9f1c24c/tree/destr-541b6f9aeada9fc30de9c5a7e086dbfc1c6fcdc7
 - 规模：19 个文件 / 30892 字节 / 1046 行
 - 语言：ts 3、mjs 2、cjs 1
 - 排除：lockfile 1

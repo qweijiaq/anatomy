@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/sindresorhus/p-limit
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/c5a1cb503319/tree/p-limit-a8a6fbec4e0e866d6d779b10889bb4f5567e70eb
+- 根目录：<repo-root>/eval/quality-sample/.runs/c5a1cb503319/tree/p-limit-a8a6fbec4e0e866d6d779b10889bb4f5567e70eb
 - 规模：16 个文件 / 48914 字节 / 1791 行
 - 语言：js 4、ts 2
 - 排除：没有文件被排除

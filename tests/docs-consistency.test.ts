@@ -129,3 +129,31 @@ describe('no test file is silently empty', () => {
     }
   })
 })
+
+describe('no committed file carries a machine-specific path', () => {
+  /**
+   * Fixed twice by hand before this test existed: the README's opening line carried
+   * this machine's home directory, and a stray agent ledger force-added into an
+   * otherwise-ignored directory carried it again. Three more turned up on the first
+   * sweep — two documents and all 29 generated quality samples, whose `scope.root`
+   * is the absolute directory analysed.
+   *
+   * A home directory in a public repository leaks a username and a layout, and it
+   * makes generated artefacts specific to one machine. Nothing about the product
+   * needs it.
+   */
+  it('contains no absolute home directory', async () => {
+    const { spawnSync } = await import('node:child_process')
+    // Assembled so this file does not itself contain the needle it looks for —
+    // the first version did, and the test failed on itself.
+    const needle = `/${'Us'}ers/`
+    // `git grep` exits 1 when nothing matches, which is the pass case; reading the
+    // status keeps "no hits" from arriving as a thrown error.
+    const result = spawnSync('git', ['grep', '-l', needle, '--', '.'], { cwd: ROOT, encoding: 'utf8' })
+    const hits = (result.stdout ?? '')
+      .trim()
+      .split('\n')
+      .filter((line) => line !== '')
+    expect(hits).toEqual([])
+  })
+})

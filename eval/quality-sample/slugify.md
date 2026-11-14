@@ -17,7 +17,7 @@
 ## 分析口径
 
 - 来源：https://github.com/sindresorhus/slugify
-- 根目录：/Users/weijia/Desktop/anatomy/eval/quality-sample/.runs/f04f63f2be45/tree/slugify-99b35c2b0d6ccfad2b96ba9ce6997c6365b9a4b7
+- 根目录：<repo-root>/eval/quality-sample/.runs/f04f63f2be45/tree/slugify-99b35c2b0d6ccfad2b96ba9ce6997c6365b9a4b7
 - 规模：13 个文件 / 55844 字节 / 1665 行
 - 语言：js 3、ts 1
 - 排除：没有文件被排除
