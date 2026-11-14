@@ -110,6 +110,26 @@ printf '%s' "$mcp_out" | grep -q '"isError":true' && fail "mcp reported a tool e
 printf '%s' "$mcp_out" | grep -q '"text":"# ' || fail "mcp anatomy_report returned no markdown"
 echo "  initialize + tools/list + report + scan ok"
 
+echo "== packed package =="
+# Everything above runs from the checkout. A user does not: they install a tarball,
+# and the two defects found there — an ESM CLI that could not find its own manifest,
+# and `electron` listed as a runtime dependency — were invisible from the checkout.
+# This step packs, installs into a scratch consumer, and runs the installed binary.
+pack_dir="$work/pack"
+mkdir -p "$pack_dir/consumer"
+npm pack --pack-destination "$pack_dir" > /dev/null 2>&1 || fail "npm pack"
+tarball=$(ls "$pack_dir"/anatomy-*.tgz 2>/dev/null | head -1)
+[ -n "$tarball" ] || fail "npm pack produced no tarball"
+( cd "$pack_dir/consumer" && npm init -y > /dev/null 2>&1 && npm install "$tarball" --no-audit --no-fund > /dev/null 2>&1 ) \
+  || fail "installing the tarball"
+installed="$pack_dir/consumer/node_modules/.bin/ana"
+[ -x "$installed" ] || fail "the installed package has no ana binary"
+packed_out=$("$installed" scan tests/fixtures/scan-repo --top 2 2>&1) || fail "the installed ana cannot scan"
+printf '%s' "$packed_out" | grep -q '^run ' || fail "the installed ana produced no scan summary"
+deps=$(node -e 'const p=require(require("node:path").join(process.argv[1],"package.json"));process.stdout.write(Object.keys(p.dependencies||{}).join(","))' "$pack_dir/consumer/node_modules/anatomy")
+case "$deps" in *electron*|*vite*|*react*) fail "the package installs its desktop toolchain ($deps)";; esac
+echo "  installed from tarball, scanned ok, runtime deps: $deps"
+
 echo "== sample =="
 # Printed before the delete, because the delete is what this run ends with.
 sed -n '1,12p' "$report"
