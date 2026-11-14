@@ -4,23 +4,23 @@
 
 | | |
 |---|---|
-| 生成于 | 2026-11-14 11:50 |
-| 提交 | `d8ffd54a259b9e3f0c5d3ae77fa35642a5412984` |
+| 生成于 | 2026-11-14 12:00 |
+| 提交 | `820ff68658182735da44f20d4eb664ff15d210de` |
 | 工作区 | dirty |
 | 退出码 | 1 |
 
-一行就能把这份记录钉在树上：`git show d8ffd54a259b9e3f0c5d3ae77fa35642a5412984:package.json | grep version`。
-若当前 HEAD 与上面的提交不同，先看 `git diff d8ffd54 HEAD --stat`：只动了这份记录，
+一行就能把这份记录钉在树上：`git show 820ff68658182735da44f20d4eb664ff15d210de:package.json | grep version`。
+若当前 HEAD 与上面的提交不同，先看 `git diff 820ff68 HEAD --stat`：只动了这份记录，
 结论就仍然成立；动了别的，以重跑为准。
 
 ```
 anatomy audit
 -----------------------------------------------
-gate           VERIFY: PASS (github, run 33d3447da532, deleted)
-tests          779 passed
-tree           FAIL — main at d8ffd54 but upstream is 66e7d1b
+gate           VERIFY: PASS (github, run 706cd6cd6c7f, deleted)
+tests          782 passed
+tree           FAIL — main at 820ff68 but upstream is 72da9e9
 artefacts      none tracked
-docs           README (en/zh), EVIDENCE and PROGRESS say 779 tests / 36 files; v0.1.0; snapshot d8ffd54 describes HEAD's tree
+docs           README (en/zh), EVIDENCE and PROGRESS say 782 tests / 36 files; v0.1.0; snapshot 820ff68 describes HEAD's tree
 markers        none in src, renderer, electron, scripts
 surface        10 CLI commands, 4 MCP tools
 docs-files     every document named, and every docs/ path they point at
