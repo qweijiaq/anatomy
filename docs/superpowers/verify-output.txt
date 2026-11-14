@@ -4,13 +4,13 @@
 
 | | |
 |---|---|
-| 生成于 | 2026-11-14 13:44 |
-| 提交 | `31472acba6585e1e54a1057a32521a2f3e26096c` |
-| 退出码 | 1 |
+| 生成于 | 2026-11-14 13:45 |
+| 提交 | `fc550e063e642218d5d1477ba7f80d597da61190` |
+| 退出码 | 0 |
 | 当时跟踪的文件数 | 242 |
 | 当时的测试文件数 | 36 |
 
-一行就能把这份记录钉在树上：`git show 31472acba6585e1e54a1057a32521a2f3e26096c:package.json | grep version`。
+一行就能把这份记录钉在树上：`git show fc550e063e642218d5d1477ba7f80d597da61190:package.json | grep version`。
 若当前 HEAD 与上面的提交不同，数字就属于旧树，以重跑为准。
 
 ```
@@ -20,13 +20,43 @@
 
 == tests ==
       Tests  791 passed (791)
-   Start at  13:44:26
-   Duration  5.50s (transform 1.54s, setup 0ms, collect 9.33s, tests 20.22s, environment 7ms, prepare 3.32s)
+   Start at  13:45:47
+   Duration  5.46s (transform 1.43s, setup 0ms, collect 10.39s, tests 20.71s, environment 5ms, prepare 3.14s)
 
 == typecheck ==
-tests/analyze.test.ts(25,25): error TS2300: Duplicate identifier 'ModelRequestError'.
-tests/analyze.test.ts(31,3): error TS2300: Duplicate identifier 'ModelRequestError'.
-VERIFY: FAIL — typecheck (exit 2)
+
+== build ==
+== stub model ==
+== scan (github) ==
+run 658e4b2722bc  13 files, 2606 lines  nothing excluded
+index.js:105  5  custom-infra
+index.js:120  5  custom-infra
+== analyze (github) ==
+== report (tree deleted) ==
+== inspect ==
+== mcp ==
+  initialize + tools/list + report + scan ok
+== packed package ==
+  installed from tarball, scanned ok, runtime deps: tokenx,typescript
+== sample ==
+# quick-lru
+
+## 这次分析在解决什么
+
+一个小型工具库，用语言内建结构替代显式的数据结构。
+
+## 最值得学的 1 件事
+
+1. 用插入顺序维护淘汰顺序，不额外维护链表
+
+## 这次分析的可信度
+
+
+== runs ==
+== forget ==
+SUMMARY: Tests  791 passed | typecheck clean | build ok
+SUMMARY: scan+analyze+report+inspect+forget ok on https://github.com/sindresorhus/quick-lru
+VERIFY: PASS (github, run 361bedf5cb4a, deleted)
 ```
 
-末行：`VERIFY: FAIL — typecheck (exit 2)`
+末行：`VERIFY: PASS (github, run 361bedf5cb4a, deleted)`
