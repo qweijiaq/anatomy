@@ -45,6 +45,7 @@ npm run verify        # 末行应为 VERIFY: PASS
 
 ```bash
 npm run start:desktop          # 先构建载荷，再开窗口
+npm run start:app              # 打开构建好的 .app，工作目录仍是项目
 
 npm run build:desktop          # 只构建载荷（dist-electron + dist-renderer）
 npm run build:bundle           # 组装 out/anatomy.app（233MB 的运行时副本）

@@ -20,7 +20,7 @@
  * a distributable.
  */
 import { execFileSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 const root = process.cwd()
@@ -76,6 +76,39 @@ if (!hasUrlTypes) {
   buddy('Add :CFBundleURLTypes:0:CFBundleURLSchemes array')
   buddy('Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string anatomy')
 }
+
+// --- the payload -----------------------------------------------------------
+//
+// Without this the bundle is a renamed Electron runtime and nothing else: `open
+// anatomy.app` prints Electron's own "path-to-app" usage, because there is no app for
+// it to run. That is what it did until somebody tried to double-click it. A bundle with
+// `Contents/Resources/app/` runs on its own, so the payload goes in: the built main
+// process, the built renderer, and a `package.json` that names the entry — this
+// project's own manifest has no `main`, because it is an npm CLI, not an Electron app.
+const appDir = path.join(target, 'Contents/Resources/app')
+mkdirSync(appDir, { recursive: true })
+for (const part of ['dist-electron', 'dist-renderer']) {
+  const from = path.join(root, part)
+  if (!existsSync(from)) {
+    process.stderr.write(`missing ${part} — run npm run build:desktop first\n`)
+    process.exit(1)
+  }
+  cpSync(from, path.join(appDir, part), { recursive: true, verbatimSymlinks: true })
+}
+writeFileSync(
+  path.join(appDir, 'package.json'),
+  `${JSON.stringify(
+    {
+      name: 'anatomy',
+      productName: 'anatomy',
+      version: JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version,
+      main: 'dist-electron/main.cjs',
+      type: 'commonjs',
+    },
+    null,
+    2,
+  )}\n`,
+)
 
 // The icon lives where the runtime looks for it; editing Info.plist above already
 // pointed CFBundleIconFile at this file name.

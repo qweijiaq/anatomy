@@ -106,6 +106,25 @@ process.stdout.write(first?.theirs.evidence[0].id ?? "")
 node dist/cli.js inspect "$evidence" > "$work/inspect.txt" 2>&1 || fail "inspect"
 grep -qE '^[^ ]+:[0-9]+-[0-9]+$' "$work/inspect.txt" || fail "inspect printed no range"
 
+echo "== desktop =="
+# Does the app actually open? Every entry point was broken for months — `npm run
+# start:desktop` spawned `Electron .` and this package has no `main`; the bundle carried
+# no payload — and nothing in the gate noticed, because nothing opened it. The hook in
+# `electron/main.ts` exists for this line and is inert otherwise.
+if [ "$(uname)" = "Darwin" ]; then
+  electron_bin="node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+  if [ -x "$electron_bin" ]; then
+    [ -f dist-electron/main.cjs ] || npm run build:desktop --silent >/dev/null 2>&1 || fail "build:desktop"
+    smoke=$(ANA_SMOKE=1 "$electron_bin" dist-electron/main.cjs 2>&1 | grep -E '^SMOKE: ' | head -1)
+    printf '%s\n' "$smoke"
+    [ "$smoke" = "SMOKE: window loaded" ] || fail "the window did not load: ${smoke:-no output}"
+  else
+    echo "  (no Electron in node_modules; skipped)"
+  fi
+else
+  echo "  (not macOS; skipped)"
+fi
+
 echo "== app =="
 # The no-source half, end to end: locate REA, spawn it, read its progress off stderr,
 # parse the document, write the evidence file, render the facts report, compare two

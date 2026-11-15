@@ -49,6 +49,7 @@ recorded numbers to a commit.
 
 ```bash
 npm run start:desktop          # build the payload, then open the window
+npm run start:app              # open the built bundle (out/anatomy.app), same workspace
 
 npm run build:desktop          # payload only (dist-electron + dist-renderer)
 npm run build:bundle           # assemble out/anatomy.app, a 233 MB runtime copy

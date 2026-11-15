@@ -27,6 +27,7 @@ VERIFY: PASS (github, run <runId>)
 | `analyze` | 写出 `report.md` 等产物；报告含标题、`已取证点占比`、`没看的部分`、`` `path:start-end` `` 证据行 |
 | `report` | 删掉已分析树之后仍能重渲染出报告 |
 | `inspect` | 打印 `path:start-end` 与原文片段；id 或报告里写的那种引用都行 |
+| `desktop` | 真的用 Electron 打开一次窗口，断言 `SMOKE: window loaded` |
 | `app` | 用仓库内的假 REA 跑 `inspect-app` → `app-report` → `app-diff`：定位 REA、读数它的进度、写证据文件、渲染两份报告、比对两次构建 |
 | `mcp` | 用 stdio JSON-RPC 起 server，依次问 `anatomy_scan` / `anatomy_report` / `anatomy_evidence` / `anatomy_forget` |
 | `packed package` | `npm pack` 出来装进空目录：3 个依赖，`ana scan` 能跑 |

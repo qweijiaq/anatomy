@@ -13,7 +13,8 @@
  */
 
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from 'electron'
-import { readdir, readFile, stat } from 'node:fs/promises'
+import { accessSync, constants } from 'node:fs'
+import { readFile, readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -44,6 +45,25 @@ const here =
   typeof __filename === 'string' ? path.dirname(__filename) : path.dirname(fileURLToPath(import.meta.url))
 
 let window: BrowserWindow | null = null
+
+/**
+ * Where this app keeps `.ana/`, which is the directory it was launched from — when that
+ * directory can be written to.
+ *
+ * Launched from a shell, the cwd is the project and everything lands beside the code,
+ * which is what a development build wants. Double-clicked, the cwd is `/`, and every
+ * write to `/.ana` fails. The fallback is the platform's per-app data directory, so the
+ * bundle opens and works instead of opening and failing at the first analysis.
+ */
+function workspaceRoot(): string {
+  const cwd = process.cwd()
+  try {
+    accessSync(cwd, constants.W_OK)
+    return cwd
+  } catch {
+    return app.getPath('userData')
+  }
+}
 
 /**
  * The Dock icon, from `build/icon.icns`.
@@ -83,7 +103,23 @@ function createWindow(): void {
   if (typeof devUrl === 'string' && devUrl !== '') {
     void window.loadURL(devUrl)
   } else {
-    void window.loadFile(path.join(here, '../dist-renderer/index.html'))
+    const page = window.loadFile(path.join(here, '../dist-renderer/index.html'))
+    if (process.env['ANA_SMOKE'] === '1') {
+      // A hook, not a feature: the gate has to answer "does the app open" and the only
+      // way to answer it is to open it. Nothing else in the app reads this variable, and
+      // without it the check would have to trust that the launch code is still correct —
+      // which is exactly what was wrong for months.
+      page
+        .then(() => {
+          process.stdout.write('SMOKE: window loaded\n')
+          setTimeout(() => app.quit(), 300)
+        })
+        .catch((error: unknown) => {
+          process.stderr.write(`SMOKE: ${error instanceof Error ? error.message : String(error)}\n`)
+          app.exit(1)
+        })
+    }
+    void page
   }
 
   // Content Security Policy for the dev server, which needs a websocket for hot
@@ -191,7 +227,7 @@ ipcMain.handle('analysis:scan', async (_event, request: unknown) => {
   const top = typeof (request as { top?: unknown })?.top === 'number' ? (request as { top: number }).top : 12
   try {
     const summary = await runScan(repo, {
-      out: path.resolve(process.cwd(), '.ana', 'scratch'),
+      out: path.resolve(workspaceRoot(), '.ana', 'scratch'),
       topK: top,
     })
     return {
@@ -296,7 +332,7 @@ ipcMain.handle('runs:list', async () => {
   // required `synthesis` and `validation`, the CLI required `synthesis` and a points
   // array — so a run could be listed in one and invisible in the other, and the two
   // copies had no reason to stay in step.
-  const baseDir = path.resolve(process.cwd(), DEFAULT_RUNS_DIR)
+  const baseDir = path.resolve(workspaceRoot(), DEFAULT_RUNS_DIR)
   const stored = await listRuns({ baseDir })
 
   const runs: ReportSummary[] = []
@@ -332,7 +368,7 @@ ipcMain.handle('runs:list', async () => {
  */
 ipcMain.handle('report:reveal', async (_event, runId: unknown) => {
   if (typeof runId !== 'string' || runId === '') return { ok: false, message: '缺少 run id。' }
-  const file = path.resolve(process.cwd(), '.ana', 'runs', path.basename(runId), 'report.md')
+  const file = path.resolve(workspaceRoot(), '.ana', 'runs', path.basename(runId), 'report.md')
   try {
     await stat(file)
   } catch {
@@ -366,7 +402,7 @@ ipcMain.handle('report:read', async (_event, runId: unknown) => {
 // of that belongs in a viewer.
 
 ipcMain.handle('surveys:list', async () => {
-  const baseDir = path.resolve(process.cwd(), '.ana', 'apps')
+  const baseDir = path.resolve(workspaceRoot(), '.ana', 'apps')
   let entries: string[]
   try {
     entries = await readdir(baseDir)
@@ -402,7 +438,7 @@ ipcMain.handle('surveys:diff', async (_event, before: unknown, after: unknown) =
   if (typeof before !== 'string' || typeof after !== 'string') {
     return { ok: false, message: '需要两个 survey 目录名。' }
   }
-  const baseDir = path.resolve(process.cwd(), '.ana', 'apps')
+  const baseDir = path.resolve(workspaceRoot(), '.ana', 'apps')
   const load = async (name: string): Promise<AppSurvey | null> => {
     try {
       const raw = await readFile(path.join(baseDir, path.basename(name), 'survey.json'), 'utf8')

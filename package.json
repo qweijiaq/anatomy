@@ -40,7 +40,8 @@
     "dev:renderer": "vite --config vite.config.ts --host 127.0.0.1",
     "verify:record": "bash scripts/record-verify.sh",
     "audit": "bash scripts/audit.sh",
-    "audit:record": "bash scripts/record-audit.sh"
+    "audit:record": "bash scripts/record-audit.sh",
+    "start:app": "bash scripts/start-app.sh"
   },
   "dependencies": {
     "tokenx": "^0.4.1",

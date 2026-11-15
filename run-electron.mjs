@@ -12,8 +12,16 @@ import { spawn } from 'node:child_process'
 const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
 
-const child = spawn('node_modules/electron/dist/Electron.app/Contents/MacOS/Electron', ['.', ...process.argv.slice(2)], {
-  stdio: 'inherit',
-  env,
-})
+// The entry is the built main file, not the directory.
+//
+// `Electron .` reads `package.json`'s `main`, and this package has none — it is an npm
+// CLI whose `bin` is `dist/cli.js`, not an Electron app. Without a `main` Electron falls
+// back to `index.js`, cannot find it, and prints "Unable to find Electron app at …".
+// `npm run start:desktop` therefore never opened a window; every window this repository
+// has shown was opened by a probe that passed an explicit `.mjs` file.
+const child = spawn(
+  'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron',
+  ['dist-electron/main.cjs', ...process.argv.slice(2)],
+  { stdio: 'inherit', env },
+)
 child.on('exit', (code) => process.exit(code ?? 0))

@@ -113,4 +113,7 @@ scripts/build-electron.mjs  esbuild 打包 main 与 preload，并复制 Python s
   那件事做对。长任务用的是 CLI，那里的 Ctrl-C 本来就能用。
 - 没有打包成 .dmg 分发（`electron-builder` 未接入）。本地要一个能双击的 app 用
   `npm run build:desktop && npm run build:bundle`，产物在 `out/anatomy.app`（约 233MB，
-  是 Electron 运行时的副本，已在 .gitignore 里）。`npm run clean` 可以清掉它。
+  Electron 运行时加 `dist-electron` / `dist-renderer` 的副本，已在 .gitignore 里）。
+  `npm run clean` 可以清掉它。
+  双击启动时工作目录是 `/`，`.ana/` 落到系统的应用数据目录；想让报告落在项目里，
+  用 `npm run start:app`。

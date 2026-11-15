@@ -708,6 +708,8 @@ export async function judgeCandidates(deps: JudgeDeps): Promise<JudgeResult> {
     let accepted: LearningPoint | null = null
     let skipReason = ''
     let lastReason = ''
+    /** The last attempt produced a well-formed reply whose point failed the schema. */
+    let shapedRejection = false
 
     for (
       let attempt = 0;
@@ -763,6 +765,10 @@ export async function judgeCandidates(deps: JudgeDeps): Promise<JudgeResult> {
       const shaped = parsePoint(reply.value, promptCandidate)
       if (!shaped.ok) {
         lastReason = shaped.reason
+        // The model answered, and the answer was shaped enough to be judged — it just
+        // failed the schema. That is a rejected point, not a reply the model failed to
+        // produce, and the two were being reported with the same sentence.
+        shapedRejection = true
         continue
       }
       accepted = shaped.point
@@ -775,13 +781,19 @@ export async function judgeCandidates(deps: JudgeDeps): Promise<JudgeResult> {
       continue
     }
 
-    // A skip is an answer; an empty `skipReason` with a reason attached is a failure.
-    if (skipReason === '' && lastReason !== '') replyFailures += 1
+    // A skip is an answer; a reply that never parsed is a failure; a point that parsed
+    // and was rejected is neither.
+    if (skipReason === '' && lastReason !== '' && !shapedRejection) replyFailures += 1
     skipped.push({
       candidateId: candidate.id,
       path: candidate.path,
       line: candidate.line,
-      reason: skipReason !== '' ? skipReason : shortReason(lastReason) || 'model produced no usable point',
+      reason:
+        skipReason !== ''
+          ? skipReason
+          : shapedRejection
+            ? `model produced a point that failed the schema: ${shortReason(lastReason)}`
+            : shortReason(lastReason) || 'model produced no usable point',
     })
   }
 

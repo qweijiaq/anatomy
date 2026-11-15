@@ -21,6 +21,16 @@
  *   into the run report. Only the status code is published.
  */
 
+import { writeFileSync } from 'node:fs'
+
+/**
+ * Output ceiling per request.
+ *
+ * Large enough for the judge's JSON, small enough that a runaway reply is still
+ * bounded. Both protocols send it, so a provider default cannot silently truncate.
+ */
+const MAX_REPLY_TOKENS = 8192
+
 export type Usage = { in: number; out: number }
 
 /**
@@ -196,7 +206,7 @@ export function buildRequest(req: ModelRequest, cfg: RequestConfig): BuiltReques
         },
         body: JSON.stringify({
           model: cfg.model,
-          max_tokens: 8192,
+          max_tokens: MAX_REPLY_TOKENS,
           temperature: 0,
           system: req.system,
           messages: [{ role: 'user', content: req.user }],
@@ -213,6 +223,13 @@ export function buildRequest(req: ModelRequest, cfg: RequestConfig): BuiltReques
     ],
     response_format: { type: 'json_object' },
     temperature: 0,
+    // The judge asks for a large object — a point with its alternatives, tradeoffs and
+    // a recipe — and the schema alone runs to a few thousand tokens. A provider's
+    // default output cap is smaller than that, and a reply cut off mid-JSON is invalid
+    // by construction: it showed up as "model reply content is not JSON", which sent the
+    // search toward the prompt instead of the ceiling. The Anthropic branch already
+    // states this number; the OpenAI-shaped one now does too.
+    max_tokens: MAX_REPLY_TOKENS,
   }
   // DeepSeek V4 defaults to a thinking mode that spends the output budget on
   // reasoning, which truncates JSON. Other providers ignore the field, but only
@@ -296,6 +313,22 @@ function usageOf(payload: unknown): Usage {
   }
 }
 
+/**
+ * Whether the provider says the reply hit its output ceiling.
+ *
+ * OpenAI-shaped providers report `finish_reason: "length"`; Anthropic reports
+ * `stop_reason: "max_tokens"`. Both mean the same thing and both are worth telling the
+ * reader, because the fix is different from a malformed prompt's.
+ */
+function cutOff(payload: unknown): boolean {
+  if (!isRecord(payload)) return false
+  if (payload['stop_reason'] === 'max_tokens') return true
+  const choices = payload['choices']
+  if (!Array.isArray(choices) || choices.length === 0) return false
+  const first = choices[0]
+  return isRecord(first) && first['finish_reason'] === 'length'
+}
+
 function contentOf(payload: unknown): string | null {
   if (!isRecord(payload)) return null
   // Anthropic: `content: [{type: 'text', text: '…'}, …]`.
@@ -361,8 +394,18 @@ async function readReply(response: Response): Promise<ModelResponse> {
   try {
     return { json: JSON.parse(text), usage }
   } catch {
+    if (process.env['ANA_DEBUG_REPLY'] !== undefined) {
+      writeFileSync(process.env['ANA_DEBUG_REPLY'], text)
+    }
+    // A reply that begins as JSON and fails to parse is almost always one the provider
+    // cut off at its output limit — the judge asks for a large object, and a truncated
+    // one is invalid by construction. Saying "not JSON" sends the reader looking for a
+    // bad prompt; the `finish_reason` says which it was.
+    const truncated = cutOff(payload)
     throw new ModelReplyError(
-      `model reply content is not JSON: ${shorten(text, 120)}`,
+      truncated
+        ? `model reply was cut off at the output limit before the JSON closed: ${shorten(text, 120)}`
+        : `model reply content is not JSON: ${shorten(text, 120)}`,
       usage,
       response.status,
     )
