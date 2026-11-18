@@ -20,6 +20,7 @@ import { isArtifactName, readManifest } from '../store/runs.js'
 import type { ModelClient } from '../writing/client.js'
 import type { Lang } from '../render/labels.js'
 import { buildDoc, diagramOf } from './doc.js'
+import { structureGuide } from '../render/structure-guide.js'
 import { readReportInput, runReport } from './report.js'
 import { enrichDossier, type Enrichment } from '../writing/enrich.js'
 
@@ -183,25 +184,31 @@ function risksDoc(input: ReportInput, lang: Lang): string {
 function onboardingDoc(input: ReportInput, lang: Lang): string {
   const L = headings(lang)
   const points = ordered(input)
-  const dirs = new Map<string, number>()
-  for (const file of input.scope.files) {
-    // Tooling and docs are not where the code sits; a `.github/` row in a
-    // "where to start" list sends the reader to the wrong place.
-    if (file.language === null) continue
-    const dir = path.posix.dirname(file.path)
-    if (dir === '.' || dir.startsWith('..')) continue
-    const top = dir.split('/')[0] as string
-    dirs.set(top, (dirs.get(top) ?? 0) + 1)
-  }
-  const topDirs = [...dirs.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6)
+  const guide = structureGuide(input)
   const lines = [`# ${L.onboarding}`, '']
   lines.push(lang === 'en' ? '## Read in this order' : '## 按这个顺序读', '')
   points.forEach((point, index) => {
     lines.push(`${index + 1}. **${point.title}** — ${firstCite(point)}`)
   })
-  if (topDirs.length > 0) {
-    lines.push('', lang === 'en' ? '## Where the code sits' : '## 代码集中在哪', '')
-    for (const [dir, count] of topDirs) lines.push(`- \`${dir}/\` · ${count} files`)
+  lines.push('', lang === 'en' ? '## Doors and corridors' : '## 入口与枢纽', '')
+  if (guide.entries.length === 0) {
+    lines.push(lang === 'en' ? '- No entry point was declared in a manifest.' : '- 清单里没有声明入口。')
+  } else {
+    lines.push(`- ${lang === 'en' ? 'Entry points' : '入口'}：${guide.entries.map((item) => `\`${item}\``).join('、')}`)
+  }
+  if (guide.hubs.length > 0) {
+    lines.push(
+      `- ${lang === 'en' ? 'Most imported' : '被依赖最多'}：${guide.hubs
+        .map((hub) => `\`${hub.path}\`（${hub.incoming}）`)
+        .join('、')}`,
+    )
+  }
+  if (guide.dirs.length > 0) {
+    lines.push(
+      `- ${lang === 'en' ? 'Source directories' : '代码目录'}：${guide.dirs
+        .map((dir) => `\`${dir.dir}/\`（${dir.files}）`)
+        .join('、')}`,
+    )
   }
   lines.push('', lang === 'en' ? '## Tests and build' : '## 测试与构建', '')
   lines.push(`- ${lang === 'en' ? 'Manifests' : '清单文件'}：${input.profile.manifests.length > 0 ? input.profile.manifests.map((item) => `\`${item}\``).join('、') : '—'}`)

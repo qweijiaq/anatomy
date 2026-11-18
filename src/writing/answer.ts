@@ -21,8 +21,12 @@ import type { Lang } from './prompts/zh.js'
 const CITATION = /((?:[A-Za-z0-9._@/-]+):\d+-\d+)/g
 const CITATION_SHAPE = /^[^\s:]+:\d+-\d+$/
 /** Enough for a focused answer; a report-sized essay is not a follow-up. */
-const MAX_ANSWER_CHARS = 4_000
-const MAX_CONTEXT_TOKENS = 50_000
+const MAX_ANSWER_CHARS = 2_000
+// A broad "how does the pipeline work" question is where a large context made
+// the reply long enough to stop being valid JSON. Six points keep the answer
+// within a small object; a question the evidence cannot answer must refuse, not
+// enumerate the repository from memory.
+const MAX_CONTEXT_TOKENS = 24_000
 const MAX_ATTEMPTS = 2
 
 export type Answer = {
@@ -64,6 +68,7 @@ function systemPrompt(lang: Lang): string {
       'You answer questions about one analysed repository, using only the evidence below.',
       'Every factual sentence must carry a citation written exactly `path:start-end` from the evidence list.',
       'Do not use outside knowledge. Do not cite a range that is not in the list.',
+      'The evidence is a set of individual decisions, not a complete module map or pipeline. If answering needs files or stages that are not in the evidence, set answered=false instead of listing them from memory.',
       'If the evidence does not answer the question, set answered=false, say what is missing, and return no citations.',
       'Return only the JSON object the schema asks for.',
     ].join('\n')
@@ -72,6 +77,7 @@ function systemPrompt(lang: Lang): string {
     '你只根据下面这份分析里的证据，回答关于这个仓库的问题。',
     '每一句事实都必须带一个引用，写成 `path:start-end`，且必须来自给出的证据列表。',
     '不要使用外部知识，不要引用列表里没有的行号范围。',
+    '给出的证据是一组个别的决定，不是完整的模块图或流水线；如果回答需要证据里没有的文件或阶段，把 answered 设为 false，不要凭记忆罗列。',
     '如果证据不足以回答，把 answered 设为 false，说明缺什么，并返回空的 citations。',
     '只返回 schema 要求的 JSON。',
   ].join('\n')
@@ -115,7 +121,7 @@ type Chosen = {
 function choose(input: ReportInput, question: string): Chosen {
   const words = questionWords(question)
   const ranked = [...input.points].sort((a, b) => relevance(b, words) - relevance(a, words))
-  let chosen = ranked.slice(0, Math.min(8, ranked.length))
+  let chosen = ranked.slice(0, Math.min(6, ranked.length))
 
   const tokenCount = (points: LearningPoint[]): number => {
     const text = points

@@ -199,14 +199,14 @@ packages, and `ana scan` works.
 
 One unambiguous statement, so nothing is left pending a decision:
 
-- sixteen commands, all usable; `npm run verify` is the single gate (876 tests, three
+- sixteen commands, all usable; `npm run verify` is the single gate (879 tests, three
   tsconfigs, and the CLI end to end against a local stub model)
 - a repository **with** source: design notes where every claim cites a line and is
   checked against the bytes on disk; anything unverifiable never reaches the page
 - an application **without** source: facts report and a two-build diff through REA,
   with no model called at all
 - complete reports in Chinese and English, frame and prose alike
-- **`ana export`** turns one analysis into a dossier — summary, decisions, risks, onboarding, hotspots and a self-check — with zero extra model calls by default; **`ana doc`** writes a repository-facing `ARCHITECTURE.md` with a reading order and a derived Mermaid diagram, plus an optional portable bundle; **`ana history`** adds the last commit behind each cited file for local checkouts; Go gets a line-oriented structure pass.
+- **`ana export`** turns one analysis into a dossier — summary, decisions, risks, onboarding (entry points, hubs and directories), hotspots and a self-check — with zero extra model calls by default; **`ana doc`** writes a repository-facing `ARCHITECTURE.md` with a reading order and a derived Mermaid diagram, plus an optional portable bundle; **`ana history`** adds the last commit behind each cited file for local checkouts; Go gets a line-oriented structure pass.
 - **follow-up questions** answered only from the report's stored evidence; **resume** reuses judged candidates; a second analysis of the same tree reuses the judge checkpoint (`--no-cache` turns it off); every run records its model calls and tokens in `usage.json`
 
 Recall is 61% on the tracked gold set with every candidate; the default 12-candidate

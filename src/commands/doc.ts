@@ -19,6 +19,7 @@ import { DEFAULT_RUNS_DIR } from '../kernel/pipeline.js'
 import { readManifest, isArtifactName } from '../store/runs.js'
 import { readReportInput } from './report.js'
 import { runReport } from './report.js'
+import { structureGuide } from '../render/structure-guide.js'
 import type { Lang } from '../render/labels.js'
 
 export const DOC_USAGE = `Usage: ana doc <runId> [options]
@@ -253,6 +254,23 @@ export async function buildDoc(runId: string, opts: DocOptions = {}): Promise<Do
     return `${index + 1}. **${point.title}**${where === '' ? '' : ` —— ${where}`}`
   })
 
+  const guide = structureGuide(input)
+  const guideLines: string[] = []
+  if (guide.entries.length > 0) guideLines.push(`- ${lang === 'en' ? 'Entry points' : '入口'}：${guide.entries.map((item) => `\`${item}\``).join('、')}`)
+  if (guide.hubs.length > 0) {
+    guideLines.push(
+      `- ${lang === 'en' ? 'Most imported' : '被依赖最多'}：${guide.hubs
+        .map((hub) => `\`${hub.path}\`（${hub.incoming}）`)
+        .join('、')}`,
+    )
+  }
+  if (guide.dirs.length > 0) {
+    guideLines.push(
+      `- ${lang === 'en' ? 'Source directories' : '代码目录'}：${guide.dirs
+        .map((dir) => `\`${dir.dir}/\`（${dir.files}）`)
+        .join('、')}`,
+    )
+  }
   const diagram = diagramOf(input.structure)
   let tests = new Map<string, string[]>()
   try {
@@ -268,6 +286,7 @@ export async function buildDoc(runId: string, opts: DocOptions = {}): Promise<Do
     input.problem === '' ? '—' : input.problem,
   ]
   if (readings.length > 0) sections.push(`## ${L.path}`, readings.join('\n'))
+  if (guideLines.length > 0) sections.push(`## ${lang === 'en' ? 'Structure' : '结构导览'}`, guideLines.join('\n'))
   if (rendered.length > 0) {
     sections.push(`## ${L.points}`)
     rendered.forEach((point, index) =>
