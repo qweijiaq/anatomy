@@ -113,7 +113,7 @@ scripts/build-electron.mjs  esbuild 打包 main 与 preload，并复制 Python s
 - **应用 · N**：`ana inspect-app` 重建过的应用。页头可切换看哪一份，`删除`同样两段确认。
   内容分三块：Electron 暴露面、contextBridge 暴露的每个成员、IPC 通道按名字分级。
 - **对比**：挑两份 survey 算差异，吸顶选择条，改前/后不用滚回顶部。
-- **设置**：provider、模型、Key、报告深度和**报告语言**（中文 / English）。窗口底部显示
+- **设置**：provider、模型、Key、报告深度和**报告语言**（中文 / English）。深度按 gold 集实测：精简 6 候选 / 4 点（召回约 44%）、标准 12 / 6（约 53%）、深入 30 / 10（约 56%）。窗口底部显示
   版本号；删除已存的 Key 需要二次确认。
 - **深色模式**：跟随系统，不需要开关；两套颜色都在同一组 token 里。
 

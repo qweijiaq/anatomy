@@ -35,15 +35,19 @@ type Props = {
  * so the cost is stated in the label rather than hidden.
  */
 const DEPTHS = [
-  { id: 'quick', label: '精简 · 快', candidates: 6, points: 4, hint: '约 6 次请求' },
-  { id: 'standard', label: '标准', candidates: 12, points: 6, hint: '约 12 次请求' },
-  { id: 'deep', label: '深入 · 全', candidates: 20, points: 10, hint: '约 20 次请求' },
+  { id: 'quick', label: '精简 · 快', candidates: 6, points: 4, hint: '约 6 次请求', recall: '44%' },
+  { id: 'standard', label: '标准', candidates: 12, points: 6, hint: '约 12 次请求', recall: '53%' },
+  // 20 candidates measured the same recall as 12 on the gold set, for 1.7× the
+  // judge cost; 30 is the next budget that actually moves the number.
+  { id: 'deep', label: '深入 · 全', candidates: 30, points: 10, hint: '约 30 次请求', recall: '56%' },
 ] as const
 
 /** Which preset the stored numbers correspond to; anything else reads as standard. */
 function depthOf(candidates: number, points: number): string {
   const exact = DEPTHS.find((item) => item.candidates === candidates && item.points === points)
-  return exact?.id ?? 'standard'
+  // A stored value that predates this table (20/10) is shown as its own
+  // selection instead of being silently rewritten to the nearest preset.
+  return exact?.id ?? 'custom'
 }
 
 export function SettingsPanel({ settings, onChange, onClose, version }: Props): React.JSX.Element {
@@ -71,9 +75,26 @@ export function SettingsPanel({ settings, onChange, onClose, version }: Props): 
   const [discoverNote, setDiscoverNote] = useState('')
 
   const preset = providerOf(provider)
-  const depthPreset = DEPTHS.find((item) => item.id === depth) ?? DEPTHS[1]!
-  const topN = depthPreset.candidates
-  const reportPoints = depthPreset.points
+  const depthPreset = DEPTHS.find((item) => item.id === depth)
+  const customDepth = depthPreset === undefined
+  const topN = depthPreset?.candidates ?? settings.topN
+  const reportPoints = depthPreset?.points ?? settings.reportPoints
+  const depthOptions = [
+    ...DEPTHS.map((item) => ({
+      value: item.id as string,
+      label: item.label,
+      hint: `${item.hint} · 召回 ~${item.recall}`,
+    })),
+    ...(customDepth
+      ? [
+          {
+            value: 'custom',
+            label: '自定义（当前保存值）',
+            hint: `${settings.topN} 候选 / ${settings.reportPoints} 点`,
+          },
+        ]
+      : []),
+  ]
 
   // Switching provider resets the derived fields to that provider's defaults; the
   // key field stays empty so the stored key is never overwritten by accident.
@@ -355,15 +376,12 @@ export function SettingsPanel({ settings, onChange, onClose, version }: Props): 
             id="depth"
             value={depth}
             onChange={setDepth}
-            options={DEPTHS.map((item) => ({
-              value: item.id,
-              label: item.label,
-              hint: item.hint,
-            }))}
+            options={depthOptions}
           />
           <p className="field__hint">
             一次分析会问 {topN} 个候选点，报告写 {reportPoints} 条。候选点少于要写的条数，
-            报告就只能变短；每多一个候选点，多一次模型请求。
+            报告就只能变短；每多一个候选点，多一次模型请求。召回是 29 个 gold 仓库、90 个
+            标注点上的实测值——20 个候选和 12 个命中相同，所以「深入」用 30 个候选。
           </p>
         </section>
 
