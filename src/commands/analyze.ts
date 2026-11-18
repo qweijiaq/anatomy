@@ -63,7 +63,13 @@ import {
   MissingCredentialsError,
   resolveApiKey,
 } from '../writing/client.js'
-import { buildJudgePrompt, judgeCandidates, RUN_BUDGET_CUT_REASON } from '../writing/judge.js'
+import {
+  buildJudgePrompt,
+  judgeCandidates,
+  judgeWindowNamed,
+  RUN_BUDGET_CUT_REASON,
+  type JudgeWindow,
+} from '../writing/judge.js'
 import type { JudgeProgress, JudgeResume } from '../writing/judge.js'
 import { metered, between } from '../writing/meter.js'
 import {
@@ -144,6 +150,8 @@ export type AnalyzeOptions = {
   resume?: JudgeResume
   /** Reuse a cached judge checkpoint for this tree. Defaults to true. */
   cache?: boolean
+  /** Prompt window override; also settable with ANA_JUDGE_WINDOW. */
+  judgeWindow?: JudgeWindow
   /** Checkpoint after every judged candidate, for `ana resume`. */
   onJudgeProgress?: (progress: JudgeProgress) => void
   /** Prompt language; `zh` is the shipped default. */
@@ -434,6 +442,7 @@ async function persist(
   await run.write('synthesis', synthesis)
   await run.write('skipped', skipped)
   await run.write('report', JSON.parse(renderedJson) as unknown)
+  if (report.usage !== undefined) await run.write('usage', report.usage)
 
   const reportPath = path.join(run.dir, REPORT_FILE)
   await writeFile(reportPath, renderedMarkdown, 'utf8')
@@ -598,6 +607,14 @@ export async function runAnalyze(
 ): Promise<AnalyzeResult> {
   const lang: Lang = opts.lang ?? 'zh'
   const model = resolveModelName(opts.model)
+  const envWindow = process.env['ANA_JUDGE_WINDOW']
+  const judgeWindow =
+    opts.judgeWindow ??
+    (envWindow === undefined || envWindow === '' ? undefined : judgeWindowNamed(envWindow) ?? undefined)
+  if (envWindow !== undefined && envWindow !== '' && judgeWindow === undefined) {
+    throw new Error(`ANA_JUDGE_WINDOW names no preset: "${envWindow}"`)
+  }
+  const useCache = opts.cache !== false && process.env['ANA_NO_CACHE'] !== '1'
 
   // The two things the run cannot do without are settled before it acquires
   // anything: a caller with no key, or a model whose budget cannot be clamped,
@@ -680,6 +697,7 @@ export async function runAnalyze(
       runId: scanned.runId,
       maxTokens: opts.maxTokens,
       resume: cached ?? undefined,
+      ...(judgeWindow === undefined ? {} : { window: judgeWindow }),
       onVerdict: async (progress) => {
         latest = progress
         await scanned.run.write('judge-progress', { ...checkpoint, ...progress })
@@ -722,7 +740,7 @@ export async function runAnalyze(
     const judgeStopped = judged.skipped.some((entry) => entry.reason.startsWith(RUN_BUDGET_CUT_REASON))
     const finalProgress = latest as JudgeProgress | null
     if (
-      opts.cache !== false &&
+      useCache &&
       cacheKey !== '' &&
       finalProgress !== null &&
       !judgeStopped &&
@@ -815,7 +833,9 @@ export async function runAnalyze(
       synthesisStage,
       judgeStopped || budgetReached,
     )
-    await scanned.run.write('usage', usage)
+    // `usage` is written beside the page by `persist`, after the page itself: a
+    // checkpoint from the last candidate must not be the last word on what the
+    // run spent.
 
     // A second line of defence: `synthesize` only answers with titles it was
     // offered, but the page must never advertise a claim its body withholds even

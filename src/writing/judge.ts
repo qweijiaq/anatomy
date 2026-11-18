@@ -73,6 +73,19 @@ export const DEFAULT_JUDGE_WINDOW: JudgeWindow = {
   dependencies: 2,
   dependencyHead: 60,
 }
+
+/** The four shapes the cost experiment compares. `current` is the shipped one. */
+export const JUDGE_WINDOW_PRESETS: Record<string, JudgeWindow> = {
+  current: DEFAULT_JUDGE_WINDOW,
+  medium: { before: 8, after: 48, dependencies: 1, dependencyHead: 48 },
+  tight: { before: 6, after: 32, dependencies: 1, dependencyHead: 32 },
+  minimal: { before: 4, after: 20, dependencies: 0, dependencyHead: 0 },
+}
+
+/** A named preset, or null. Unknown names are refused by the caller, not defaulted. */
+export function judgeWindowNamed(name: string): JudgeWindow | null {
+  return JUDGE_WINDOW_PRESETS[name] ?? null
+}
 /** One first attempt plus one repair. A third wrong reply is not a prompt bug. */
 const MAX_REPLY_ATTEMPTS = 2
 /** The longest model-authored fragment echoed back in a repair instruction. */

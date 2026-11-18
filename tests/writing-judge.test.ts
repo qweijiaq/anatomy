@@ -39,7 +39,7 @@ import {
   buildRequest,
   createModelClient,
 } from '../src/writing/client.js'
-import { buildJudgePrompt, judgeCandidates } from '../src/writing/judge.js'
+import { buildJudgePrompt, judgeCandidates, JUDGE_WINDOW_PRESETS, judgeWindowNamed } from '../src/writing/judge.js'
 
 // --- fixture tree ---------------------------------------------------------
 
@@ -969,5 +969,15 @@ describe('createModelClient — deadlines and error bodies', () => {
     await expect(failure).rejects.toMatchObject({ status: 500 })
     await expect(failure).rejects.toThrow(/HTTP 500/)
     await expect(failure).rejects.not.toThrow(/sk-live-provider-token/)
+  })
+})
+
+
+describe('judge window presets', () => {
+  it('names the four shapes and refuses an unknown name', () => {
+    expect(JUDGE_WINDOW_PRESETS['current']).toEqual({ before: 12, after: 60, dependencies: 2, dependencyHead: 60 })
+    expect(judgeWindowNamed('tight')).toEqual({ before: 6, after: 32, dependencies: 1, dependencyHead: 32 })
+    expect(judgeWindowNamed('minimal')).toEqual({ before: 4, after: 20, dependencies: 0, dependencyHead: 0 })
+    expect(judgeWindowNamed('typo')).toBeNull()
   })
 })
