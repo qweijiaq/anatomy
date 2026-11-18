@@ -1,0 +1,44 @@
+name: anatomy report
+
+# Manual only: an analysis spends a provider key, so no push should start one.
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: Repository URL or path to analyse
+        required: false
+        default: "."
+      top:
+        description: How many candidates to collect
+        required: false
+        default: "8"
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Analyse
+        env:
+          ANA_API_KEY: ${{ secrets.ANA_API_KEY }}
+          ANA_MODEL: ${{ vars.ANA_MODEL }}
+        run: |
+          if [ -z "$ANA_API_KEY" ]; then
+            echo "ANA_API_KEY is not configured; skipping the paid analysis."
+            exit 0
+          fi
+          node dist/cli.js analyze "${{ inputs.repo }}" --top "${{ inputs.top }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: anatomy-report
+          path: .ana/runs/**/report.md
+          if-no-files-found: ignore

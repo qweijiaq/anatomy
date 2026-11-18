@@ -569,12 +569,36 @@ ipcMain.handle('report:ask', async (_event, runId: unknown, question: unknown) =
 // The window already has the report; this is the same run rendered as a bundle.
 // Deterministic, so the handler never builds a model client.
 
-ipcMain.handle('report:export', async (_event, runId: unknown) => {
+ipcMain.handle('report:export', async (_event, runId: unknown, options: unknown) => {
   if (typeof runId !== 'string' || runId === '') return { ok: false, message: '缺少 run id。' }
+  const enrich = typeof options === 'object' && options !== null && (options as { enrich?: unknown }).enrich === true
   try {
+    const config = activeModelConfig()
+    const client =
+      enrich && config.apiKey !== ''
+        ? createModelClient({
+            model: config.model,
+            baseUrl: config.baseUrl,
+            apiKey: config.apiKey,
+            protocol: config.protocol as Protocol,
+            maxRetries: 2,
+            timeoutMs: 120_000,
+          })
+        : undefined
     const out = path.resolve(workspaceRoot(), '.ana', 'exports', path.basename(runId))
-    const result = await exportDossier(runId, { baseDir: runsDir(), out })
-    return { ok: true, dir: result.dir, files: result.files, modelCalls: result.modelCalls }
+    const result = await exportDossier(runId, {
+      baseDir: runsDir(),
+      out,
+      enrich,
+      ...(client === undefined ? {} : { client, model: config.model }),
+    })
+    return {
+      ok: true,
+      dir: result.dir,
+      files: result.files,
+      modelCalls: result.modelCalls,
+      ...(result.enrichError === undefined ? {} : { enrichError: result.enrichError }),
+    }
   } catch (error) {
     return { ok: false, message: zhError(error) }
   }

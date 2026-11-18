@@ -196,8 +196,14 @@ export function App(): React.JSX.Element {
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
   const [usage, setUsage] = useState<RunUsage | null>(null)
-  const [exported, setExported] = useState<{ dir: string; files: string[] } | null>(null)
+  const [exported, setExported] = useState<{
+    dir: string
+    files: string[]
+    modelCalls: number
+    enrichError?: string
+  } | null>(null)
   const [exporting, setExporting] = useState(false)
+  const [enrichExport, setEnrichExport] = useState(false)
 
   // 历史报告：磁盘上已经跑完的 run。读盘比缓存可靠——刚跑完的那次必须立刻出现。
   const [history, setHistory] = useState<ReportSummary[]>([])
@@ -501,9 +507,14 @@ export function App(): React.JSX.Element {
     setExporting(true)
     setError('')
     try {
-      const result = await api().report.export(runId)
+      const result = await api().report.export(runId, { enrich: enrichExport })
       if (result.ok && typeof result.dir === 'string') {
-        setExported({ dir: result.dir, files: result.files ?? [] })
+        setExported({
+          dir: result.dir,
+          files: result.files ?? [],
+          modelCalls: result.modelCalls ?? 0,
+          ...(result.enrichError === undefined ? {} : { enrichError: result.enrichError }),
+        })
       } else {
         setError(result.message ?? '导出失败。')
       }
@@ -512,7 +523,7 @@ export function App(): React.JSX.Element {
     } finally {
       setExporting(false)
     }
-  }, [runId])
+  }, [runId, enrichExport])
 
   /** 在文件管理器里显示这份报告。磁盘上的它和窗口里的是同一个文件。 */
   const revealReport = useCallback(async (): Promise<void> => {
@@ -1133,6 +1144,17 @@ export function App(): React.JSX.Element {
                   </button>
                 )}
                 {runId !== '' && (
+                  <label className="export-toggle" title="术语表和 FAQ 需要一次批量模型调用；其余文件是 0 次">
+                    <input
+                      type="checkbox"
+                      checked={enrichExport}
+                      disabled={exporting}
+                      onChange={(event) => setEnrichExport(event.target.checked)}
+                    />
+                    术语表 / FAQ（+1 次调用）
+                  </label>
+                )}
+                {runId !== '' && (
                   <button
                     className="btn btn--ghost btn--sm"
                     type="button"
@@ -1147,9 +1169,12 @@ export function App(): React.JSX.Element {
               {exported !== null && (
                 <div className="export" role="status">
                   <span>
-                    已导出 {exported.files.length} 个文件 · 0 次额外模型调用
+                    已导出 {exported.files.length} 个文件 · {exported.modelCalls} 次额外模型调用
                   </span>
                   <code className="export__path">{exported.dir}</code>
+                  {exported.enrichError !== undefined && (
+                    <span className="export__warn">术语表生成失败：{exported.enrichError}</span>
+                  )}
                   <button
                     className="btn btn--ghost btn--sm"
                     type="button"

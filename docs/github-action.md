@@ -1,5 +1,10 @@
 # Running anatomy in CI
 
+The repository ships two workflows: `.github/workflows/verify.yml` runs the gate on
+push and pull requests, and `.github/workflows/anatomy.yml` is a manual report job
+that skips cleanly when `ANA_API_KEY` is not configured. The recipes below are for
+projects that use `ana` as a dependency rather than as this checkout.
+
 `ana` is a CLI with no daemon, so a CI job is a checkout, a build and one command.
 The two useful shapes are below; neither is committed as a workflow because a
 repository has to decide where its stored runs and key live.

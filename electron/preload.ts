@@ -42,7 +42,8 @@ const api = {
     // 追问：只根据这次分析已存的证据回答，会花一次模型请求。
     ask: (runId: string, question: string) => ipcRenderer.invoke('report:ask', runId, question),
     // 整套产出：默认 0 次额外模型调用。
-    export: (runId: string) => ipcRenderer.invoke('report:export', runId),
+    export: (runId: string, options?: { enrich?: boolean }) =>
+      ipcRenderer.invoke('report:export', runId, options),
     revealExport: (runId: string) => ipcRenderer.invoke('report:revealExport', runId),
     // 一条引用的原文片段：来自这次分析已存的证据，不回头读源码树。
     evidence: (runId: string, file: string, start: number, end: number) =>

@@ -225,11 +225,15 @@ type AnaBridge = {
       message?: string
     }>
     ask(runId: string, question: string): Promise<AskReply>
-    export(runId: string): Promise<{
+    export(
+      runId: string,
+      options?: { enrich?: boolean },
+    ): Promise<{
       ok: boolean
       dir?: string
       files?: string[]
       modelCalls?: number
+      enrichError?: string
       message?: string
     }>
     revealExport(runId: string): Promise<{ ok: boolean; message?: string }>

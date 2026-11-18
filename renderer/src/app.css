@@ -1999,3 +1999,22 @@
   font-size: var(--text-xs);
   color: var(--text-faint);
 }
+
+.export-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.export-toggle input {
+  accent-color: var(--accent);
+}
+
+.export__warn {
+  flex: 0 0 100%;
+  color: var(--warn);
+  font-size: var(--text-xs);
+}
