@@ -37,6 +37,7 @@ import { RunDiffView } from './components/RunDiffView.js'
 import { Select } from './components/Select.js'
 import { SettingsPanel } from './components/SettingsPanel.js'
 import { providerOf } from './providers.js'
+import { costOfTokens, formatUsd, priceOf } from './pricing.js'
 import { filterRuns, formatRate, tocOf, trustOf, whenText } from './view-model.js'
 
 /**
@@ -672,6 +673,7 @@ export function App(): React.JSX.Element {
     [runId],
   )
 
+  const price = priceOf(settings?.priceIn ?? null, settings?.priceOut ?? null)
   const trust = useMemo(() => trustOf(markdown), [markdown])
   const toc = useMemo(() => tocOf(markdown), [markdown])
   const shownHistory = useMemo(() => filterRuns(history, historyQuery), [history, historyQuery])
@@ -1077,6 +1079,11 @@ export function App(): React.JSX.Element {
                       >
                         {usage.calls} 次 · {usage.in + usage.out} tokens
                       </span>
+                      {price !== null && (
+                        <span className="rail__note">
+                          按设置价目表：约 {formatUsd(costOfTokens(usage.in, usage.out, price))}
+                        </span>
+                      )}
                       {usage.stoppedForBudget && (
                         <span className="rail__note">预算到顶，后面的候选没有再判。</span>
                       )}

@@ -32,6 +32,9 @@ export type Settings = {
   topN: number
   /** How many verified points the report's top list may hold. */
   reportPoints: number
+  /** USD per 1M tokens, if the user supplied prices. */
+  priceIn: number | null
+  priceOut: number | null
   keys: Partial<Record<ProviderId, StoredKey>>
   lastRepos: string[]
 }
@@ -47,6 +50,8 @@ const DEFAULTS: Settings = {
   // nothing to cut and the report read as thin.
   topN: 12,
   reportPoints: 6,
+  priceIn: null,
+  priceOut: null,
   keys: {},
   lastRepos: [],
 }
@@ -60,6 +65,8 @@ export type SettingsView = {
   lang: 'zh' | 'en'
   topN: number
   reportPoints: number
+  priceIn: number | null
+  priceOut: number | null
   apiKeyConfigured: boolean
   apiKeyHint: string
   keysNeedReentry: boolean
@@ -103,6 +110,8 @@ export function settings(): Settings {
     protocol: parsed['protocol'] === 'anthropic' ? 'anthropic' : preset.protocol,
     lang: parsed['lang'] === 'en' ? 'en' : 'zh',
     topN: typeof parsed['topN'] === 'number' && parsed['topN'] > 0 ? parsed['topN'] : DEFAULTS.topN,
+    priceIn: numberOrNull(parsed['priceIn']),
+    priceOut: numberOrNull(parsed['priceOut']),
     // Clamped rather than rejected: a hand-edited file with 200 here would ask the
     // model for a two-hundred-item list and then throw most of it away.
     reportPoints:
@@ -129,6 +138,17 @@ function persist(): void {
     // A settings write that fails must not kill the app; the in-memory copy stays
     // correct for this session and the next save retries.
   }
+}
+
+/** A price is a non-negative number per 1M tokens, or absent. */
+function cleanPrice(value: number | null): number | null {
+  if (value === null) return null
+  if (!Number.isFinite(value) || value < 0) return null
+  return Math.min(value, 1_000)
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.min(value, 1_000) : null
 }
 
 function hintOf(apiKey: string): string {
@@ -184,6 +204,8 @@ export function getSettingsView(): SettingsView {
     lang: current.lang,
     topN: current.topN,
     reportPoints: current.reportPoints,
+    priceIn: current.priceIn,
+    priceOut: current.priceOut,
     apiKeyConfigured: configured,
     apiKeyHint: configured ? (stored?.hint ?? (preset.keyless === true ? '本地，无需 Key' : '')) : '',
     keysNeedReentry: anyKeyNeedsReentry(),
@@ -199,6 +221,8 @@ export type SettingsPatch = {
   lang?: 'zh' | 'en'
   topN?: number
   reportPoints?: number
+  priceIn?: number | null
+  priceOut?: number | null
   /** An empty string keeps the existing key; `null` clears it. */
   apiKey?: string | null
 }
@@ -225,6 +249,8 @@ export function saveSettings(patch: SettingsPatch): SettingsView {
   if (patch.reportPoints !== undefined && Number.isFinite(patch.reportPoints)) {
     current.reportPoints = Math.max(1, Math.min(12, Math.floor(patch.reportPoints)))
   }
+  if (patch.priceIn !== undefined) current.priceIn = cleanPrice(patch.priceIn)
+  if (patch.priceOut !== undefined) current.priceOut = cleanPrice(patch.priceOut)
 
   if (patch.apiKey === null) {
     delete current.keys[current.provider]

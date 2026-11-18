@@ -15,6 +15,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { api, type ProviderId, type SettingsView, type TestResult } from '../api.js'
 import { PROVIDERS, providerOf } from '../providers.js'
+import { estimateDepthCost, formatUsd, priceOf } from '../pricing.js'
 import { Select } from './Select.js'
 
 type Props = {
@@ -42,6 +43,13 @@ const DEPTHS = [
   { id: 'deep', label: '深入 · 全', candidates: 30, points: 10, hint: '约 30 次请求', recall: '56%' },
 ] as const
 
+/** A price field is blank or a non-negative number; anything else is absent. */
+function parsePrice(raw: string): number | null {
+  if (raw.trim() === '') return null
+  const value = Number(raw)
+  return Number.isFinite(value) && value >= 0 ? value : null
+}
+
 /** Which preset the stored numbers correspond to; anything else reads as standard. */
 function depthOf(candidates: number, points: number): string {
   const exact = DEPTHS.find((item) => item.candidates === candidates && item.points === points)
@@ -55,6 +63,8 @@ export function SettingsPanel({ settings, onChange, onClose, version }: Props): 
   const [baseUrl, setBaseUrl] = useState(settings.baseUrl)
   const [model, setModel] = useState(settings.model)
   const [lang, setLang] = useState<'zh' | 'en'>(settings.lang)
+  const [priceIn, setPriceIn] = useState(settings.priceIn === null ? '' : String(settings.priceIn))
+  const [priceOut, setPriceOut] = useState(settings.priceOut === null ? '' : String(settings.priceOut))
   const [apiKey, setApiKey] = useState('')
   const [testing, setTesting] = useState(false)
   const [result, setResult] = useState<TestResult | null>(null)
@@ -75,6 +85,9 @@ export function SettingsPanel({ settings, onChange, onClose, version }: Props): 
   const [discoverNote, setDiscoverNote] = useState('')
 
   const preset = providerOf(provider)
+  const price = priceOf(parsePrice(priceIn), parsePrice(priceOut))
+  const costText = (candidates: number): string =>
+    price === null ? '价格未设置' : `约 ${formatUsd(estimateDepthCost(candidates, price).usd)}`
   const depthPreset = DEPTHS.find((item) => item.id === depth)
   const customDepth = depthPreset === undefined
   const topN = depthPreset?.candidates ?? settings.topN
@@ -83,14 +96,14 @@ export function SettingsPanel({ settings, onChange, onClose, version }: Props): 
     ...DEPTHS.map((item) => ({
       value: item.id as string,
       label: item.label,
-      hint: `${item.hint} · 召回 ~${item.recall}`,
+      hint: `${item.hint} · 召回 ~${item.recall} · ${costText(item.candidates)}`,
     })),
     ...(customDepth
       ? [
           {
             value: 'custom',
             label: '自定义（当前保存值）',
-            hint: `${settings.topN} 候选 / ${settings.reportPoints} 点`,
+            hint: `${settings.topN} 候选 / ${settings.reportPoints} 点 · ${costText(settings.topN)}`,
           },
         ]
       : []),
@@ -175,6 +188,8 @@ export function SettingsPanel({ settings, onChange, onClose, version }: Props): 
       lang,
       topN,
       reportPoints,
+      priceIn: parsePrice(priceIn),
+      priceOut: parsePrice(priceOut),
     })
     onChange(next)
     setApiKey('')
@@ -369,6 +384,42 @@ export function SettingsPanel({ settings, onChange, onClose, version }: Props): 
         </section>
 
         <section className="field">
+          <label className="field__label" htmlFor="priceIn">
+            价格（USD / 1M tokens）
+          </label>
+          <div className="price-row">
+            <input
+              id="priceIn"
+              className="input input--mono"
+              type="number"
+              min="0"
+              step="0.01"
+              inputMode="decimal"
+              placeholder="输入价"
+              value={priceIn}
+              onChange={(event) => setPriceIn(event.target.value)}
+            />
+            <span className="price-row__sep">/</span>
+            <input
+              id="priceOut"
+              className="input input--mono"
+              type="number"
+              min="0"
+              step="0.01"
+              inputMode="decimal"
+              placeholder="输出价"
+              aria-label="输出价格，USD / 1M tokens"
+              value={priceOut}
+              onChange={(event) => setPriceOut(event.target.value)}
+            />
+          </div>
+          <p className="field__hint">
+            可选，用于把深度选项折算成金额。按你 provider 的价目表填写；留空表示不折算。
+            深度里的金额是估算，实际以账单为准。
+          </p>
+        </section>
+
+        <section className="field">
           <label className="field__label" htmlFor="depth">
             报告深度
           </label>
@@ -382,6 +433,7 @@ export function SettingsPanel({ settings, onChange, onClose, version }: Props): 
             一次分析会问 {topN} 个候选点，报告写 {reportPoints} 条。候选点少于要写的条数，
             报告就只能变短；每多一个候选点，多一次模型请求。召回是 29 个 gold 仓库、90 个
             标注点上的实测值——20 个候选和 12 个命中相同，所以「深入」用 30 个候选。
+            金额按每候选约 2.9k 输入 + 3.3k 输出、开篇约 0.75k + 0.95k 估算。
           </p>
         </section>
 

@@ -32,6 +32,9 @@ export type SettingsView = {
   lang: 'zh' | 'en'
   topN: number
   reportPoints: number
+  /** USD per 1M tokens, when the user set prices. */
+  priceIn: number | null
+  priceOut: number | null
   apiKeyConfigured: boolean
   apiKeyHint: string
   keysNeedReentry: boolean
@@ -47,6 +50,8 @@ export type SettingsPatch = Partial<{
   protocol: 'openai' | 'anthropic' | 'xai'
   lang: 'zh' | 'en'
   topN: number
+  priceIn: number | null
+  priceOut: number | null
   apiKey: string | null
 }>
 

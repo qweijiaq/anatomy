@@ -2018,3 +2018,20 @@
   color: var(--warn);
   font-size: var(--text-xs);
 }
+
+/* Two price fields share one row; the label stays above like every other field. */
+.price-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.price-row .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.price-row__sep {
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+}
