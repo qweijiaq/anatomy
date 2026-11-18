@@ -51,15 +51,28 @@ import {
   systemPrompt,
 } from './prompts/zh.js'
 
-/** Lines of the candidate's own file shown before its line. */
-const CANDIDATE_BEFORE = 12
-/** Lines of the candidate's own file shown after its line. */
-const CANDIDATE_AFTER = 60
 /** Lines read from the top of a file to find its imports. */
 const IMPORT_HEAD_LINES = 40
-/** Lines read from the top of a direct dependency. */
-const DEPENDENCY_HEAD_LINES = 60
-const MAX_DEPENDENCIES = 2
+
+/**
+ * How much source one candidate's prompt carries.
+ *
+ * Exposed as an option so a cost experiment can compare windows without editing
+ * the source; the default is the shape the product shipped with.
+ */
+export type JudgeWindow = {
+  before: number
+  after: number
+  dependencies: number
+  dependencyHead: number
+}
+
+export const DEFAULT_JUDGE_WINDOW: JudgeWindow = {
+  before: 12,
+  after: 60,
+  dependencies: 2,
+  dependencyHead: 60,
+}
 /** One first attempt plus one repair. A third wrong reply is not a prompt bug. */
 const MAX_REPLY_ATTEMPTS = 2
 /** The longest model-authored fragment echoed back in a repair instruction. */
@@ -152,6 +165,8 @@ export type JudgeDeps = {
   maxTokens?: number
   /** Work already judged by an earlier attempt, matched on the candidate id. */
   resume?: JudgeResume
+  /** Prompt window override, for cost experiments. Defaults to the shipped shape. */
+  window?: JudgeWindow
   /** Called after every candidate, for a checkpoint that can be resumed. */
   onVerdict?: (progress: JudgeProgress) => void | Promise<void>
 }
@@ -528,12 +543,13 @@ async function dependencySlices(
   ctx: JudgeContext,
   fromPath: string,
   headText: string,
+  window: JudgeWindow,
 ): Promise<Slice[]> {
   const slices: Slice[] = []
   const seen = new Set<string>([fromPath])
 
   for (const specifier of importSpecifiers(headText)) {
-    if (slices.length >= MAX_DEPENDENCIES) break
+    if (slices.length >= window.dependencies) break
     const resolved = await resolveSpecifier(ctx.root, fromPath, specifier)
     if (resolved === null || seen.has(resolved)) continue
     // A dependency the analysis excluded is not context: its bytes would be
@@ -544,7 +560,7 @@ async function dependencySlices(
     const real = await realFileInside(ctx, path.resolve(ctx.root, resolved))
     if (real === null) continue
     try {
-      const slice = sliceOf(await fileOf(ctx, real), 1, DEPENDENCY_HEAD_LINES)
+      const slice = sliceOf(await fileOf(ctx, real), 1, window.dependencyHead)
       if (slice.endLine === 0) continue
       slices.push({ ...slice, path: resolved })
     } catch {
@@ -563,6 +579,7 @@ async function contextSlices(
   ctx: JudgeContext,
   candidatePath: string,
   line: number,
+  window: JudgeWindow,
 ): Promise<Slice[]> {
   const real = await realFileInside(ctx, path.resolve(ctx.root, candidatePath))
   if (real === null) {
@@ -573,15 +590,15 @@ async function contextSlices(
   const head = sliceOf(file, 1, IMPORT_HEAD_LINES)
   if (head.endLine === 0) return []
 
-  const primaryStart = Math.max(1, line - CANDIDATE_BEFORE)
-  const primaryEnd = line + CANDIDATE_AFTER
+  const primaryStart = Math.max(1, line - window.before)
+  const primaryEnd = line + window.after
   const own =
     primaryStart <= head.endLine
       ? [sliceOf(file, 1, Math.max(head.endLine, primaryEnd))]
       : [head, sliceOf(file, primaryStart, primaryEnd)]
 
   const ownWithPath = own.map((slice) => ({ ...slice, path: candidatePath }))
-  const dependencies = await dependencySlices(ctx, candidatePath, head.text)
+  const dependencies = await dependencySlices(ctx, candidatePath, head.text, window)
   return [...ownWithPath, ...dependencies]
 }
 
@@ -696,6 +713,7 @@ export async function judgeCandidates(deps: JudgeDeps): Promise<JudgeResult> {
   }
 
   const ctx = await createContext(deps.root, deps.scope)
+  const window = deps.window ?? DEFAULT_JUDGE_WINDOW
 
   const record = async (): Promise<void> => {
     await deps.onVerdict?.({
@@ -756,7 +774,7 @@ export async function judgeCandidates(deps: JudgeDeps): Promise<JudgeResult> {
 
       let slices: Slice[]
       try {
-        slices = await contextSlices(ctx, relative, line)
+        slices = await contextSlices(ctx, relative, line, window)
       } catch (error) {
         skipped.push({
           candidateId: candidate.id,

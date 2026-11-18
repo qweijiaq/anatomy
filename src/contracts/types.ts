@@ -334,5 +334,13 @@ export const DEFAULT_LIMITS: ScopeLimits = {
  * real context would answer "fits" for a batch no model can accept.
  */
 export const DEFAULT_BUDGET_TOKENS = 100_000
-export const DEFAULT_TOP_K = 30
+/**
+ * Candidates a scan keeps when the caller names no `--top`.
+ *
+ * Measured on the gold set: 12 candidates cover 53.3% of annotated points,
+ * 30 cover 55.6%, and the full candidate set 61.1%. The last 18 candidates buy
+ * 2.3 points of recall for roughly 2.5× the judge cost, so the default is 12;
+ * `--top` still goes as high as the caller wants. See `docs/superpowers/judge-cost.md`.
+ */
+export const DEFAULT_TOP_K = 12
 export const DEFAULT_SLICE_MAX_LINES = 200

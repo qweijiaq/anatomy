@@ -77,7 +77,7 @@ says about itself; the right column is where that claim can be falsified.
 | The window's bridge cannot drift from the preload | `tests/packaging.test.ts` |
 | The MCP server serves five tools, one of them opt-in spending | `tests/mcp.test.ts`, and the `mcp` section of the gate |
 | A clean checkout reproduces all of it | `docs/superpowers/EVIDENCE.md`, section "Clean checkout" |
-| Candidate recall is 61% | `npm run eval:recall` — 55 of 90 annotated points |
+| Candidate recall is 61% with every candidate (53.3% at the default 12) | `npm run eval:recall` — 55 of 90 annotated points; `npm run eval:recall-at` for the budget curve |
 | A real model writes verified points | `docs/superpowers/real-model-eval.md` — five gold repos, 100% evidence |
 
 If a row here and a command disagree, the command is right and this file is the defect.

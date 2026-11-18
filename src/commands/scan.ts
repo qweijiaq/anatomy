@@ -17,7 +17,7 @@
 import type { Candidate, Profile, Scope } from '../contracts/types.js'
 import { scanRepo, type PipelineOptions } from '../kernel/pipeline.js'
 
-/** Rows the table shows; the run may hold `DEFAULT_TOP_K` (30) or as many as `--top` asked for. */
+/** Rows the table shows; the run may hold more than the ten shown. */
 export const TABLE_ROWS = 10
 
 export const SCAN_USAGE =

@@ -29,6 +29,8 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json && tsc -p tsconfig.desktop.json",
     "verify": "bash scripts/verify.sh",
     "eval:recall": "node --experimental-strip-types eval/recall-lite.ts",
+    "eval:recall-at": "node --experimental-strip-types eval/recall-at.ts",
+    "eval:judge-cost": "node --experimental-strip-types eval/judge-cost.ts",
     "eval:quality": "node --experimental-strip-types eval/sample-points.ts",
     "build:renderer": "vite build",
     "build:electron": "node scripts/build-electron.mjs",

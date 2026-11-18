@@ -1229,7 +1229,7 @@ describe('collectSignals', () => {
     expect(all.map((candidate) => candidate.score)).toEqual([6, 5, 1])
   })
 
-  it('defaults to 30 candidates and keeps the deterministic order', async () => {
+  it('defaults to 12 candidates and keeps the deterministic order', async () => {
     const files: Record<string, string> = {}
     for (let i = 1; i <= 32; i += 1) files[`src/f${String(i).padStart(2, '0')}.ts`] = '// legacy shim\n'
     const root = await repoOf(files)
@@ -1237,9 +1237,9 @@ describe('collectSignals', () => {
     const structure = await indexTypeScript(root, scope)
 
     const candidates = await collectSignals(root, scope, structure)
-    expect(candidates).toHaveLength(30)
+    expect(candidates).toHaveLength(12)
     expect(candidates[0]!.path).toBe('src/f01.ts')
-    expect(candidates[29]!.path).toBe('src/f30.ts')
+    expect(candidates[11]!.path).toBe('src/f12.ts')
   })
 
   it('produces byte-identical output across runs', async () => {
