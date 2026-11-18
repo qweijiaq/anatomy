@@ -209,8 +209,9 @@ One unambiguous statement, so nothing is left pending a decision:
 - **`ana export`** turns one analysis into a dossier — summary, decisions, risks, onboarding, hotspots and a self-check — with zero extra model calls by default; **`ana doc`** writes a repository-facing `ARCHITECTURE.md` with a reading order and a derived Mermaid diagram, plus an optional portable bundle; **`ana history`** adds the last commit behind each cited file for local checkouts; Go gets a line-oriented structure pass.
 - **follow-up questions** answered only from the report's stored evidence; **resume** reuses judged candidates; a second analysis of the same tree reuses the judge checkpoint (`--no-cache` turns it off); every run records its model calls and tokens in `usage.json`
 
-Recall is 61% on the tracked gold set, and that is this version's ceiling as well as
-its measurement: roughly four annotated points in ten never become candidates.
+Recall is 61% on the tracked gold set with every candidate; the default 12-candidate
+budget covers 53.3%. The difference is measured in `docs/superpowers/judge-cost.md`:
+18 more candidates buy 2.3 points for roughly 2.5× the judge cost.
 
 ## Not built yet
 
