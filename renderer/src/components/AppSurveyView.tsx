@@ -74,7 +74,7 @@ export function AppSurveyView({
   onForget,
   forgetting,
 }: {
-  survey: AppSurvey
+  survey: AppSurvey | undefined
   /** Every survey on disk; rendered as a picker when there is more than one. */
   surveys: AppSurvey[]
   onSelect: (dirName: string) => void
@@ -82,6 +82,15 @@ export function AppSurveyView({
   /** The id whose delete is waiting for a second click, if any. */
   forgetting: string
 }): React.JSX.Element {
+  if (survey === undefined) {
+    return (
+      <section className="survey">
+        <p className="survey__note">
+          没有可显示的重建结果。先用 <code className="inline-code">ana inspect-app</code> 生成一份。
+        </p>
+      </section>
+    )
+  }
   const partial = survey.surface.semantics !== 'partial' && survey.surface.semantics !== 'complete'
   const bridges = survey.modules.filter((module) => module.kind === 'context-bridge-api')
   const channels = survey.modules.filter((module) => module.kind === 'ipc-channel')

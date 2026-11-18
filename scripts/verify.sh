@@ -115,7 +115,11 @@ if [ "$(uname)" = "Darwin" ]; then
   electron_bin="node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
   if [ -x "$electron_bin" ]; then
     [ -f dist-electron/main.cjs ] || npm run build:desktop --silent >/dev/null 2>&1 || fail "build:desktop"
-    smoke=$(ANA_SMOKE=1 "$electron_bin" dist-electron/main.cjs 2>&1 | grep -E '^SMOKE: ' | head -1)
+    # `ELECTRON_RUN_AS_NODE=1` is set in some agent shells; it turns the Electron
+    # binary into plain Node, where `app` is undefined and no window opens. The start
+    # scripts unset it; the gate must too, or it reports a broken app when the
+    # environment is what is broken.
+    smoke=$(ANA_SMOKE=1 env -u ELECTRON_RUN_AS_NODE "$electron_bin" dist-electron/main.cjs 2>&1 | grep -E '^SMOKE: ' | head -1)
     printf '%s\n' "$smoke"
     [ "$smoke" = "SMOKE: window loaded" ] || fail "the window did not load: ${smoke:-no output}"
   else

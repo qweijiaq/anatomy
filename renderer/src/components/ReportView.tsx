@@ -46,14 +46,26 @@ function inline(text: string): React.ReactNode[] {
   return parts
 }
 
-export function ReportView({ markdown }: { markdown: string }): React.JSX.Element {
+export function ReportView({
+  markdown,
+  onCite,
+}: {
+  markdown: string
+  /** Called with a citation's `path:lines` when the reader wants the stored snippet. */
+  onCite?: (path: string, lines: string) => void
+}): React.JSX.Element {
   const blocks = useMemo(() => parseMarkdown(markdown), [markdown])
-
-  return <article className="report">{renderBlocks(blocks)}</article>
+  // Section indexes must match `tocOf` in the view model, which counts top-level
+  // h2 blocks in document order.
+  return <article className="report">{renderBlocks(blocks, onCite, { h2: 0 })}</article>
 }
 
 /** One block list. Recursive because `<details>` holds its own list. */
-function renderBlocks(blocks: Block[]): React.ReactNode {
+function renderBlocks(
+  blocks: Block[],
+  onCite: ((path: string, lines: string) => void) | undefined,
+  counter: { h2: number },
+): React.ReactNode {
   return (
     <>
       {blocks.map((block, index) => {
@@ -64,12 +76,15 @@ function renderBlocks(blocks: Block[]): React.ReactNode {
                 {block.text}
               </h1>
             )
-          case 'h2':
+          case 'h2': {
+            const id = `report-h2-${counter.h2}`
+            counter.h2 += 1
             return (
-              <h2 className="report__section" key={index}>
+              <h2 className="report__section" id={id} key={index}>
                 {block.text}
               </h2>
             )
+          }
           case 'h3':
             return (
               <h3 className="report__sub" key={index}>
@@ -88,13 +103,30 @@ function renderBlocks(blocks: Block[]): React.ReactNode {
                 <code>{block.text}</code>
               </pre>
             )
-          case 'cite':
+          case 'cite': {
+            const where = `${block.path}:${block.lines}`
+            if (onCite === undefined) {
+              return (
+                <span className="report__cite" key={index} title={where}>
+                  {block.path}
+                  <span className="report__cite-lines">:{block.lines}</span>
+                </span>
+              )
+            }
             return (
-              <span className="report__cite" key={index} title={`${block.path}:${block.lines}`}>
+              <button
+                className="report__cite report__cite--action"
+                key={index}
+                type="button"
+                title={`查看 ${where} 已存的原文片段`}
+                aria-label={`查看 ${where} 已存的原文片段`}
+                onClick={() => onCite(block.path, block.lines)}
+              >
                 {block.path}
                 <span className="report__cite-lines">:{block.lines}</span>
-              </span>
+              </button>
             )
+          }
           case 'quote':
             return (
               <blockquote className="report__quote" key={index}>
@@ -136,7 +168,9 @@ function renderBlocks(blocks: Block[]): React.ReactNode {
             return (
               <details className="report__details" key={index}>
                 <summary className="report__summary">{block.summary}</summary>
-                <div className="report__details-body">{renderBlocks(block.body)}</div>
+                <div className="report__details-body">
+                  {renderBlocks(block.body, onCite, counter)}
+                </div>
               </details>
             )
           default:

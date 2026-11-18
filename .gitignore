@@ -41,3 +41,6 @@ dbg-launch.cjs
 launch-once.sh
 pnpm-lock.yaml
 pnpm-workspace.yaml
+
+# Generated dossiers: derived state, never tracked.
+.ana/exports/

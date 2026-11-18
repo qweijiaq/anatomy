@@ -43,6 +43,8 @@ const ARTIFACTS: Record<string, { readers: string[]; outputOnly?: string }> = {
   validation: { readers: ['src/commands/report.ts'] },
   synthesis: { readers: ['src/commands/report.ts', 'src/commands/runs.ts'] },
   skipped: { readers: ['src/commands/report.ts'] },
+  usage: { readers: ['src/commands/report.ts'] },
+  'judge-progress': { readers: ['src/commands/resume.ts'] },
   report: {
     readers: [],
     outputOnly:

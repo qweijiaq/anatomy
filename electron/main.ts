@@ -12,7 +12,7 @@
  * here, in the same process the CLI uses, so the two can never drift.
  */
 
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, shell } from 'electron'
 import { accessSync, constants } from 'node:fs'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
@@ -21,17 +21,29 @@ import { fileURLToPath } from 'node:url'
 import { activeModelConfig, getSettingsView, readKey, rememberRepo, saveSettings } from './settings.js'
 import { createModelClient, MissingCredentialsError } from '../src/writing/client.js'
 import { describeRunFailure, runAnalyze } from '../src/commands/analyze.js'
+import { runAsk } from '../src/commands/ask.js'
+import { exportDossier } from '../src/commands/export.js'
+import { loadResumeProgress, runResume } from '../src/commands/resume.js'
 import { listRuns } from '../src/commands/runs.js'
 import { runScan } from '../src/commands/scan.js'
 import { forget } from '../src/commands/forget.js'
 import { NoSuchRunError, runReport } from '../src/commands/report.js'
 import { diffSurveys, isEmptyDiff } from '../src/app/diff.js'
+import { diffRuns, summarizeRun, type RunDiff } from '../src/app/run-diff.js'
 import { renderAppDiff } from '../src/render/app-diff.js'
 import type { AppSurvey } from '../src/app/rea.js'
+import { readVersion } from '../src/version.js'
 import { DEFAULT_RUNS_DIR } from '../src/kernel/pipeline.js'
-import { readRunArtifact } from '../src/store/runs.js'
+import { readManifest, readRunArtifact } from '../src/store/runs.js'
 import type { Protocol } from './providers.js'
-import type { RunManifest } from '../src/contracts/types.js'
+import type {
+  Candidate,
+  LearningPoint,
+  RunManifest,
+  RunUsage,
+  Scope,
+  ValidationResult,
+} from '../src/contracts/types.js'
 
 /**
  * Where the app's own files live.
@@ -66,6 +78,29 @@ function workspaceRoot(): string {
 }
 
 /**
+ * The two directories the window reads and writes.
+ *
+ * Every handler goes through these, because they did not always: `analysis:run` and
+ * `report:read` were left on the CLI's default (`<cwd>/.ana/runs`) while the list,
+ * the scan and "show in folder" used `workspaceRoot()`. In a checkout the two are
+ * the same directory, so nothing showed up; launched by double-clicking, cwd is `/`,
+ * the write there fails, and the history the window lists is in a different place
+ * from the one it would have written to.
+ */
+function runsDir(): string {
+  return path.resolve(workspaceRoot(), DEFAULT_RUNS_DIR)
+}
+
+function appsDir(): string {
+  return path.resolve(workspaceRoot(), '.ana', 'apps')
+}
+
+/** The window's backing colour, so a dark system does not get a white flash. */
+function windowBackground(): string {
+  return nativeTheme.shouldUseDarkColors ? '#1b1917' : '#faf9f7'
+}
+
+/**
  * The Dock icon, from `build/icon.icns`.
  *
  * Without one macOS shows the generic placeholder — a blank rounded square — which
@@ -90,7 +125,7 @@ function createWindow(): void {
     minHeight: 640,
     title: 'anatomy',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
-    backgroundColor: '#faf9f7',
+    backgroundColor: windowBackground(),
     webPreferences: {
       preload: path.join(here, 'preload.cjs'),
       contextIsolation: true,
@@ -151,6 +186,9 @@ if (process.platform === 'win32') app.setAppUserModelId('ai.anatomy.app')
 void app.whenReady().then(() => {
   setDockIcon()
   createWindow()
+  nativeTheme.on('updated', () => {
+    if (window !== null && !window.isDestroyed()) window.setBackgroundColor(windowBackground())
+  })
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
@@ -203,9 +241,7 @@ ipcMain.handle('settings:test', async () => {
     const message =
       error instanceof MissingCredentialsError
         ? '还没有配置 API Key。'
-        : error instanceof Error
-          ? error.message
-          : String(error)
+        : zhError(error)
     return { ok: false, message }
   }
 })
@@ -242,13 +278,45 @@ ipcMain.handle('analysis:scan', async (_event, request: unknown) => {
       })),
     }
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+    return { ok: false, message: zhError(error) }
   }
 })
 
 // --- analysis ---------------------------------------------------------------
 
 type Progress = { phase: string; detail?: string; done?: number; total?: number }
+
+/**
+ * `describeRunFailure` speaks English because the CLI does.
+ *
+ * The window is Chinese, so the two sentences it can produce are translated here
+ * rather than in the shared function: changing that function would change CLI output
+ * and the promises its tests make. Anything else passes through with a Chinese lead,
+ * because a provider's own message is usually the useful part.
+ */
+function zhRunFailure(message: string): string {
+  const refused = /the provider rejected (\d+) request\(s\) \(([^)]*)\)/.exec(message)
+  if (refused !== null) {
+    return `模型服务拒绝了 ${refused[1]} 次请求（${refused[2]}）。报告已写出，但没有可用条目——先检查 Key、模型名和余额。`
+  }
+  const noReply = /(\d+) candidate\(s\) got no usable reply/.exec(message)
+  if (noReply !== null) {
+    return `${noReply[1]} 个候选点没有拿到可用回复。报告已写出，但没有可用条目——先检查模型是否可用、返回是否是 JSON。`
+  }
+  return `分析没有产出可用条目：${message}`
+}
+
+/**
+ * A Chinese lead on an error that came from somewhere else.
+ *
+ * A provider's 401 body, a filesystem error and a JSON parse failure all arrive in
+ * English (or in the provider's own language). The window keeps the detail — it is
+ * usually the useful part — and states in Chinese that something failed.
+ */
+function zhError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return /[\u4e00-\u9fff]/.test(message) ? message : `操作失败：${message}`
+}
 
 ipcMain.handle('analysis:run', async (event, payload: unknown) => {
   const request = payload as { repo?: unknown; top?: unknown; lang?: unknown }
@@ -280,9 +348,13 @@ ipcMain.handle('analysis:run', async (event, payload: unknown) => {
     })
     const result = await runAnalyze(repo, {
       client,
+      baseDir: runsDir(),
       top: typeof request?.top === 'number' ? request.top : settings.topN,
       reportPoints: settings.reportPoints,
-      lang: request?.lang === 'en' ? 'en' : 'zh',
+      // The settings screen owns this choice now. `request.lang` is still honoured
+      // when a caller sends one, because the bridge declared it before the screen
+      // had a control for it.
+      lang: request?.lang === 'en' ? 'en' : request?.lang === 'zh' ? 'zh' : settings.lang,
       // Forward the fine-grained stages: judging alone is one model call per
       // candidate, and a spinner that never moves is indistinguishable from a hang.
       onStage: (stage) =>
@@ -301,12 +373,55 @@ ipcMain.handle('analysis:run', async (event, payload: unknown) => {
     // empty report for what was really a configuration failure. The CLI had already
     // learned this; `describeRunFailure` is the one place both ask.
     const failure = describeRunFailure(result)
-    if (failure !== '') return { ok: false, message: failure }
+    if (failure !== '') return { ok: false, message: zhRunFailure(failure) }
 
-    const markdown = await runReport(result.runId)
-    return { ok: true, runId: result.runId, reportPath: result.reportPath, markdown }
+    const markdown = await runReport(result.runId, { baseDir: runsDir() })
+    return {
+      ok: true,
+      runId: result.runId,
+      reportPath: result.reportPath,
+      markdown,
+      ...(result.usage === undefined ? {} : { usage: result.usage }),
+    }
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+    return { ok: false, message: zhError(error) }
+  }
+})
+
+// --- resuming an interrupted run --------------------------------------------
+//
+// The judge writes a checkpoint after every candidate. Continuing re-acquires the
+// same tree and reuses what was already paid for; the result is a new run, because
+// the interrupted directory is a record of what happened.
+
+ipcMain.handle('analysis:resume', async (_event, runId: unknown) => {
+  if (typeof runId !== 'string' || runId === '') return { ok: false, message: '缺少 run id。' }
+  const config = activeModelConfig()
+  if (config.apiKey === '') return { ok: false, message: '还没有配置 API Key。' }
+  try {
+    const progress = await loadResumeProgress(runId, runsDir())
+    const client = createModelClient({
+      model: progress.model,
+      baseUrl: config.baseUrl,
+      apiKey: config.apiKey,
+      protocol: config.protocol as Protocol,
+      maxRetries: 2,
+      timeoutMs: 120_000,
+    })
+    const result = await runResume(runId, { baseDir: runsDir(), client })
+    const failure = describeRunFailure(result)
+    if (failure !== '') return { ok: false, message: zhRunFailure(failure) }
+    const markdown = await runReport(result.runId, { baseDir: runsDir() })
+    return {
+      ok: true,
+      runId: result.runId,
+      reportPath: result.reportPath,
+      markdown,
+      resumed: result.reused,
+      ...(result.usage === undefined ? {} : { usage: result.usage }),
+    }
+  } catch (error) {
+    return { ok: false, message: zhError(error) }
   }
 })
 
@@ -323,7 +438,14 @@ type ReportSummary = {
   startedAt: string
   /** How many points the report's top list ended up with. */
   points: number
+  /** Share of those points whose evidence resolved; null when unavailable. */
+  evidenceRate: number | null
   title: string
+  status: 'complete' | 'failed'
+  /** A failed run is listed only when its judge checkpoint can be continued. */
+  resumable: boolean
+  /** Candidates already judged, for the "continue" label. */
+  done: number
 }
 
 ipcMain.handle('runs:list', async () => {
@@ -332,19 +454,32 @@ ipcMain.handle('runs:list', async () => {
   // required `synthesis` and `validation`, the CLI required `synthesis` and a points
   // array — so a run could be listed in one and invisible in the other, and the two
   // copies had no reason to stay in step.
-  const baseDir = path.resolve(workspaceRoot(), DEFAULT_RUNS_DIR)
+  const baseDir = runsDir()
   const stored = await listRuns({ baseDir })
 
   const runs: ReportSummary[] = []
   for (const run of stored) {
-    // A `scan` run completes too, and has no report. The question this list asks is
-    // "can I read a report here", so that is the question it must actually check.
-    if (!run.hasReport) continue
+    // A `scan` run completes too, and has no report. A failed run is listed only
+    // when it left a judge checkpoint: "unfinished" alone is not actionable.
+    const progress = run.hasReport
+      ? null
+      : await readRunArtifact<{ done?: unknown }>(baseDir, run.runId, 'judge-progress')
+    const done = Array.isArray(progress?.done) ? progress.done.length : 0
+    const resumable = !run.hasReport && run.status === 'failed' && done > 0
+    if (!run.hasReport && !resumable) continue
+    const validation = run.hasReport
+      ? await readRunArtifact<ValidationResult>(baseDir, run.runId, 'validation')
+      : null
+    const rate = validation?.stats.evidenceRate
     runs.push({
       runId: run.runId,
       source: run.source,
       startedAt: run.startedAt,
       points: run.points ?? 0,
+      evidenceRate: typeof rate === 'number' && Number.isFinite(rate) ? rate : null,
+      status: run.hasReport ? 'complete' : 'failed',
+      resumable,
+      done,
       // The best one-line label available without a network call: the repo's last
       // path segment, falling back to the run id.
       title: (() => {
@@ -368,7 +503,7 @@ ipcMain.handle('runs:list', async () => {
  */
 ipcMain.handle('report:reveal', async (_event, runId: unknown) => {
   if (typeof runId !== 'string' || runId === '') return { ok: false, message: '缺少 run id。' }
-  const file = path.resolve(workspaceRoot(), '.ana', 'runs', path.basename(runId), 'report.md')
+  const file = path.resolve(runsDir(), path.basename(runId), 'report.md')
   try {
     await stat(file)
   } catch {
@@ -381,7 +516,9 @@ ipcMain.handle('report:reveal', async (_event, runId: unknown) => {
 ipcMain.handle('report:read', async (_event, runId: unknown) => {
   if (typeof runId !== 'string' || runId === '') return { ok: false, message: '缺少 run id。' }
   try {
-    return { ok: true, markdown: await runReport(runId) }
+    const markdown = await runReport(runId, { baseDir: runsDir() })
+    const usage = await readRunArtifact<RunUsage>(runsDir(), runId, 'usage').catch(() => null)
+    return { ok: true, markdown, ...(usage === null ? {} : { usage }) }
   } catch (error) {
     // `NoSuchRunError` says which artifact is missing, in the CLI's words. Here that
     // reads as a stack-trace fragment, and the one case a person can hit — a scan
@@ -389,9 +526,162 @@ ipcMain.handle('report:read', async (_event, runId: unknown) => {
     if (error instanceof NoSuchRunError) {
       return { ok: false, message: `这个目录里只有扫描结果，没有报告（${runId}）。` }
     }
-    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+    return { ok: false, message: zhError(error) }
   }
 })
+
+// --- asking a finished report -----------------------------------------------
+//
+// A follow-up costs one model request and is answered from the run's stored
+// evidence; `answerQuestion` rejects any citation the run did not keep. The window
+// says so in the panel, so a question is never a silent spend.
+
+ipcMain.handle('report:ask', async (_event, runId: unknown, question: unknown) => {
+  if (typeof runId !== 'string' || runId === '' || typeof question !== 'string' || question.trim() === '') {
+    return { ok: false, message: '需要一份报告和一个问题。' }
+  }
+  const config = activeModelConfig()
+  if (config.apiKey === '') return { ok: false, message: '还没有配置 API Key。' }
+  try {
+    const client = createModelClient({
+      model: config.model,
+      baseUrl: config.baseUrl,
+      apiKey: config.apiKey,
+      protocol: config.protocol as Protocol,
+      maxRetries: 2,
+      timeoutMs: 120_000,
+    })
+    const answer = await runAsk(runId, question.trim(), { baseDir: runsDir(), client })
+    return {
+      ok: true,
+      answered: answer.answered,
+      answer: answer.answer,
+      citations: answer.citations,
+      usage: answer.usage,
+    }
+  } catch (error) {
+    return { ok: false, message: zhError(error) }
+  }
+})
+
+// --- the dossier ------------------------------------------------------------
+//
+// The window already has the report; this is the same run rendered as a bundle.
+// Deterministic, so the handler never builds a model client.
+
+ipcMain.handle('report:export', async (_event, runId: unknown) => {
+  if (typeof runId !== 'string' || runId === '') return { ok: false, message: '缺少 run id。' }
+  try {
+    const out = path.resolve(workspaceRoot(), '.ana', 'exports', path.basename(runId))
+    const result = await exportDossier(runId, { baseDir: runsDir(), out })
+    return { ok: true, dir: result.dir, files: result.files, modelCalls: result.modelCalls }
+  } catch (error) {
+    return { ok: false, message: zhError(error) }
+  }
+})
+
+ipcMain.handle('report:revealExport', async (_event, runId: unknown) => {
+  if (typeof runId !== 'string' || runId === '') return { ok: false, message: '缺少 run id。' }
+  const file = path.resolve(workspaceRoot(), '.ana', 'exports', path.basename(runId), 'README.md')
+  try {
+    await stat(file)
+  } catch {
+    return { ok: false, message: '还没有导出这套产出。' }
+  }
+  shell.showItemInFolder(file)
+  return { ok: true }
+})
+
+// --- stored evidence --------------------------------------------------------
+//
+// A citation in the report is `path:start-end`. The window could show it but not
+// answer the obvious next question — what does that line actually say — because the
+// extracted tree is gone by the time a report is read.
+//
+// It does not need the tree: `points.json` already stores the exact snippet the
+// validator compared against the bytes. This returns that snippet, and says so when
+// it is absent rather than reading a file from the user's disk a second time.
+
+ipcMain.handle(
+  'report:evidence',
+  async (_event, runId: unknown, file: unknown, start: unknown, end: unknown) => {
+    if (typeof runId !== 'string' || runId === '' || typeof file !== 'string' || file === '') {
+      return { ok: false, message: '缺少这次分析的 run id 或文件路径。' }
+    }
+    if (typeof start !== 'number' || typeof end !== 'number' || !Number.isInteger(start) || !Number.isInteger(end)) {
+      return { ok: false, message: '引用缺少可读的行号。' }
+    }
+    const points = await readRunArtifact<LearningPoint[]>(runsDir(), runId, 'points')
+    if (!Array.isArray(points)) {
+      return { ok: false, message: '这次分析没有留下可回读的证据文件。' }
+    }
+    for (const point of points) {
+      for (const evidence of point.theirs.evidence) {
+        if (evidence.path !== file || evidence.startLine !== start || evidence.endLine !== end) continue
+        return {
+          ok: true,
+          title: point.title,
+          path: evidence.path,
+          startLine: evidence.startLine,
+          endLine: evidence.endLine,
+          snippet: evidence.snippet,
+        }
+      }
+    }
+    return {
+      ok: false,
+      message: '这条引用不在已存的证据里。报告可能被手工改过，或者这条证据在生成时被降级了。',
+    }
+  },
+)
+
+// --- two source analyses, compared ------------------------------------------
+//
+// The window could compare two reconstructed applications but not two analyses of
+// source. The facts live in both run directories, so this needs no model: read the
+// artifacts, reduce them to numbers and titles, and let the view lay them out.
+
+ipcMain.handle('report:diff', async (_event, before: unknown, after: unknown): Promise<
+  { ok: true; diff: RunDiff } | { ok: false; message: string }
+> => {
+  if (typeof before !== 'string' || typeof after !== 'string' || before === '' || after === '') {
+    return { ok: false, message: '需要两份分析的 run id。' }
+  }
+  if (before === after) {
+    return { ok: false, message: '选的是同一次分析，看不出差异。' }
+  }
+
+  const load = async (runId: string) => {
+    const baseDir = runsDir()
+    const manifest = await readManifest(baseDir, runId)
+    if (manifest === null) return null
+    const [points, validation, scope, candidates] = await Promise.all([
+      readRunArtifact<LearningPoint[]>(baseDir, runId, 'points'),
+      readRunArtifact<ValidationResult>(baseDir, runId, 'validation'),
+      readRunArtifact<Scope>(baseDir, runId, 'scope'),
+      readRunArtifact<Candidate[]>(baseDir, runId, 'candidates'),
+    ])
+    if (!Array.isArray(points) || scope === null) return null
+    return summarizeRun(runId, {
+      manifest,
+      points,
+      validation,
+      scope,
+      candidates: Array.isArray(candidates) ? candidates : [],
+    })
+  }
+
+  try {
+    const [left, right] = await Promise.all([load(before), load(after)])
+    if (left === null || right === null) {
+      return { ok: false, message: '有一份分析读不出来，可能已经被删除或还没跑完。' }
+    }
+    return { ok: true, diff: diffRuns(left, right) }
+  } catch (error) {
+    return { ok: false, message: zhError(error) }
+  }
+})
+
 
 // --- application surveys ----------------------------------------------------
 //
@@ -402,16 +692,32 @@ ipcMain.handle('report:read', async (_event, runId: unknown) => {
 // of that belongs in a viewer.
 
 ipcMain.handle('surveys:list', async () => {
-  const baseDir = path.resolve(workspaceRoot(), '.ana', 'apps')
+  const baseDir = appsDir()
   let entries: string[]
   try {
-    entries = await readdir(baseDir)
+    entries = (await readdir(baseDir, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
   } catch {
     return { ok: true, surveys: [] }
   }
 
+  // Newest first. `readdir` promises no order, and the window's default "before /
+  // after" pair is "the first two", so the order it receives is a claim about
+  // recency. The survey file's stamp is the only per-directory time available.
+  const stamped = await Promise.all(
+    entries.map(async (entry) => {
+      try {
+        return { entry, at: (await stat(path.join(baseDir, entry, 'survey.json'))).mtimeMs }
+      } catch {
+        return { entry, at: 0 }
+      }
+    }),
+  )
+  stamped.sort((a, b) => b.at - a.at || a.entry.localeCompare(b.entry))
+
   const surveys: unknown[] = []
-  for (const entry of entries) {
+  for (const { entry } of stamped) {
     const file = path.join(baseDir, entry, 'survey.json')
     try {
       const parsed: unknown = JSON.parse(await readFile(file, 'utf8'))
@@ -438,7 +744,7 @@ ipcMain.handle('surveys:diff', async (_event, before: unknown, after: unknown) =
   if (typeof before !== 'string' || typeof after !== 'string') {
     return { ok: false, message: '需要两个 survey 目录名。' }
   }
-  const baseDir = path.resolve(workspaceRoot(), '.ana', 'apps')
+  const baseDir = appsDir()
   const load = async (name: string): Promise<AppSurvey | null> => {
     try {
       const raw = await readFile(path.join(baseDir, path.basename(name), 'survey.json'), 'utf8')
@@ -470,11 +776,14 @@ ipcMain.handle('runs:forget', async (_event, kind: unknown, id: unknown) => {
     return { ok: false, message: '需要 run id 和应用名。' }
   }
   try {
-    const result = await forget(id, { target: kind })
+    const result = await forget(id, {
+      target: kind,
+      baseDir: kind === 'run' ? runsDir() : appsDir(),
+    })
     if ('missing' in result) return { ok: false, message: '这一份已经不在了。' }
     return { ok: true }
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+    return { ok: false, message: zhError(error) }
   }
 })
 
@@ -559,7 +868,18 @@ ipcMain.handle('dialog:pickFolder', async (event) => {
 
 // --- environment ------------------------------------------------------------
 
-ipcMain.handle('app:info', () => ({
-  version: app.getVersion(),
-  hasKey: readKey(getSettingsView().provider) !== null,
-}))
+ipcMain.handle('app:info', () => {
+  let version = app.getVersion()
+  try {
+    // `app.getVersion()` answers with Electron's own version when the main file is
+    // run directly (development), which is how the settings footer read 33.4.11.
+    // The package's version is the one a bug report should name.
+    version = readVersion()
+  } catch {
+    // A missing manifest is not a reason to lose the version that exists.
+  }
+  return {
+    version,
+    hasKey: readKey(getSettingsView().provider) !== null,
+  }
+})

@@ -370,6 +370,8 @@ describe('the window asks the same question the CLI asks', () => {
     const { readFileSync } = await import('node:fs')
     const source = readFileSync(path.join(ROOT, 'electron/main.ts'), 'utf8')
     expect(source).toContain('describeRunFailure')
-    expect(source).toContain("if (failure !== '') return { ok: false, message: failure }")
+    // The window translates the shared English verdict for a Chinese screen, but it
+    // must still be that verdict: a local `ok: true` here is how the defect shipped.
+    expect(source).toMatch(/if \(failure !== ''\) return \{ ok: false, message: zhRunFailure\(failure\) \}/)
   })
 })

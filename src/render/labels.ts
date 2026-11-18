@@ -36,6 +36,17 @@ export type Labels = {
   droppedEvidence: string
   avgEvidence: string
   scopeHeading: string
+  /** What the run spent, measured with the provider's own usage fields. */
+  usageHeading: string
+  usageModel: string
+  usageCalls: string
+  usageTokens: string
+  usageJudge: string
+  usageSynthesis: string
+  usageCallUnit: string
+  usageBudget: string
+  usageBudgetNone: string
+  usageStopped: string
   /** 报告里每条引用读起来是什么、怎么把它交回 `ana inspect`。 */
   howToCheck: string
   source: string
@@ -149,6 +160,16 @@ const ZH: Labels = {
   droppedEvidence: '被丢弃证据数',
   avgEvidence: '每点平均证据数',
   scopeHeading: '分析口径',
+  usageHeading: '这次分析的用量',
+  usageModel: '模型',
+  usageCalls: '模型调用',
+  usageTokens: 'token（输入 / 输出）',
+  usageJudge: '判读阶段',
+  usageSynthesis: '开篇与排序',
+  usageCallUnit: '次',
+  usageBudget: '预算上限',
+  usageBudgetNone: '未设置',
+  usageStopped: '预算到顶，后面的候选没有再判。',
   // A citation without this line is a dead end: the report prints `path:7-8` and the
   // window has no way to ask what those bytes were, so the reader who doubts a claim
   // has to find the file themselves. The command existed; the page never said so.
@@ -275,6 +296,16 @@ const EN: Labels = {
   droppedEvidence: 'Evidence items dropped',
   avgEvidence: 'Average evidence per point',
   scopeHeading: 'What was analysed',
+  usageHeading: 'What this run used',
+  usageModel: 'Model',
+  usageCalls: 'Model calls',
+  usageTokens: 'Tokens (in / out)',
+  usageJudge: 'Judging',
+  usageSynthesis: 'Brief and ranking',
+  usageCallUnit: 'call(s)',
+  usageBudget: 'Budget ceiling',
+  usageBudgetNone: 'not set',
+  usageStopped: 'The budget was reached; the remaining candidates were not judged.',
   howToCheck:
     'Every citation is written `path:start-end`. Hand one to `ana inspect` to read the same bytes back (for example `ana inspect path/to/file.ts:12-20`) — the evidence is stored with the run, so this works after the source tree is gone.',
   source: 'Source',

@@ -23,6 +23,7 @@ import { forget } from './forget.js'
 import { runScan, type ScanOptions } from './scan.js'
 import { runReport } from './report.js'
 import { runInspect } from './inspect.js'
+import { runAsk } from './ask.js'
 import { readVersion } from '../version.js'
 
 /** The MCP revision this speaks. Only the parts used here are stabilised. */
@@ -168,6 +169,53 @@ function tools(): Tool[] {
         try {
           await runInspect(evidenceId, { out: { write: (chunk: string) => captured.push(chunk) } })
           return text(captured.join(''))
+        } catch (error) {
+          return failure(error instanceof Error ? error.message : String(error))
+        }
+      },
+    },
+    {
+      // The one spending tool, and the reason it is opt-in twice: the description
+      // says so, and `spend: true` is a required field. An agent that omits it gets
+      // an error instead of a bill.
+      name: 'anatomy_ask',
+      description:
+        'Answer a question about a stored analysis, citing only the evidence that run kept. This spends one or two model requests from the server environment key; it requires `spend: true`, and returns isError without calling the model when it is absent.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          runId: { type: 'string', description: 'A completed run id.' },
+          question: { type: 'string', description: 'The follow-up question.' },
+          spend: {
+            type: 'boolean',
+            description: 'Must be true. Confirms that this call may spend provider tokens.',
+          },
+          lang: { type: 'string', enum: ['zh', 'en'], description: 'Answer language; defaults to the report\'s.' },
+        },
+        required: ['runId', 'question', 'spend'],
+      },
+      run: async (args) => {
+        if (args['spend'] !== true) {
+          return failure('anatomy_ask spends model tokens; pass spend: true to confirm')
+        }
+        const runId = stringArg(args, 'runId')
+        const question = stringArg(args, 'question')
+        if (runId === '' || question === '') return failure('需要 runId 和 question 参数')
+        const lang = stringArg(args, 'lang')
+        try {
+          const answer = await runAsk(runId, question, lang === 'en' || lang === 'zh' ? { lang } : {})
+          return text(
+            JSON.stringify(
+              {
+                answered: answer.answered,
+                answer: answer.answer,
+                citations: answer.citations,
+                usage: answer.usage,
+              },
+              null,
+              2,
+            ),
+          )
         } catch (error) {
           return failure(error instanceof Error ? error.message : String(error))
         }

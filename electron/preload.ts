@@ -17,6 +17,8 @@ const api = {
   },
   analysis: {
     run: (request: unknown) => ipcRenderer.invoke('analysis:run', request),
+    // 断点续跑：读旧 run 的 judge 检查点，复用已判的候选。
+    resume: (runId: string) => ipcRenderer.invoke('analysis:resume', runId),
     // 零 token 的预扫：只看哪里值得看，不花钱。
     scan: (repo: string, top?: number) => ipcRenderer.invoke('analysis:scan', { repo, top }),
     onProgress: (
@@ -37,6 +39,16 @@ const api = {
   },
   report: {
     read: (runId: string) => ipcRenderer.invoke('report:read', runId),
+    // 追问：只根据这次分析已存的证据回答，会花一次模型请求。
+    ask: (runId: string, question: string) => ipcRenderer.invoke('report:ask', runId, question),
+    // 整套产出：默认 0 次额外模型调用。
+    export: (runId: string) => ipcRenderer.invoke('report:export', runId),
+    revealExport: (runId: string) => ipcRenderer.invoke('report:revealExport', runId),
+    // 一条引用的原文片段：来自这次分析已存的证据，不回头读源码树。
+    evidence: (runId: string, file: string, start: number, end: number) =>
+      ipcRenderer.invoke('report:evidence', runId, file, start, end),
+    // 两次源码分析的结构化对照：点数、取证率、候选、标题增删。
+    diff: (before: string, after: string) => ipcRenderer.invoke('report:diff', before, after),
     // 删除一份存下来的分析：id 而不是路径，主进程在同一处校验。
     forget: (kind: 'run' | 'app', id: string) => ipcRenderer.invoke('runs:forget', kind, id),
     // 在文件管理器里显示这份报告：它是磁盘上的一个文件，不只是窗口里的一页。

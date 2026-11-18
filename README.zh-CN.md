@@ -64,16 +64,22 @@ npm run clean                  # 清掉全部构建产物
 下面的 `ana` 是这个包的 `bin`，而 `npm install` 不会把它放进 PATH。在检出目录里
 先 `npm link` 一次，或者把下面的 `ana` 换成 `node dist/cli.js`——同一个程序，同样的输出。
 
-需要有源码的四条：
+需要有源码的命令：
 
 ```bash
 ana scan <repo>                  # 零模型调用：告诉你哪里最值得看
 ana analyze <repo> [--top 12]    # 完整分析，产出报告
+ana analyze <repo> --estimate    # 用免费扫描预估请求数与 token，不调模型
 ana report <runId>               # 用已存产物重渲染（分析树已删也能出）
+ana ask <runId> "为什么不用链表？" # 只根据这份报告已存的证据回答
+ana resume <runId>               # 从中断处继续，不重复支付已判的候选
 ana inspect <path:起止行>        # 打印某条证据的原文片段（报告里的引用可直接粘）
+ana doc <runId>                  # 把已验证的报告写成架构笔记，带 Mermaid 结构图
+ana export <runId>               # 一次导出整套：摘要、决策、风险、上手、自测
+ana history <runId>              # 每个被引用文件的最后一次提交（仅本地检出）
 ```
 
-没有源码也行的四条（走 [REA](https://github.com/morluto/rea) 取证，全程不调模型）：
+没有源码也行的命令（重建部分走 [REA](https://github.com/morluto/rea) 取证，全程不调模型）：
 
 ```bash
 ana inspect-app <dir>            # 从打包产物重建：模块、IPC、contextBridge、存储关系
@@ -82,12 +88,14 @@ ana app-diff <a> <b>             # 两份的差异：暴露面变了什么
 ana runs [--json]                # 列出存下来的分析：日期、来源、点数
 ana forget <id> [--app]          # 删掉一份存下来的分析
 ana forget --keep 3              # 只留最新的三轮，其余删掉
+ana diff <a> <b>                 # 对照两次源码分析：数字与学习点标题
 ana mcp                          # 把确定性的一半以 MCP 挂在 stdio 上
 ```
 
 `ana mcp` 提供 `anatomy_scan`、`anatomy_report`、`anatomy_evidence`、`anatomy_forget`
-四个工具——给的是事实，不是判断；加上删除工具，长时间会话才不至于把 `.ana/runs` 堆满。不调模型、不读 Key，所以已经有模型的一方可以拿证据自己写。**故意不暴露
-`analyze`**：一个会悄悄花掉调用方额度的 MCP 服务是坏客人。
+和显式开启的 `anatomy_ask`。前四个不调模型、不读 Key，所以已经有模型的一方可以拿证据自己写；
+`anatomy_ask` 会花服务端环境变量里的 Key，且必须由调用方传 `spend: true` 才执行。**仍然故意
+不暴露 `analyze`**：一个会悄悄花掉调用方额度的 MCP 服务是坏客人。
 
 `inspect-app` 需要 Node ^22.23.4 || ^24.22.1 || >=26.12.1 和一个可用的 `rea`
 （`npx rea-agents setup`，或用 `ANA_REA` 指向它的 `scripts/rea.mjs`）。
@@ -146,7 +154,7 @@ src/kernel/     无 LLM 的取证内核：取仓库、口径、结构图、信�
 src/writing/    唯一花 token 的一层：提示、judge、排序、综述
 src/render/     一层数据两种渲染：叙述 + 可折叠配方、以及 JSON
 src/app/        REA 适配：调用、进度、事实归类、两份对比
-src/commands/   scan / analyze / report / inspect / inspect-app / app-report / app-diff / forget / mcp / runs
+src/commands/   scan / analyze / report / ask / resume / diff / doc / export / history / inspect / inspect-app / app-report / app-diff / forget / mcp / runs
 eval/           gold 集与召回率脚本（npm run eval）
 ```
 
@@ -179,12 +187,14 @@ LICENSE——116 个文件，而不是裸 `npm pack` 会装进去的 336 个（7
 
 一句话说清，不留悬空：
 
-- 十条命令都可用；`npm run verify` 是唯一闸门（811 个测试、三套 tsconfig、CLI 端到端
+- 十六条命令都可用；`npm run verify` 是唯一闸门（871 个测试、三套 tsconfig、CLI 端到端
   跑假模型）
 - **有源码**的仓库：产出带行号证据的设计笔记，每条主张都对着磁盘字节核对过，
   核对不过就不进正文
 - **没有源码**的应用：经 REA 出事实报告与两份差异，全程不调模型
 - 中文与英文的完整报告，骨架和正文都是
+- **`ana export`** 用同一次分析生成整套档案（摘要、决策、风险、上手、热点、自测），默认 0 次额外模型调用；**`ana doc`** 把已验证的报告写成面向仓库的 `ARCHITECTURE.md`，带阅读顺序和从索引生成的结构图，并可导出便携证据包；**`ana history`** 给本地检出补上每个引用文件的最后一次提交；Go 有了行级结构扫描。
+- **追问**只根据报告已存的证据回答；**断点续跑**复用已判的候选；同一棵树第二次分析会复用 judge 检查点（`--no-cache` 可关）；每次分析的模型调用与 token 记在 `usage.json` 里
 
 召回率在跟踪的 gold 集上是 61%，这既是这一版的实测值，也是它的上限：十个专家标注点里
 有四个连候选都进不去。
@@ -193,7 +203,7 @@ LICENSE——116 个文件，而不是裸 `npm pack` 会装进去的 336 个（7
 
 - **`ana publish`** —— 托管版报告。故意没做：报告是绑在证据上的，托管出去会诱导读者把它
   当成一个页面而不是一份带引用的文档。是延后，不是否决。
-- 其他语言的结构分析：目前只认 TS/JS 与 Python。
+- 其他语言的结构分析：TS/JS 与 Python 走真正的解析器，Go 只有行级导入/声明扫描（不是解析器）；其余语言仍不支持。
 - 无源码应用只能出**事实报告**，还没有判断版：从重建图推「为什么这么设计」需要第二个
   校验器（对 `evidence_id` 而不是磁盘字节），没做之前宁可不写。
 

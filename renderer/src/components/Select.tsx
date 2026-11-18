@@ -24,16 +24,26 @@ type Props = {
   onChange: (value: string) => void
   placeholder?: string
   id?: string
+  ariaLabel?: string
   disabled?: boolean
 }
 
-export function Select({ value, options, onChange, placeholder, id, disabled }: Props): React.JSX.Element {
+export function Select({
+  value,
+  options,
+  onChange,
+  placeholder,
+  id,
+  ariaLabel,
+  disabled,
+}: Props): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(() => Math.max(0, options.findIndex((o) => o.value === value)))
   const rootRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
   const typedRef = useRef({ text: '', at: 0 })
   const listId = useId()
+  const optionId = (index: number): string => `${listId}-opt-${index}`
 
   const selected = useMemo(() => options.find((option) => option.value === value), [options, value])
 
@@ -84,6 +94,7 @@ export function Select({ value, options, onChange, placeholder, id, disabled }: 
   }
 
   function onKeyDown(event: React.KeyboardEvent<HTMLButtonElement>): void {
+    if (options.length === 0) return
     switch (event.key) {
       case 'ArrowDown':
       case 'ArrowUp': {
@@ -132,6 +143,8 @@ export function Select({ value, options, onChange, placeholder, id, disabled }: 
         aria-expanded={open}
         aria-controls={listId}
         aria-haspopup="listbox"
+        aria-label={ariaLabel}
+        aria-activedescendant={open ? optionId(active) : undefined}
         disabled={disabled}
         onClick={() => setOpen((current) => !current)}
         onKeyDown={onKeyDown}
@@ -147,6 +160,7 @@ export function Select({ value, options, onChange, placeholder, id, disabled }: 
           {options.map((option, index) => (
             <li
               key={option.value}
+              id={optionId(index)}
               role="option"
               aria-selected={option.value === value}
               className={[

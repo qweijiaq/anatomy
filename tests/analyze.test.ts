@@ -21,7 +21,15 @@ import path from 'node:path'
 
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 
-import { normaliseExcerpt, providerRefusal, resolveModelName, runAnalyze, synthesisGap } from '../src/commands/analyze.js'
+import {
+  estimateAnalyze,
+  normaliseExcerpt,
+  providerRefusal,
+  resolveModelName,
+  runAnalyze,
+  synthesisGap,
+} from '../src/commands/analyze.js'
+import { runResume } from '../src/commands/resume.js'
 import { DEFAULT_MODEL } from '../src/writing/client.js'
 import type { LearningPoint, RunManifest } from '../src/contracts/types.js'
 import type { AcquireDeps } from '../src/kernel/acquire.js'
@@ -803,5 +811,112 @@ describe('a reply the model did not shape', () => {
     const result = await runAnalyze(repo, { baseDir, client: skipping as never })
     expect(result.replyFailures).toBe(0)
     expect(result.modelFailures).toEqual([])
+  })
+})
+
+
+describe('whole-run budget and recorded usage', () => {
+  it('stops before the next candidate when the ceiling is reached, and says so', async () => {
+    const baseDir = temporaryDir('ana-analyze-budget-')
+    const repo = fixtureRepo()
+    const result = await runAnalyze(repo, { baseDir, client: fakeClient(), maxTokens: 1 })
+
+    const usage = await artifact<{
+      maxTokens?: number
+      stoppedForBudget: boolean
+      calls: number
+      stages: { judge: { calls: number } }
+    }>(baseDir, result.runId, 'usage')
+    expect(usage.maxTokens).toBe(1)
+    expect(usage.stoppedForBudget).toBe(true)
+    expect(usage.calls).toBeGreaterThan(0)
+
+    const skipped = await artifact<Array<{ reason: string }>>(baseDir, result.runId, 'skipped')
+    expect(skipped.some((entry) => entry.reason.includes('run token budget'))).toBe(true)
+
+    const markdown = await readFile(result.reportPath, 'utf8')
+    expect(markdown).toContain('## 这次分析的用量')
+    expect(markdown).toContain('预算上限：1')
+    expect(markdown).toContain('预算到顶')
+  })
+
+  it('prices a run without calling a model', async () => {
+    const baseDir = temporaryDir('ana-estimate-')
+    const repo = fixtureRepo()
+    const estimate = await estimateAnalyze(repo, { baseDir })
+    expect(estimate.candidates).toBeGreaterThan(0)
+    expect(estimate.judged).toBeGreaterThan(0)
+    expect(estimate.calls).toBe(estimate.judged + 1)
+    expect(estimate.tokens).toBeGreaterThan(0)
+    expect(existsSync(runPath(baseDir, estimate.runId, 'report.md'))).toBe(false)
+  })
+})
+
+describe('resuming an interrupted run', () => {
+  it('reuses the checkpoint, re-validates it, and finishes in a new run', async () => {
+    const baseDir = temporaryDir('ana-resume-')
+    const repo = fixtureRepo()
+
+    let calls = 0
+    const failing: ModelClient = {
+      async complete(request: ModelRequest): Promise<ModelResponse> {
+        calls += 1
+        if (calls === 2) throw new MissingCredentialsError('window closed')
+        return fakeClient().complete(request)
+      },
+    }
+
+    await expect(runAnalyze(repo, { baseDir, client: failing })).rejects.toThrow()
+    const failed = readdirSync(baseDir).filter((name) => name !== '')
+    expect(failed.length).toBe(1)
+    const failedId = failed[0] as string
+    const progress = await artifact<{ done: string[]; points: LearningPoint[] }>(
+      baseDir,
+      failedId,
+      'judge-progress',
+    )
+    expect(progress.done.length).toBeGreaterThan(0)
+    expect(progress.points.length).toBeGreaterThan(0)
+
+    const resumed = await runResume(failedId, { baseDir, client: fakeClient() })
+    expect(resumed.runId).not.toBe(failedId)
+    expect(resumed.reused).toBe(progress.done.length)
+    const markdown = await readFile(resumed.reportPath, 'utf8')
+    expect(markdown).toContain('## 这次分析的可信度')
+    expect(resumed.usage).toBeDefined()
+  })
+})
+
+
+describe('the judge cache', () => {
+  it('reuses verdicts for the same tree and model, and still validates them', async () => {
+    const baseDir = temporaryDir('ana-cache-')
+    const repo = fixtureRepo()
+
+    const firstClient = fakeClient()
+    const first = await runAnalyze(repo, { baseDir, client: firstClient })
+    expect(first.reused ?? 0).toBe(0)
+
+    const secondClient = fakeClient()
+    const second = await runAnalyze(repo, { baseDir, client: secondClient })
+    expect(second.reused).toBeGreaterThan(0)
+    // Only the opening summary is bought again; every candidate came from the cache.
+    expect(secondClient.calls).toHaveLength(1)
+
+    const firstPoints = await artifact<LearningPoint[]>(baseDir, first.runId, 'points')
+    const secondPoints = await artifact<LearningPoint[]>(baseDir, second.runId, 'points')
+    expect(secondPoints.map((point) => point.title)).toEqual(firstPoints.map((point) => point.title))
+    const secondUsage = await artifact<{ calls: number }>(baseDir, second.runId, 'usage')
+    expect(secondUsage.calls).toBe(1)
+  })
+
+  it('honours --no-cache', async () => {
+    const baseDir = temporaryDir('ana-cache-off-')
+    const repo = fixtureRepo()
+    await runAnalyze(repo, { baseDir, client: fakeClient() })
+    const fresh = fakeClient()
+    const second = await runAnalyze(repo, { baseDir, client: fresh, cache: false })
+    expect(second.reused ?? 0).toBe(0)
+    expect(fresh.calls.length).toBeGreaterThan(1)
   })
 })

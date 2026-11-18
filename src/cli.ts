@@ -3,7 +3,7 @@ import { realpathSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 
-import { describeRunFailure, runAnalyze, type AnalyzeOptions } from './commands/analyze.js'
+import { describeRunFailure, estimateAnalyze, runAnalyze, type AnalyzeOptions } from './commands/analyze.js'
 import {
   INSPECT_USAGE,
   InspectUsageError,
@@ -25,6 +25,30 @@ import {
   type ScanIo,
 } from './commands/scan.js'
 import { FORGET_USAGE, forget, keepRecent, parseForgetArgs } from './commands/forget.js'
+import { DIFF_USAGE, DiffUsageError, formatDiff, parseDiffArgs, runDiff } from './commands/diff.js'
+import { DOC_USAGE, DocUsageError, parseDocArgs, runDoc } from './commands/doc.js'
+import {
+  EXPORT_USAGE,
+  ExportArgsError,
+  exportDossier,
+  formatExport,
+  parseExportArgs,
+} from './commands/export.js'
+import {
+  formatHistory,
+  HISTORY_USAGE,
+  HistoryUsageError,
+  parseHistoryArgs,
+  runHistory,
+} from './commands/history.js'
+import { ASK_USAGE, askJson, AskUsageError, formatAsk, parseAskArgs, runAsk } from './commands/ask.js'
+import {
+  parseResumeArgs,
+  RESUME_USAGE,
+  resumeJson,
+  runResume,
+  ResumeUsageError,
+} from './commands/resume.js'
 import { RUNS_USAGE, formatRuns, listRuns, parseRunsArgs, runsJson } from './commands/runs.js'
 import { serveMcp } from './commands/mcp.js'
 import {
@@ -47,7 +71,10 @@ Options:
   --api-key <key>    Overrides $ANA_API_KEY
   --top <n>          How many candidate signals to collect
   --points <n>       How many points the report may hold (default 5, max 12)
-  --budget <n>       Token budget for the writing layer
+  --budget <n>       Per-request token budget for the writing layer
+  --max-tokens <n>   Whole-run token ceiling (stops before the next candidate)
+  --estimate         Price a run with the free scan; no model is called
+  --no-cache         Judge every candidate even when this tree was analysed before
   --lang <zh|en>     Report language (default: zh)
   --subpath <path>   Analyse only this subtree
   --ref <ref>        Ref to analyse, when the source is a repository
@@ -55,7 +82,7 @@ Options:
 
 export type AnalyzeArgs =
   | { help: true }
-  | { help: false; input: string; json: boolean; options: AnalyzeOptions }
+  | { help: false; input: string; json: boolean; estimate: boolean; options: AnalyzeOptions }
 
 class AnalyzeUsageError extends Error {}
 
@@ -65,6 +92,7 @@ const VALUED_FLAGS = [
   'top',
   'points',
   'budget',
+  'max-tokens',
   'lang',
   'subpath',
   'ref',
@@ -83,6 +111,8 @@ export function parseAnalyzeArgs(argv: string[]): AnalyzeArgs {
   const positional: string[] = []
   const values = new Map<string, string>()
   let json = false
+  let estimate = false
+  let noCache = false
   let help = false
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -105,6 +135,20 @@ export function parseAnalyzeArgs(argv: string[]): AnalyzeArgs {
         throw new AnalyzeUsageError('--json takes no value')
       }
       json = true
+      continue
+    }
+    if (name === 'estimate') {
+      if (inline !== undefined) {
+        throw new AnalyzeUsageError('--estimate takes no value')
+      }
+      estimate = true
+      continue
+    }
+    if (name === 'no-cache') {
+      if (inline !== undefined) {
+        throw new AnalyzeUsageError('--no-cache takes no value')
+      }
+      noCache = true
       continue
     }
     if (!(VALUED_FLAGS as readonly string[]).includes(name)) {
@@ -132,6 +176,7 @@ export function parseAnalyzeArgs(argv: string[]): AnalyzeArgs {
   }
 
   const options: AnalyzeOptions = {}
+  if (noCache) options.cache = false
   const model = values.get('model')
   if (model !== undefined) options.model = model
   const apiKey = values.get('api-key')
@@ -142,6 +187,8 @@ export function parseAnalyzeArgs(argv: string[]): AnalyzeArgs {
   if (points !== undefined) options.reportPoints = positiveInteger('points', points)
   const budget = values.get('budget')
   if (budget !== undefined) options.budget = positiveInteger('budget', budget)
+  const maxTokens = values.get('max-tokens')
+  if (maxTokens !== undefined) options.maxTokens = positiveInteger('max-tokens', maxTokens)
   const subpath = values.get('subpath')
   if (subpath !== undefined) options.subpath = subpath
   const ref = values.get('ref')
@@ -154,7 +201,7 @@ export function parseAnalyzeArgs(argv: string[]): AnalyzeArgs {
     options.lang = lang
   }
 
-  return { help: false, input, json, options }
+  return { help: false, input, json, estimate, options }
 }
 
 export type CliIo = {
@@ -164,9 +211,10 @@ export type CliIo = {
 
 export const MCP_USAGE = `Usage: ana mcp
 
-Serve anatomy's deterministic half over MCP on stdio: anatomy_scan, anatomy_report,
-anatomy_evidence. No model is called and no provider key is read, so an agent that
-already has a model can take the facts and do the judging itself.
+Serve anatomy over MCP on stdio: anatomy_scan, anatomy_report, anatomy_evidence,
+anatomy_forget, and the opt-in anatomy_ask. The first four call no model and read no
+key; anatomy_ask spends the environment key's tokens only when the caller passes
+spend: true.
 
 The server speaks JSON-RPC 2.0, one message per line. stdout belongs to the
 protocol; diagnostics belong on stderr.`
@@ -181,6 +229,12 @@ Commands:
   inspect-app <dir>  Reconstruct a JS/Electron app from shipped artifacts, via REA
   app-report <name>  Re-render the facts report of a reconstructed application
   app-diff <a> <b>   Compare two surveys: what changed on the boundary
+  ask <runId> <q>    Ask a finished report a question, citing only its stored evidence
+  resume <runId>     Continue an interrupted analysis without paying for judged candidates
+  diff <a> <b>       Compare two stored source analyses as facts
+  doc <runId>        Write architecture notes from a verified report, plus an optional bundle
+  export <runId>     Build the whole dossier from one analysis (0 extra model calls)
+  history <runId>    Show the last commit behind each cited file (local checkouts)
   runs [--json]      List the stored analyses, newest first
   forget <id>        Delete one stored run; --keep <n> keeps the newest n
   mcp                Serve the deterministic half over MCP stdio (no model calls)
@@ -267,6 +321,24 @@ export async function runCli(
         io.out.write(`${ANALYZE_USAGE}\n`)
         return 0
       }
+      if (args.estimate) {
+        try {
+          const estimate = await estimateAnalyze(args.input, args.options)
+          if (args.json) {
+            io.out.write(`${JSON.stringify(estimate, null, 2)}\n`)
+          } else {
+            io.out.write(
+              `estimate: ${estimate.calls} model request(s), ~${estimate.tokens} tokens ` +
+                `(${estimate.judged}/${estimate.candidates} candidates, ${estimate.files} files)\n` +
+                `scan run ${estimate.runId} (no model was called)\n`,
+            )
+          }
+          return 0
+        } catch (error) {
+          io.err.write(`ana: ${describeFailure(error)}\n`)
+          return 1
+        }
+      }
       try {
         const result = await runAnalyze(args.input, {
           ...args.options,
@@ -321,6 +393,148 @@ export async function runCli(
         // No special case for `NoSuchRunError`: it used to print `error.message`
         // directly, which skipped the prefix stripping and produced
         // `ana: anatomy: no such run "x"`. Same exit code, same branch, one path.
+        io.err.write(`ana: ${describeFailure(error)}\n`)
+        return 1
+      }
+    }
+    case 'ask': {
+      let args
+      try {
+        args = parseAskArgs(argv.slice(1))
+      } catch (error) {
+        if (!(error instanceof AskUsageError)) throw error
+        io.err.write(`ana: ${error.message}\n\n${ASK_USAGE}\n`)
+        return 2
+      }
+      if (args.help) {
+        io.out.write(`${ASK_USAGE}\n`)
+        return 0
+      }
+      try {
+        const answer = await runAsk(args.runId, args.question, args.options)
+        io.out.write(args.json ? askJson(answer) : formatAsk(answer))
+        return 0
+      } catch (error) {
+        io.err.write(`ana: ${describeFailure(error)}\n`)
+        return 1
+      }
+    }
+    case 'resume': {
+      let args
+      try {
+        args = parseResumeArgs(argv.slice(1))
+      } catch (error) {
+        if (!(error instanceof ResumeUsageError)) throw error
+        io.err.write(`ana: ${error.message}\n\n${RESUME_USAGE}\n`)
+        return 2
+      }
+      if (args.help) {
+        io.out.write(`${RESUME_USAGE}\n`)
+        return 0
+      }
+      try {
+        const result = await runResume(args.runId, args.options)
+        if (args.json) {
+          io.out.write(resumeJson(result))
+        } else {
+          io.out.write(`${result.reportPath}\n`)
+          if (result.reused > 0) {
+            io.err.write(`ana: reused ${result.reused} judged candidate(s) from ${args.runId}\n`)
+          }
+        }
+        return 0
+      } catch (error) {
+        io.err.write(`ana: ${describeFailure(error)}\n`)
+        return 1
+      }
+    }
+    case 'diff': {
+      let args
+      try {
+        args = parseDiffArgs(argv.slice(1))
+      } catch (error) {
+        if (!(error instanceof DiffUsageError)) throw error
+        io.err.write(`ana: ${error.message}\n\n${DIFF_USAGE}\n`)
+        return 2
+      }
+      if (args.help) {
+        io.out.write(`${DIFF_USAGE}\n`)
+        return 0
+      }
+      try {
+        const diff = await runDiff(args.before, args.after, args.options)
+        io.out.write(args.json ? `${JSON.stringify(diff, null, 2)}\n` : formatDiff(diff))
+        return 0
+      } catch (error) {
+        io.err.write(`ana: ${describeFailure(error)}\n`)
+        return 1
+      }
+    }
+    case 'doc': {
+      let args
+      try {
+        args = parseDocArgs(argv.slice(1))
+      } catch (error) {
+        if (!(error instanceof DocUsageError)) throw error
+        io.err.write(`ana: ${error.message}\n\n${DOC_USAGE}\n`)
+        return 2
+      }
+      if (args.help) {
+        io.out.write(`${DOC_USAGE}\n`)
+        return 0
+      }
+      try {
+        await runDoc(args.runId, args.options, io)
+        return 0
+      } catch (error) {
+        io.err.write(`ana: ${describeFailure(error)}\n`)
+        return 1
+      }
+    }
+    case 'history': {
+      let args
+      try {
+        args = parseHistoryArgs(argv.slice(1))
+      } catch (error) {
+        if (!(error instanceof HistoryUsageError)) throw error
+        io.err.write(`ana: ${error.message}\n\n${HISTORY_USAGE}\n`)
+        return 2
+      }
+      if (args.help) {
+        io.out.write(`${HISTORY_USAGE}\n`)
+        return 0
+      }
+      try {
+        const result = await runHistory(args.runId, args.options)
+        io.out.write(
+          args.json
+            ? `${JSON.stringify(result, null, 2)}\n`
+            : formatHistory(result.source, result.entries),
+        )
+        return 0
+      } catch (error) {
+        io.err.write(`ana: ${describeFailure(error)}\n`)
+        return 1
+      }
+    }
+    case 'export': {
+      let args
+      try {
+        args = parseExportArgs(argv.slice(1))
+      } catch (error) {
+        if (!(error instanceof ExportArgsError)) throw error
+        io.err.write(`ana: ${error.message}\n\n${EXPORT_USAGE}\n`)
+        return 2
+      }
+      if (args.help) {
+        io.out.write(`${EXPORT_USAGE}\n`)
+        return 0
+      }
+      try {
+        const result = await exportDossier(args.runId, args.options)
+        io.out.write(args.json ? `${JSON.stringify(result, null, 2)}\n` : formatExport(result))
+        return 0
+      } catch (error) {
         io.err.write(`ana: ${describeFailure(error)}\n`)
         return 1
       }

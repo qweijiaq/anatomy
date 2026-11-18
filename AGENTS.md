@@ -22,7 +22,7 @@ the answer should not cost more to obtain than the project costs to read.
 ```bash
 npm run audit       # one command, eight computed lines, one verdict
 npm run typecheck   # three configs: src, tests+eval, renderer+electron
-npm run test        # 811 tests, no network
+npm run test        # 871 tests, no network
 npm run verify      # the gate: tests, typecheck, build, then the CLI end to end
 ```
 
@@ -68,14 +68,14 @@ says about itself; the right column is where that claim can be falsified.
 
 | Claim | Falsified by |
 |---|---|
-| 811 tests pass in 39 files | `npm test`, or `docs/superpowers/verify-output.txt` for the recorded run |
+| 871 tests pass in 47 files | `npm test`, or `docs/superpowers/verify-output.txt` for the recorded run |
 | Typecheck is clean in three configs | `npm run typecheck` (src, tests+eval, renderer+electron) |
 | The CLI works end to end with no API key | `npm run verify` — `scripts/verify.sh`, twelve sections, local stub model |
 | Every citation points at the line it names | `tests/evidence.test.ts`; `ana inspect <path:start-end>` re-reads it |
 | The analysed repository's code is never executed | `tests/structure-python.test.ts`, `tests/acquire.test.ts` |
 | The documentation's numbers match the artifacts | `tests/docs-consistency.test.ts`, and the `docs` line of `npm run audit` |
 | The window's bridge cannot drift from the preload | `tests/packaging.test.ts` |
-| The MCP server serves four tools | `tests/mcp.test.ts`, and the `mcp` section of the gate |
+| The MCP server serves five tools, one of them opt-in spending | `tests/mcp.test.ts`, and the `mcp` section of the gate |
 | A clean checkout reproduces all of it | `docs/superpowers/EVIDENCE.md`, section "Clean checkout" |
 | Candidate recall is 61% | `npm run eval:recall` — 55 of 90 annotated points |
 | A real model writes verified points | `docs/superpowers/real-model-eval.md` — five gold repos, 100% evidence |

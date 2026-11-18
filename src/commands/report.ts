@@ -32,6 +32,7 @@ import type {
   LearningPoint,
   Profile,
   ReportInput,
+  RunUsage,
   Scope,
   StructureIndex,
   ValidationResult,
@@ -157,9 +158,10 @@ export async function readReportInput(
   // Read, not required: these feed the appendix, and a run written before the
   // appendix existed must still render. A missing artifact drops one section; a
   // `requireArtifact` here would make every old run unreadable.
-  const [candidates, structure] = await Promise.all([
+  const [candidates, structure, usage] = await Promise.all([
     readRunArtifact<Candidate[]>(baseDir, runId, 'candidates'),
     readRunArtifact<StructureIndex>(baseDir, runId, 'structure'),
+    readRunArtifact<RunUsage>(baseDir, runId, 'usage'),
   ])
 
   return {
@@ -176,6 +178,7 @@ export async function readReportInput(
     lang: manifest.lang === 'en' ? 'en' : 'zh',
     ...(candidates === null ? {} : { candidates }),
     ...(structure === null ? {} : { structure }),
+    ...(usage === null ? {} : { usage }),
   }
 }
 

@@ -44,12 +44,14 @@ import type {
   LearningPoint,
   ReportInput,
   RunManifest,
+  RunUsage,
+  StageUsage,
   ValidationResult,
 } from '../contracts/types.js'
 import { DEFAULT_BUDGET_TOKENS } from '../contracts/types.js'
 import type { AcquireDeps } from '../kernel/acquire.js'
-import { clampBudget, fitCandidates } from '../kernel/budget.js'
-import { scanRepo } from '../kernel/pipeline.js'
+import { clampBudget, estimateTokens, fitCandidates } from '../kernel/budget.js'
+import { DEFAULT_RUNS_DIR, scanRepo } from '../kernel/pipeline.js'
 import { normalizeEvidence, renderJson } from '../render/json.js'
 import { renderMarkdown } from '../render/markdown.js'
 import type { Run } from '../store/runs.js'
@@ -61,7 +63,15 @@ import {
   MissingCredentialsError,
   resolveApiKey,
 } from '../writing/client.js'
-import { buildJudgePrompt, judgeCandidates } from '../writing/judge.js'
+import { buildJudgePrompt, judgeCandidates, RUN_BUDGET_CUT_REASON } from '../writing/judge.js'
+import type { JudgeProgress, JudgeResume } from '../writing/judge.js'
+import { metered, between } from '../writing/meter.js'
+import {
+  judgeCacheDir,
+  judgeCacheKey,
+  readJudgeCache,
+  writeJudgeCache,
+} from '../writing/judge-cache.js'
 import type { Lang } from '../writing/prompts/zh.js'
 import { rankPoints } from '../writing/rank.js'
 import { synthesize, type Synthesis } from '../writing/synthesis.js'
@@ -128,6 +138,14 @@ export type AnalyzeOptions = {
   reportPoints?: number
   /** Per-request token budget, before `clampBudget` narrows it to the model. */
   budget?: number
+  /** Whole-run token ceiling, measured from the provider's own `usage` fields. */
+  maxTokens?: number
+  /** Candidates already judged by an interrupted attempt, matched by id. */
+  resume?: JudgeResume
+  /** Reuse a cached judge checkpoint for this tree. Defaults to true. */
+  cache?: boolean
+  /** Checkpoint after every judged candidate, for `ana resume`. */
+  onJudgeProgress?: (progress: JudgeProgress) => void
   /** Prompt language; `zh` is the shipped default. */
   lang?: Lang
   subpath?: string
@@ -223,6 +241,10 @@ export type AnalyzeResult = {
   modelFailures: ModelFailure[]
   /** Candidates no usable reply came back for; zero points plus this is a failure. */
   replyFailures: number
+  /** What the run spent, measured rather than estimated. */
+  usage?: RunUsage
+  /** Candidates whose verdict came from a checkpoint instead of a model call. */
+  reused?: number
 }
 
 /**
@@ -449,6 +471,26 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** The stored record of what a run spent. */
+function usageOf(
+  model: string,
+  maxTokens: number | undefined,
+  total: { calls: number; in: number; out: number },
+  judge: StageUsage,
+  synthesis: StageUsage,
+  stoppedForBudget: boolean,
+): RunUsage {
+  return {
+    model,
+    calls: total.calls,
+    in: total.in,
+    out: total.out,
+    ...(maxTokens === undefined ? {} : { maxTokens }),
+    stoppedForBudget,
+    stages: { judge, synthesis },
+  }
+}
+
 /**
  * Ends the run, returning the failure instead of throwing it.
  *
@@ -492,12 +534,64 @@ function withCleanupFailure(failure: unknown, cleanup: Error): Error {
 }
 
 /**
- * Analyses `input` end to end and returns the run id and the page.
+ * What a full run would cost, without spending anything.
  *
- * A caller-supplied `client` overrides the default one entirely — that is how the
- * tests avoid the network, and how a caller with its own gateway avoids the key
- * check. Everything else is the pipeline's own default.
+ * The scan is the same deterministic pass `ana scan` runs; the estimate is the
+ * budget's own cost function applied to the candidates it would keep, plus the
+ * synthesis call. It is an upper bound on purpose — a user deciding whether to
+ * spend should not be told a number the run then exceeds.
  */
+export type AnalyzeEstimate = {
+  runId: string
+  /** Candidates the scan collected. */
+  candidates: number
+  /** Candidates the per-request budget can afford. */
+  judged: number
+  /** Model requests: one per judged candidate, plus the opening summary. */
+  calls: number
+  /** Upper-bound token estimate, before any provider is called. */
+  tokens: number
+  files: number
+  lines: number
+}
+
+/**
+ * Runs the deterministic half and prices the writing half, without a model call.
+ */
+export async function estimateAnalyze(
+  input: string,
+  opts: AnalyzeOptions = {},
+): Promise<AnalyzeEstimate> {
+  const lang: Lang = opts.lang ?? 'zh'
+  const budget = clampBudget(opts.budget ?? DEFAULT_BUDGET_TOKENS, opts.model)
+  const scan = await scanRepo(input, {
+    subpath: opts.subpath,
+    ref: opts.ref,
+    topK: opts.top,
+    baseDir: opts.baseDir,
+    deps: opts.deps,
+  })
+  const fitted = fitCandidates(
+    scan.candidates,
+    (candidate) => candidateContext(candidate, lang),
+    budget,
+  )
+  let tokens = 0
+  for (const candidate of fitted.kept) tokens += estimateTokens(candidateContext(candidate, lang))
+  // The synthesis prompt is a few thousand tokens of profile and structure; the
+  // reply is capped by the schema. A fixed allowance is enough for an estimate.
+  tokens += 2_000
+  return {
+    runId: scan.runId,
+    candidates: scan.candidates.length,
+    judged: fitted.kept.length,
+    calls: fitted.kept.length + 1,
+    tokens,
+    files: scan.scope.totals.files,
+    lines: scan.scope.totals.lines,
+  }
+}
+
 export async function runAnalyze(
   input: string,
   opts: AnalyzeOptions = {},
@@ -510,7 +604,8 @@ export async function runAnalyze(
   // learns it without paying for a download and an extraction first.
   opts.onStage?.({ stage: 'acquire', detail: input })
   if (opts.client === undefined) requireApiKey(opts.apiKey)
-  const client = opts.client ?? createModelClient({ model, apiKey: opts.apiKey })
+  const meter = metered(opts.client ?? createModelClient({ model, apiKey: opts.apiKey }))
+  const client = meter.client
   const budget = clampBudget(opts.budget ?? DEFAULT_BUDGET_TOKENS, model)
 
   // Held outside the `try` because the scan can throw *after* it opened the run
@@ -549,6 +644,31 @@ export async function runAnalyze(
     const cut = scanned.candidates.filter((candidate) => !affordable.has(candidate))
 
     opts.onStage?.({ stage: 'judge', done: 0, total: fitted.kept.length })
+    const beforeJudge = meter.snapshot()
+    const manifest = await scanned.run.read<RunManifest>('manifest')
+    const checkpoint = {
+      v: 1,
+      runId: scanned.runId,
+      source: input,
+      ref: manifest?.ref ?? opts.ref ?? '',
+      subpath: manifest?.subpath ?? opts.subpath ?? '',
+      lang,
+      model,
+      top: opts.top,
+      reportPoints: opts.reportPoints,
+      maxTokens: opts.maxTokens,
+      updatedAt: new Date().toISOString(),
+    }
+    const cacheBase = path.resolve(opts.baseDir ?? DEFAULT_RUNS_DIR)
+    const cacheKey = judgeCacheKey({ sha: manifest?.sha ?? '', model, lang })
+    const cached =
+      opts.resume ??
+      (opts.cache === false ? null : await readJudgeCache(judgeCacheDir(cacheBase), cacheKey))
+    const reused =
+      cached === null
+        ? 0
+        : cached.done.filter((id) => fitted.kept.some((candidate) => candidate.id === id)).length
+    let latest: JudgeProgress | null = null
     const seenProviderErrors = new Set<string>()
     const modelFailures: ModelFailure[] = []
     const judged = await judgeCandidates({
@@ -558,6 +678,24 @@ export async function runAnalyze(
       scope: scanned.scope,
       lang,
       runId: scanned.runId,
+      maxTokens: opts.maxTokens,
+      resume: cached ?? undefined,
+      onVerdict: async (progress) => {
+        latest = progress
+        await scanned.run.write('judge-progress', { ...checkpoint, ...progress })
+        await scanned.run.write(
+          'usage',
+          usageOf(
+            model,
+            opts.maxTokens,
+            { calls: progress.done.length, in: progress.usage.in, out: progress.usage.out },
+            { calls: progress.done.length, in: progress.usage.in, out: progress.usage.out },
+            { calls: 0, in: 0, out: 0 },
+            progress.skipped.some((entry) => entry.reason.startsWith(RUN_BUDGET_CUT_REASON)),
+          ),
+        )
+        opts.onJudgeProgress?.(progress)
+      },
       onCandidate: (done, total, path) => opts.onStage?.({ stage: 'judge', done, total, detail: path }),
       // Printed once per distinct provider failure. Without this a rejected request
       // is a status code and nothing else — the terminal is the one place the
@@ -578,6 +716,27 @@ export async function runAnalyze(
       // not add a second, invisible cut on top of it.
       limit: fitted.kept.length,
     })
+
+    const afterJudge = meter.snapshot()
+    const judgeStage = between(beforeJudge, afterJudge)
+    const judgeStopped = judged.skipped.some((entry) => entry.reason.startsWith(RUN_BUDGET_CUT_REASON))
+    const finalProgress = latest as JudgeProgress | null
+    if (
+      opts.cache !== false &&
+      cacheKey !== '' &&
+      finalProgress !== null &&
+      !judgeStopped &&
+      fitted.kept.every((candidate) => finalProgress.done.includes(candidate.id))
+    ) {
+      // Cache only a complete judge pass. A budget cut or a provider refusal is a
+      // fact about this attempt, not about the tree.
+      await writeJudgeCache(judgeCacheDir(cacheBase), cacheKey, finalProgress)
+    }
+    const budgetReached =
+      typeof opts.maxTokens === 'number' &&
+      Number.isFinite(opts.maxTokens) &&
+      opts.maxTokens > 0 &&
+      afterJudge.usage.in + afterJudge.usage.out >= opts.maxTokens
 
     opts.onStage?.({ stage: 'rank', detail: `${judged.points.length} 个点已取证` })
     // Ranked after validation, so a point whose evidence was thrown away cannot
@@ -621,21 +780,42 @@ export async function runAnalyze(
       stage: 'synthesise',
       detail: `${renderedPoints.length} 个点已核实，从中挑最值得学的`,
     })
-    try {
-      synthesis = await synthesize({
-        client,
-        profile: scanned.profile,
-        structure: scanned.structure,
-        titles: renderedPoints.map((point) => point.title),
-        lang,
-        maxPoints: opts.reportPoints,
-      })
-    } catch (error) {
-      // A transport failure here is not worth the run. What the model would have
-      // written is missing; what was verified is not, and the report says so.
-      synthesisFailure = synthesisFailureReason(error)
+    if (budgetReached) {
+      // The cap was met by judging. Spending one more request here would be a
+      // silent overshoot of the number the caller set; the fallback opening is
+      // still true, and the report says why it is missing.
+      synthesisFailure =
+        'run token budget reached before the opening summary; the report lists the verified points without one'
       synthesis = { problem: '', topFive: [] }
+    } else {
+      try {
+        synthesis = await synthesize({
+          client,
+          profile: scanned.profile,
+          structure: scanned.structure,
+          titles: renderedPoints.map((point) => point.title),
+          lang,
+          maxPoints: opts.reportPoints,
+        })
+      } catch (error) {
+        // A transport failure here is not worth the run. What the model would have
+        // written is missing; what was verified is not, and the report says so.
+        synthesisFailure = synthesisFailureReason(error)
+        synthesis = { problem: '', topFive: [] }
+      }
     }
+
+    const afterSynthesis = meter.snapshot()
+    const synthesisStage = between(afterJudge, afterSynthesis)
+    const usage = usageOf(
+      model,
+      opts.maxTokens,
+      { calls: afterSynthesis.calls, in: afterSynthesis.usage.in, out: afterSynthesis.usage.out },
+      judgeStage,
+      synthesisStage,
+      judgeStopped || budgetReached,
+    )
+    await scanned.run.write('usage', usage)
 
     // A second line of defence: `synthesize` only answers with titles it was
     // offered, but the page must never advertise a claim its body withholds even
@@ -669,6 +849,7 @@ export async function runAnalyze(
       skipped: skipLines(skipped, cut.length, budget),
       candidates: scanned.candidates,
       structure: scanned.structure,
+      usage,
       // The page written now and the page `ana report` writes later must agree.
       // Without this the fresh `report.md` is Chinese while a re-render of the same
       // run is English, because the re-render reads `manifest.lang` and this did not.
@@ -689,7 +870,14 @@ export async function runAnalyze(
     // Everything the run owes the reader is on disk, including the page itself.
     await stampStatus(run, 'complete', lang)
 
-    return { runId: scanned.runId, reportPath, modelFailures, replyFailures: judged.replyFailures }
+    return {
+      runId: scanned.runId,
+      reportPath,
+      modelFailures,
+      replyFailures: judged.replyFailures,
+      usage,
+      reused,
+    }
   } catch (error) {
     failure = error
     throw error

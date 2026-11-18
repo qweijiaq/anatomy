@@ -53,18 +53,35 @@ describe('ana mcp', () => {
     expect(replies[0]?.['id']).toBe(1)
   })
 
-  it('lists the three deterministic tools and no model-calling one', async () => {
+  it('lists the deterministic tools plus one explicitly opt-in spending tool', async () => {
     const replies = await exchange([init, JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' })])
     const tools = (replies[1]?.result as { tools: Array<{ name: string }> }).tools
     expect(tools.map((tool) => tool.name).sort()).toEqual([
+      'anatomy_ask',
       'anatomy_evidence',
       'anatomy_forget',
       'anatomy_report',
       'anatomy_scan',
     ])
-    // `analyze` spends the caller's tokens; an MCP server that quietly bills a
-    // provider is a bad guest, so it must not appear here.
+    // `analyze` spends the caller's tokens with no confirmation; it is absent.
+    // `anatomy_ask` spends too, but only when the caller passes `spend: true`,
+    // which the next test pins.
     expect(tools.some((tool) => tool.name.includes('analyze'))).toBe(false)
+  })
+
+  it('refuses anatomy_ask without an explicit spend confirmation', async () => {
+    const replies = await exchange([
+      init,
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: 9,
+        method: 'tools/call',
+        params: { name: 'anatomy_ask', arguments: { runId: 'x', question: 'why?' } },
+      }),
+    ])
+    const result = replies[1]?.result as { isError?: boolean; content: Array<{ text: string }> }
+    expect(result.isError).toBe(true)
+    expect(result.content[0]?.text).toContain('spend: true')
   })
 
   it('reports a failing tool through isError instead of dying', async () => {

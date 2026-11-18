@@ -67,16 +67,22 @@ Paste a repository URL into the window and the analysis runs. The model key is c
 PATH. From a checkout, either run `npm link` once, or write `node dist/cli.js` where
 these lines say `ana` — same program, same output.
 
-Four that need source:
+Commands that need source:
 
 ```bash
 ana scan <repo>                  # zero model calls: tells you where to look
 ana analyze <repo> [--top 12]    # full analysis, writes a report
+ana analyze <repo> --estimate    # price the run with the free scan; no model called
 ana report <runId>               # re-render from stored artefacts (works after the tree is deleted)
+ana ask <runId> "why not a list?" # answer from that report's stored evidence only
+ana resume <runId>               # continue an interrupted run without re-judging
 ana inspect <path:start-end>     # print one piece of evidence: the snippet the run stored
+ana doc <runId>                  # architecture notes from a verified report, with a Mermaid diagram
+ana export <runId>               # the whole dossier: summary, decisions, risks, onboarding, quiz
+ana history <runId>              # last commit behind each cited file (local checkouts)
 ```
 
-Four that do not, via [REA](https://github.com/morluto/rea) — no model called at all:
+Commands that do not need source (the reconstructed ones use [REA](https://github.com/morluto/rea)) — no model called at all:
 
 ```bash
 ana inspect-app <dir>            # reconstruct from shipped artefacts: modules, IPC, contextBridge, storage
@@ -85,15 +91,17 @@ ana app-diff <a> <b>             # what changed on the boundary between two buil
 ana runs [--json]                # list stored analyses: date, source, points
 ana forget <id> [--app]          # delete one stored analysis
 ana forget --keep 3              # keep the three newest, delete the rest
-ana mcp                          # serve the deterministic half over MCP on stdio
+ana diff <a> <b>                 # compare two stored analyses: numbers and point titles
+ana mcp                          # serve the facts over MCP on stdio
 ```
 
-`ana mcp` exposes `anatomy_scan`, `anatomy_report`, `anatomy_evidence` and
-`anatomy_forget` as MCP tools — the facts, not the judgement, plus the delete that
-keeps a long session from littering `.ana/runs`. No model is called and no key is read, so an
-agent that already has a model can take the evidence and do the writing itself. It
-deliberately does **not** expose `analyze`: an MCP server that quietly bills the
-caller's provider is a bad guest.
+`ana mcp` exposes `anatomy_scan`, `anatomy_report`, `anatomy_evidence`,
+`anatomy_forget` and the opt-in `anatomy_ask` as MCP tools — the facts, not the judgement, plus the delete that
+keeps a long session from littering `.ana/runs`. The first four call no model and read no key, so an agent that already has a model
+can take the evidence and do the writing itself. `anatomy_ask` spends the server
+environment's key, and refuses unless the caller passes `spend: true` — an MCP
+server that quietly bills the caller's provider is a bad guest, so `analyze` is
+still deliberately absent.
 
 `inspect-app` needs Node ^22.23.4 || ^24.22.1 || >=26.12.1 and a `rea` it can run
 (`npx rea-agents setup`, or point `ANA_REA` at its `scripts/rea.mjs`). A whole
@@ -152,7 +160,7 @@ src/kernel/     LLM-free forensic kernel: acquire, profile, structure map, signa
 src/writing/    the only layer that spends tokens: prompts, judge, ranking, synthesis
 src/render/     one dataset, two renderings: narrative + collapsible recipe, and JSON
 src/app/        REA adapter: the call, its progress, fact grouping, diffs
-src/commands/   scan / analyze / report / inspect / inspect-app / app-report / app-diff / forget / mcp / runs
+src/commands/   scan / analyze / report / ask / resume / diff / doc / export / history / inspect / inspect-app / app-report / app-diff / forget / mcp / runs
 eval/           gold set and recall scripts (npm run eval)
 ```
 
@@ -191,13 +199,15 @@ packages, and `ana scan` works.
 
 One unambiguous statement, so nothing is left pending a decision:
 
-- ten commands, all usable; `npm run verify` is the single gate (811 tests, three
+- sixteen commands, all usable; `npm run verify` is the single gate (871 tests, three
   tsconfigs, and the CLI end to end against a local stub model)
 - a repository **with** source: design notes where every claim cites a line and is
   checked against the bytes on disk; anything unverifiable never reaches the page
 - an application **without** source: facts report and a two-build diff through REA,
   with no model called at all
 - complete reports in Chinese and English, frame and prose alike
+- **`ana export`** turns one analysis into a dossier — summary, decisions, risks, onboarding, hotspots and a self-check — with zero extra model calls by default; **`ana doc`** writes a repository-facing `ARCHITECTURE.md` with a reading order and a derived Mermaid diagram, plus an optional portable bundle; **`ana history`** adds the last commit behind each cited file for local checkouts; Go gets a line-oriented structure pass.
+- **follow-up questions** answered only from the report's stored evidence; **resume** reuses judged candidates; a second analysis of the same tree reuses the judge checkpoint (`--no-cache` turns it off); every run records its model calls and tokens in `usage.json`
 
 Recall is 61% on the tracked gold set, and that is this version's ceiling as well as
 its measurement: roughly four annotated points in ten never become candidates.
@@ -207,7 +217,7 @@ its measurement: roughly four annotated points in ten never become candidates.
 - **`ana publish`** — a hosted report. Deliberately not built: the report is
   evidence-bound, and hosting it invites a reader to treat it as a page rather than
   a document with citations. Deferred, not rejected.
-- Structure analysis for languages other than TypeScript/JavaScript and Python.
+- Structure analysis for languages other than TypeScript/JavaScript, Python and Go. Go gets a line-oriented import/declaration pass, not a parser; the other languages remain unsupported.
 - **A judgement report for an application without source.** REA reconstructs what
   the code does; inferring why it was designed that way needs a second verifier
   (against `evidence_id` rather than bytes on disk), and until that exists the

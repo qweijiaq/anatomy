@@ -19,7 +19,7 @@ VERIFY: PASS (github, run <runId>)
 
 | 步骤 | 断言 |
 |---|---|
-| `tests` | 39 个测试文件、811 个测试全过 |
+| `tests` | 47 个测试文件、871 个测试全过 |
 | `typecheck` | 三套 tsconfig（`tsconfig.json` + `tsconfig.test.json` + `tsconfig.desktop.json`）均无诊断 |
 | `build` | 编译成功，且 `python_index.py` 被复制进 `dist/` |
 | `stub model` | 起一个本地 OpenAI 兼容假模型，回显切片里的真实源码行 |
@@ -102,5 +102,5 @@ node dist/cli.js analyze https://github.com/<owner>/<repo> --top 8
 
 ## 明确未做
 
-`ana mcp` 实现四个工具：`anatomy_scan` / `anatomy_report` / `anatomy_evidence` /
-`anatomy_forget`，stdio JSON-RPC，无依赖、不调模型。`ana publish` 仍未做，README 里写了裁定理由。
+`ana mcp` 实现五个工具：`anatomy_scan` / `anatomy_report` / `anatomy_evidence` /
+`anatomy_forget` / `anatomy_ask`（后者必须显式 `spend: true`，前四个不调模型）。stdio JSON-RPC，无依赖。`ana publish` 仍未做，README 里写了裁定理由。

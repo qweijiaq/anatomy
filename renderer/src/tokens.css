@@ -9,6 +9,7 @@
  */
 
 :root {
+  color-scheme: light;
   /* paper: slightly warm, so long readings do not glare */
   --bg: #faf9f7;
   --bg-raised: #ffffff;
@@ -17,10 +18,11 @@
   --border-strong: #d3cec3;
 
   --text: #1f1c18;
-  --text-muted: #6b655c;
-  --text-faint: #96908a;
+  /* 6.2:1 and 4.5:1 on --bg: both pass AA for the 12–13px text they carry. */
+  --text-muted: #5f5a52;
+  --text-faint: #726b63;
 
-  --accent: #b4532a;
+  --accent: #a34a24;
   --accent-soft: #f6e8e0;
   --accent-border: #e8c9b8;
 
@@ -52,7 +54,7 @@
   --shadow-sm: 0 1px 2px rgb(31 28 24 / 6%);
   --shadow-md: 0 4px 16px rgb(31 28 24 / 8%);
 
-  --text-xs: 11px;
+  --text-xs: 12px;
   --text-sm: 13px;
   --text-base: 15px;
   --text-lg: 17px;
@@ -63,6 +65,7 @@
 }
 
 [data-theme='dark'] {
+  color-scheme: dark;
   --bg: #1b1917;
   --bg-raised: #232120;
   --bg-sunken: #171514;
@@ -70,8 +73,8 @@
   --border-strong: #46413b;
 
   --text: #ece7df;
-  --text-muted: #a8a199;
-  --text-faint: #78716a;
+  --text-muted: #b8b1a8;
+  --text-faint: #9a938a;
 
   --accent: #e08a5f;
   --accent-soft: #33241d;

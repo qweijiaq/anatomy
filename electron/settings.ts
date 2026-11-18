@@ -63,6 +63,7 @@ export type SettingsView = {
   apiKeyConfigured: boolean
   apiKeyHint: string
   keysNeedReentry: boolean
+  lastRepos: string[]
 }
 
 let cache: Settings | null = null
@@ -186,6 +187,7 @@ export function getSettingsView(): SettingsView {
     apiKeyConfigured: configured,
     apiKeyHint: configured ? (stored?.hint ?? (preset.keyless === true ? '本地，无需 Key' : '')) : '',
     keysNeedReentry: anyKeyNeedsReentry(),
+    lastRepos: current.lastRepos,
   }
 }
 

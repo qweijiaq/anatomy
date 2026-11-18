@@ -7,8 +7,14 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { ANALYZE_USAGE, parseAnalyzeArgs, readVersion, runCli } from '../src/cli.js'
+import { ASK_USAGE } from '../src/commands/ask.js'
+import { DIFF_USAGE } from '../src/commands/diff.js'
+import { DOC_USAGE } from '../src/commands/doc.js'
+import { HISTORY_USAGE } from '../src/commands/history.js'
+import { EXPORT_USAGE } from '../src/commands/export.js'
 import { INSPECT_USAGE } from '../src/commands/inspect.js'
 import { REPORT_USAGE } from '../src/commands/report.js'
+import { RESUME_USAGE } from '../src/commands/resume.js'
 import { storedRun } from './helpers/run-fixture.js'
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
@@ -145,6 +151,86 @@ describe('analyze, report and inspect wiring', () => {
       const cap = capture()
       expect(await runCli(argv, cap.io), argv.join(' ')).toBe(2)
       expect(cap.err).toContain(ANALYZE_USAGE)
+      expect(cap.out).toBe('')
+    }
+  })
+
+  it('answers diff --help with its own usage', async () => {
+    const diff = capture()
+    expect(await runCli(['diff', '--help'], diff.io)).toBe(0)
+    expect(diff.out).toBe(`${DIFF_USAGE}\n`)
+    expect(diff.err).toBe('')
+  })
+
+  it('reports diff misuse with exit code 2', async () => {
+    for (const argv of [['diff'], ['diff', 'a'], ['diff', 'a', 'b', '--bogus']]) {
+      const cap = capture()
+      expect(await runCli(argv, cap.io), argv.join(' ')).toBe(2)
+      expect(cap.err).toContain(DIFF_USAGE)
+      expect(cap.out).toBe('')
+    }
+  })
+
+  it('answers export --help with its own usage', async () => {
+    const exp = capture()
+    expect(await runCli(['export', '--help'], exp.io)).toBe(0)
+    expect(exp.out).toBe(`${EXPORT_USAGE}\n`)
+  })
+
+  it('reports export misuse with exit code 2', async () => {
+    for (const argv of [['export'], ['export', 'run-1', '--bogus']]) {
+      const cap = capture()
+      expect(await runCli(argv, cap.io), argv.join(' ')).toBe(2)
+      expect(cap.out).toBe('')
+    }
+  })
+
+  it('answers doc and history --help with their own usage', async () => {
+    const doc = capture()
+    expect(await runCli(['doc', '--help'], doc.io)).toBe(0)
+    expect(doc.out).toBe(`${DOC_USAGE}\n`)
+
+    const history = capture()
+    expect(await runCli(['history', '-h'], history.io)).toBe(0)
+    expect(history.out).toBe(`${HISTORY_USAGE}\n`)
+  })
+
+  it('reports doc and history misuse with exit code 2', async () => {
+    for (const argv of [
+      ['doc'],
+      ['doc', 'run-1', '--bogus'],
+      ['history'],
+      ['history', 'a', 'b'],
+    ]) {
+      const cap = capture()
+      expect(await runCli(argv, cap.io), argv.join(' ')).toBe(2)
+      expect(cap.out).toBe('')
+    }
+  })
+
+  it('answers ask --help and resume --help with their own usage', async () => {
+    const ask = capture()
+    expect(await runCli(['ask', '--help'], ask.io)).toBe(0)
+    expect(ask.out).toBe(`${ASK_USAGE}\n`)
+    expect(ask.err).toBe('')
+
+    const resume = capture()
+    expect(await runCli(['resume', '-h'], resume.io)).toBe(0)
+    expect(resume.out).toBe(`${RESUME_USAGE}\n`)
+    expect(resume.err).toBe('')
+  })
+
+  it('reports ask and resume misuse with exit code 2', async () => {
+    for (const argv of [
+      ['ask'],
+      ['ask', 'run-1'],
+      ['ask', 'run-1', 'why', '--lang', 'fr'],
+      ['resume'],
+      ['resume', 'a', 'b'],
+      ['resume', 'a', '--max-tokens', '0'],
+    ]) {
+      const cap = capture()
+      expect(await runCli(argv, cap.io), argv.join(' ')).toBe(2)
       expect(cap.out).toBe('')
     }
   })

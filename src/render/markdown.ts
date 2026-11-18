@@ -521,6 +521,37 @@ export function renderMarkdown(input: ReportInput): string {
 
   const extra = appendix(input, L)
   if (extra !== '') sections.push(extra)
+  const usage = usageSection(input, L)
+  if (usage !== '') sections.push(usage)
   sections.push(tail(doc, L))
   return `${sections.join('\n\n')}\n`
+}
+
+/**
+ * What the run spent, stated as measured numbers rather than an adjective.
+ *
+ * Older runs have no `usage.json`; the section is dropped rather than printed with
+ * zeroes, which would read as "this run was free".
+ */
+function usageSection(input: ReportInput, L: Labels): string {
+  const usage = input.usage
+  if (usage === undefined) return ''
+  const lines = [`## ${L.usageHeading}`, '']
+  lines.push(`- ${L.usageModel}${L.colon}${proseOr(usage.model, L.unknown)}`)
+  lines.push(`- ${L.usageCalls}${L.colon}${numberText(usage.calls, L)}`)
+  lines.push(`- ${L.usageTokens}${L.colon}${numberText(usage.in, L)} / ${numberText(usage.out, L)}`)
+  const stage = (label: string, value: { calls: number; in: number; out: number }): string =>
+    `- ${label}${L.colon}${numberText(value.calls, L)} ${L.usageCallUnit} · ${numberText(
+      value.in,
+      L,
+    )} / ${numberText(value.out, L)} tokens`
+  lines.push(stage(L.usageJudge, usage.stages.judge))
+  lines.push(stage(L.usageSynthesis, usage.stages.synthesis))
+  lines.push(
+    `- ${L.usageBudget}${L.colon}${
+      usage.maxTokens === undefined ? L.usageBudgetNone : numberText(usage.maxTokens, L)
+    }`,
+  )
+  if (usage.stoppedForBudget) lines.push('', L.usageStopped)
+  return lines.join('\n')
 }

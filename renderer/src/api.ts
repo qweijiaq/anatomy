@@ -35,6 +35,8 @@ export type SettingsView = {
   apiKeyConfigured: boolean
   apiKeyHint: string
   keysNeedReentry: boolean
+  /** The last repositories analysed, newest first. */
+  lastRepos: string[]
 }
 
 export type SettingsPatch = Partial<{
@@ -50,8 +52,31 @@ export type SettingsPatch = Partial<{
 
 export type TestResult = { ok: boolean; message: string; usage?: { in: number; out: number } }
 
+export type RunUsage = {
+  model: string
+  calls: number
+  in: number
+  out: number
+  maxTokens?: number
+  stoppedForBudget: boolean
+  stages: {
+    judge: { calls: number; in: number; out: number }
+    synthesis: { calls: number; in: number; out: number }
+  }
+}
+
 export type RunResult =
-  | { ok: true; runId: string; reportPath: string; markdown: string }
+  | { ok: true; runId: string; reportPath: string; markdown: string; usage?: RunUsage }
+  | { ok: false; message: string }
+
+export type AskReply =
+  | {
+      ok: true
+      answered: boolean
+      answer: string
+      citations: string[]
+      usage: { in: number; out: number }
+    }
   | { ok: false; message: string }
 
 /** One application reconstructed by REA — the shape `ana inspect-app` writes. */
@@ -125,8 +150,52 @@ export type ReportSummary = {
   source: string
   startedAt: string
   points: number
+  /** Share of points whose evidence resolved; null when unavailable. */
+  evidenceRate: number | null
   title: string
+  /** A failed run is listed only when it has a checkpoint to resume from. */
+  status: 'complete' | 'failed'
+  resumable: boolean
+  /** Candidates already judged, for the "continue" label. */
+  done: number
 }
+
+/** One side of a run comparison. Mirrors `src/app/run-diff.ts`. */
+export type RunSide = {
+  runId: string
+  source: string
+  startedAt: string
+  sha: string
+  lang: 'zh' | 'en' | ''
+  points: number
+  evidenceRate: number | null
+  candidates: number
+  files: number
+  lines: number
+  bytes: number
+  titles: string[]
+}
+
+export type RunDiff = {
+  before: RunSide
+  after: RunSide
+  sameSource: boolean
+  sameTree: boolean
+  comparable: boolean
+  warnings: string[]
+  counters: Array<{
+    label: string
+    before: number
+    after: number
+    format: 'count' | 'percent'
+  }>
+  addedTitles: string[]
+  removedTitles: string[]
+}
+
+export type EvidenceReply =
+  | { ok: true; title: string; path: string; startLine: number; endLine: number; snippet: string }
+  | { ok: false; message: string }
 
 type AnaBridge = {
   settings: {
@@ -145,10 +214,32 @@ type AnaBridge = {
       candidates?: Array<{ path: string; line: number; kind: string; score: number; matched: string[] }>
     }>
     run(request: { repo: string; top?: number; lang?: 'zh' | 'en' }): Promise<RunResult>
+    resume(runId: string): Promise<RunResult>
     onProgress(listener: (progress: Progress) => void): () => void
   }
   report: {
-    read(runId: string): Promise<{ ok: boolean; markdown?: string; message?: string }>
+    read(runId: string): Promise<{
+      ok: boolean
+      markdown?: string
+      usage?: RunUsage
+      message?: string
+    }>
+    ask(runId: string, question: string): Promise<AskReply>
+    export(runId: string): Promise<{
+      ok: boolean
+      dir?: string
+      files?: string[]
+      modelCalls?: number
+      message?: string
+    }>
+    revealExport(runId: string): Promise<{ ok: boolean; message?: string }>
+    evidence(
+      runId: string,
+      file: string,
+      start: number,
+      end: number,
+    ): Promise<EvidenceReply>
+    diff(before: string, after: string): Promise<{ ok: boolean; diff?: RunDiff; message?: string }>
     list(): Promise<{ ok: boolean; runs: ReportSummary[] }>
     forget(kind: 'run' | 'app', id: string): Promise<{ ok: boolean; message?: string }>
     reveal(runId: string): Promise<{ ok: boolean; path?: string; message?: string }>

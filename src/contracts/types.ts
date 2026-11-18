@@ -228,6 +228,36 @@ export type ValidationResult = {
 
 // --- runs and reporting ---------------------------------------------------
 
+/** What one stage of a run spent, as the provider reported it. */
+export type StageUsage = {
+  calls: number
+  in: number
+  out: number
+}
+
+/**
+ * What an analysis spent, in the provider's own units.
+ *
+ * Recorded rather than estimated: a run that says "about 40k tokens" cannot be
+ * checked against a bill, and a cap that is not measured cannot be enforced. The
+ * numbers are the `usage` fields the provider returned; a reply without one
+ * contributes zero, which is why `calls` is stored too.
+ */
+export type RunUsage = {
+  model: string
+  calls: number
+  in: number
+  out: number
+  /** The whole-run ceiling, when the caller set one. */
+  maxTokens?: number
+  /** True when judging or synthesis stopped because the ceiling was reached. */
+  stoppedForBudget: boolean
+  stages: {
+    judge: StageUsage
+    synthesis: StageUsage
+  }
+}
+
 export type RunManifest = {
   runId: string
   /**
@@ -275,6 +305,8 @@ export type ReportInput = {
    */
   candidates?: Candidate[]
   structure?: StructureIndex
+  /** What the run spent, when that was recorded. Absent for older runs. */
+  usage?: RunUsage
   /**
    * Which language the fixed parts of the page are written in.
    *

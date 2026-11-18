@@ -11,7 +11,7 @@
  * bad way to learn that a form auto-saves.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { api, type ProviderId, type SettingsView, type TestResult } from '../api.js'
 import { PROVIDERS, providerOf } from '../providers.js'
@@ -21,6 +21,8 @@ type Props = {
   settings: SettingsView
   onChange: (next: SettingsView) => void
   onClose: () => void
+  /** Shown in the footer so a bug report can name the build. */
+  version?: string
 }
 
 /**
@@ -44,14 +46,22 @@ function depthOf(candidates: number, points: number): string {
   return exact?.id ?? 'standard'
 }
 
-export function SettingsPanel({ settings, onChange, onClose }: Props): React.JSX.Element {
+export function SettingsPanel({ settings, onChange, onClose, version }: Props): React.JSX.Element {
   const [provider, setProvider] = useState<ProviderId>(settings.provider)
   const [baseUrl, setBaseUrl] = useState(settings.baseUrl)
   const [model, setModel] = useState(settings.model)
+  const [lang, setLang] = useState<'zh' | 'en'>(settings.lang)
   const [apiKey, setApiKey] = useState('')
   const [testing, setTesting] = useState(false)
   const [result, setResult] = useState<TestResult | null>(null)
   const [saved, setSaved] = useState(false)
+  const [keyConfirm, setKeyConfirm] = useState(false)
+  const sheetRef = useRef<HTMLDivElement>(null)
+  const closeRef = useRef<HTMLButtonElement>(null)
+  // `onClose` is an inline arrow in the parent, so keeping it out of the effect's
+  // dependencies stops every parent render from re-focusing the sheet.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
   // 端点能提供的模型。空表示还没问过、或者这个端点不实现 /models。
   // 深度：一次问多少个候选点、报告写几条。两个数字必须一起改——候选少于要点时，
   // 报告只能变短，用户看到的就是"内容偏少"。
@@ -78,6 +88,35 @@ export function SettingsPanel({ settings, onChange, onClose }: Props): React.JSX
     setDiscovered([])
     setDiscoverNote('')
   }, [provider, settings.provider])
+
+  // Escape closes, and Tab stays inside: a modal that lets focus wander behind it
+  // is a modal in name only.
+  useEffect(() => {
+    closeRef.current?.focus()
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onCloseRef.current()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const focusable = [...(sheetRef.current?.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), input:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])',
+      ) ?? [])]
+      if (focusable.length === 0) return
+      const first = focusable[0] as HTMLElement
+      const last = focusable[focusable.length - 1] as HTMLElement
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   /** 问端点要模型列表。要先把 Key 存下去，否则主进程手里没有凭证。 */
   async function discover(): Promise<void> {
@@ -112,7 +151,7 @@ export function SettingsPanel({ settings, onChange, onClose }: Props): React.JSX
       model,
       protocol: preset.protocol,
       apiKey: extra?.apiKey ?? (apiKey.trim() !== '' ? apiKey.trim() : undefined),
-      lang: settings.lang,
+      lang,
       topN,
       reportPoints,
     })
@@ -136,7 +175,7 @@ export function SettingsPanel({ settings, onChange, onClose }: Props): React.JSX
 
   return (
     <div className="sheet" role="dialog" aria-modal="true" aria-label="模型设置">
-      <div className="sheet__body">
+      <div className="sheet__body" ref={sheetRef}>
         <header className="sheet__head">
           <div>
             <h1 className="sheet__title">模型设置</h1>
@@ -144,7 +183,7 @@ export function SettingsPanel({ settings, onChange, onClose }: Props): React.JSX
               分析用的 token 全部由你自己付。Key 加密保存在本机，不会进入报告，也不会发给我们。
             </p>
           </div>
-          <button className="btn btn--ghost" type="button" onClick={onClose}>
+          <button ref={closeRef} className="btn btn--ghost" type="button" onClick={onClose}>
             关闭
           </button>
         </header>
@@ -242,11 +281,20 @@ export function SettingsPanel({ settings, onChange, onClose }: Props): React.JSX
               id="model"
               value={model}
               onChange={setModel}
-              options={discovered.map((item) => ({
-                value: item.id,
-                label: item.id,
-                hint: item.ownedBy,
-              }))}
+              options={[
+                // The stored model may not be in the endpoint's list — a gateway can
+                // hide it, or the key can reach a different catalogue. Keeping it as
+                // an option means the field never reads "请选择" while a value is
+                // actually saved.
+                ...(discovered.some((item) => item.id === model)
+                  ? []
+                  : [{ value: model, label: `${model || '未设置'}（当前，不在列表）`, hint: '仍会使用' }]),
+                ...discovered.map((item) => ({
+                  value: item.id,
+                  label: item.id,
+                  hint: item.ownedBy,
+                })),
+              ]}
             />
           ) : (
             <input
@@ -319,24 +367,51 @@ export function SettingsPanel({ settings, onChange, onClose }: Props): React.JSX
           </p>
         </section>
 
+        <section className="field">
+          <label className="field__label" htmlFor="reportLang">
+            报告语言
+          </label>
+          <Select
+            id="reportLang"
+            value={lang}
+            onChange={(next) => setLang(next === 'en' ? 'en' : 'zh')}
+            options={[
+              { value: 'zh', label: '简体中文', hint: '默认' },
+              { value: 'en', label: 'English', hint: 'In English' },
+            ]}
+          />
+          <p className="field__hint">
+            模型写的正文、标题和固定文案会一起换语言。命令行仍由 <code className="inline-code">--lang</code> 决定。
+          </p>
+        </section>
+
         {result !== null && (
           <p className={`notice ${result.ok ? 'notice--ok' : 'notice--error'}`}>{result.message}</p>
         )}
 
         <footer className="sheet__foot">
-          <button className="btn btn--ghost" type="button" onClick={() => void test()} disabled={testing}>
-            {testing ? '测试中…' : '测试连接'}
-          </button>
+          <div className="sheet__foot-left">
+            <button className="btn btn--ghost" type="button" onClick={() => void test()} disabled={testing}>
+              {testing ? '测试中…' : '测试连接'}
+            </button>
+            {version !== undefined && <span className="sheet__version">anatomy {version}</span>}
+          </div>
           <div className="sheet__foot-right">
             {settings.apiKeyConfigured && (
               <button
                 className="btn btn--danger-ghost"
                 type="button"
                 onClick={() => {
+                  if (!keyConfirm) {
+                    setKeyConfirm(true)
+                    window.setTimeout(() => setKeyConfirm(false), 3000)
+                    return
+                  }
+                  setKeyConfirm(false)
                   void save({ apiKey: null })
                 }}
               >
-                删除已存的 Key
+                {keyConfirm ? '真的删除 Key？' : '删除已存的 Key'}
               </button>
             )}
             <button className="btn btn--primary" type="button" onClick={() => void save()}>

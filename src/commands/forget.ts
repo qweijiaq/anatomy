@@ -81,6 +81,16 @@ export async function forget(
   if (!info.isDirectory()) throw new Error(`${absolute} 不是目录`)
 
   await rm(absolute, { recursive: true, force: true })
+  if (target === 'run') {
+    // A dossier is derived from the run; leaving it behind would keep a copy of
+    // the evidence after the user asked for the run to be gone.
+    const exported = path.join(path.dirname(dir), 'exports', id)
+    try {
+      await rm(exported, { recursive: true, force: true })
+    } catch {
+      // An export outside the default sibling is not ours to guess at.
+    }
+  }
   return { removed: absolute }
 }
 

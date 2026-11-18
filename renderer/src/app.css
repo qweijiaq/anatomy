@@ -59,7 +59,45 @@
 }
 
 .topbar__right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   -webkit-app-region: no-drag;
+}
+
+.topbar__settings {
+  max-width: 380px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- error banner --------------------------------------------------------- */
+
+.banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-5);
+  border-bottom: 1px solid var(--error);
+  background: var(--error-soft);
+  color: var(--error);
+  font-size: var(--text-sm);
+}
+
+.banner__text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.banner__close {
+  flex: none;
+  padding: 0 var(--space-1);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: var(--text-lg);
+  line-height: 1.2;
 }
 
 .main {
@@ -112,6 +150,54 @@
 .runbar .btn--primary {
   flex: none;
   white-space: nowrap;
+}
+
+/* The paid action sits in the input row; the free glance and the folder picker sit
+   below it. Three equal buttons in one row made the cheap action look like the
+   expensive one. */
+.runbar__secondary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+
+.runbar__note {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+.recent {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin: calc(var(--space-3) * -1) 0 var(--space-4);
+}
+
+.recent__label {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+.recent__chip {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.recent__chip:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
 }
 
 .hints {
@@ -248,6 +334,11 @@
   font-size: var(--text-sm);
 }
 
+.input--sm {
+  padding: 6px var(--space-3);
+  font-size: var(--text-sm);
+}
+
 .btn {
   display: inline-flex;
   align-items: center;
@@ -334,6 +425,20 @@
 .notice--error {
   background: var(--error-soft);
   color: var(--error);
+}
+
+.notice--warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+/* A notice that carries an action: the text takes the room, the button stays on one
+   line even when the sentence wraps. */
+.notice--action {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
 }
 
 .badge {
@@ -465,6 +570,7 @@
 
 .report__cite {
   display: inline-block;
+  max-width: 100%;
   margin: var(--space-1) 0 var(--space-2);
   padding: 2px var(--space-2);
   border-radius: var(--radius-sm);
@@ -473,6 +579,17 @@
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--accent);
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.report__cite--action {
+  cursor: pointer;
+}
+
+.report__cite--action:hover {
+  border-color: var(--accent);
+  background: var(--bg-raised);
 }
 
 .report__cite-lines {
@@ -761,8 +878,22 @@
   border-top: 1px solid var(--border);
 }
 
+.history__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-2);
+}
+
+.history__tools {
+  display: flex;
+  gap: var(--space-2);
+}
+
 .history__title {
-  margin: 0 0 var(--space-2);
+  margin: 0;
   font-size: var(--text-base);
   font-weight: 600;
   color: var(--text);
@@ -770,6 +901,17 @@
 
 .history__lede {
   margin: 0 0 var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.history__search {
+  margin-bottom: var(--space-3);
+  max-width: 360px;
+}
+
+.history__empty {
+  margin: 0;
   font-size: var(--text-sm);
   color: var(--text-muted);
 }
@@ -782,20 +924,15 @@
   gap: var(--space-1);
 }
 
+/* The row is a container, not a button: the open action and the delete action are
+   siblings. Nesting one button inside another is invalid HTML, gives the screen
+   reader two controls where one is announced, and leaves Space doing nothing. */
 .history__row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto var(--space-5);
-  align-items: baseline;
-  gap: var(--space-3);
-  width: 100%;
-  padding: 10px var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
   border: 1px solid transparent;
   border-radius: var(--radius-md);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
   transition: background 120ms ease, border-color 120ms ease;
 }
 
@@ -804,10 +941,30 @@
   border-color: var(--border);
 }
 
-.history__row:focus-visible {
-  outline: none;
+.history__row:focus-within {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.history__main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto var(--space-5);
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: 10px var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.history__main:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .history__name {
@@ -843,6 +1000,48 @@
 
 .history__row--current .history__name {
   color: var(--accent);
+}
+
+/* 删除不是这一行的主要动作，但必须看得见：默认半透明，悬停或聚焦时实心；
+   进入确认态时变红并显示「真的删？」。 */
+.history__forget {
+  flex: none;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+
+.history__row:hover .history__forget,
+.history__forget:focus-visible {
+  opacity: 1;
+}
+
+.history__forget:hover {
+  color: var(--error);
+}
+
+.history__forget--armed {
+  width: auto;
+  padding: 0 var(--space-2);
+  opacity: 1;
+  color: var(--error);
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .history__row:hover .history__open {
+    transform: none;
+  }
 }
 
 /* ── 报告里的折叠块与原因行 ──────────────────────────────────────────────────
@@ -943,7 +1142,7 @@
 .survey {
   max-width: 1080px;
   margin: 0 auto;
-  padding: var(--space-6) 0 var(--space-7);
+  padding: var(--space-6) var(--space-6) var(--space-7);
 }
 
 .survey__head {
@@ -1119,7 +1318,7 @@
   line-height: 1.6;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 1040px) {
   .survey__grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1176,11 +1375,6 @@
 
 /* 自动重跑的说明。用 warn 色而不是 error：拿到结果了，只是范围比请求的小，
    这件事必须显眼但不算失败。 */
-.notice--warn {
-  background: var(--warn-soft);
-  color: var(--warn);
-}
-
 .survey__retry {
   margin: 0 0 var(--space-4);
   line-height: 1.6;
@@ -1278,39 +1472,7 @@
   margin-bottom: var(--space-2);
 }
 
-/* 历史行里的删除。默认几乎不可见——它不是这一行的主要动作，但必须在；
-   进入确认态时变红并显示「真的删？」，因为删除没有撤销。 */
-.history__forget {
-  grid-column: 4;
-  color: var(--text-faint);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  text-align: right;
-  white-space: nowrap;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 120ms ease, color 120ms ease;
-}
-
-.history__row:hover .history__forget,
-.history__forget:focus-visible {
-  opacity: 1;
-}
-
-.history__forget:hover {
-  color: var(--error);
-}
-
-.history__forget--armed {
-  opacity: 1;
-  color: var(--error);
-  font-weight: 600;
-}
-
-.history__row {
-  grid-template-columns: minmax(0, 1fr) auto var(--space-5) auto;
-}
-
+/* 历史行里的删除已在列表那一段定义；这里只保留 survey 页头的动作区。 */
 .survey__aside {
   display: flex;
   align-items: center;
@@ -1321,6 +1483,14 @@
    位置用等宽，分数右对齐——读者是竖着扫位置的。 */
 .preview {
   margin: var(--space-5) 0 var(--space-4);
+}
+
+.preview__table-wrap {
+  overflow-x: auto;
+}
+
+.preview__table td:first-child {
+  overflow-wrap: anywhere;
 }
 
 .preview__title {
@@ -1382,4 +1552,450 @@
   padding-bottom: var(--space-3);
   margin-bottom: var(--space-4);
   border-bottom: 1px solid var(--border);
+}
+
+/* --- report contents in the rail ------------------------------------------ */
+
+.rail__note {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.toc {
+  display: grid;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.toc__list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.toc__link {
+  display: block;
+  width: 100%;
+  padding: 3px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.toc__link:hover {
+  color: var(--accent);
+}
+
+/* --- stored evidence ------------------------------------------------------ */
+
+.evidence {
+  position: fixed;
+  right: var(--space-5);
+  bottom: var(--space-5);
+  z-index: 30;
+  width: min(680px, calc(100vw - var(--space-6)));
+  max-height: 55vh;
+  overflow: auto;
+  padding: var(--space-4);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+
+.evidence__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.evidence__where {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.evidence__label {
+  flex: none;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+.evidence__title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.evidence__code {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-3);
+  overflow-x: auto;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  tab-size: 2;
+}
+
+.evidence__note {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.evidence__note--error {
+  color: var(--error);
+}
+
+/* --- two runs compared ---------------------------------------------------- */
+
+.rundiff {
+  max-width: var(--measure);
+  margin: 0 auto;
+}
+
+.rundiff__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.rundiff__title {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.rundiff__source {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.rundiff__side {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.rundiff__run {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-sunken);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+}
+
+.rundiff__tag {
+  flex: none;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.rundiff__when {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.rundiff__sha {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  color: var(--text-faint);
+}
+
+.rundiff__empty {
+  margin: var(--space-4) 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  line-height: 1.7;
+}
+
+.rundiff__block {
+  margin-top: var(--space-5);
+}
+
+.rundiff__h2 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+
+.rundiff__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.rundiff__item {
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--border-strong);
+  background: var(--bg-sunken);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+
+.rundiff__item--added {
+  border-left-color: var(--ok);
+}
+
+.rundiff__item--removed {
+  border-left-color: var(--warn);
+}
+
+.rundiff__note {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+/* The comparison table reuses the report table; only the last column needs room. */
+.rundiff__table td:nth-child(3),
+.rundiff__table th:nth-child(3) {
+  white-space: nowrap;
+}
+
+.rundiff__table td:nth-child(4),
+.rundiff__table th:nth-child(4) {
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+/* --- the last line of defence -------------------------------------------- */
+
+.crash {
+  display: grid;
+  place-items: center;
+  min-height: 100%;
+  padding: var(--space-6);
+  background: var(--bg);
+}
+
+.crash__body {
+  width: min(760px, 100%);
+  padding: var(--space-5);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.crash__title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-xl);
+  font-weight: 600;
+}
+
+.crash__lede {
+  margin: 0 0 var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.7;
+}
+
+.crash__detail {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3);
+  max-height: 40vh;
+  overflow: auto;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.crash__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* --- small additions ------------------------------------------------------ */
+
+.sheet__foot-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.sheet__version {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+.diffbar--inline {
+  position: static;
+  margin-bottom: var(--space-3);
+  padding: var(--space-2);
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.surface__cell--zero .surface__value {
+  color: var(--text-muted);
+}
+
+[data-theme='dark'] .sheet {
+  background: rgb(0 0 0 / 55%);
+}
+
+[data-theme='dark'] .history__row--current .history__name {
+  color: var(--accent);
+}
+
+/* --- follow-up questions -------------------------------------------------- */
+
+.ask {
+  max-width: var(--measure);
+  margin: var(--space-7) auto 0;
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border);
+}
+
+.ask__title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+
+.ask__lede {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  line-height: 1.7;
+}
+
+.ask__form {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.ask__form .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.ask__list {
+  display: grid;
+  gap: var(--space-4);
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ask__item {
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-sunken);
+  border-radius: var(--radius-md);
+}
+
+.ask__question {
+  margin: 0 0 var(--space-2);
+  font-weight: 500;
+}
+
+.ask__question::before {
+  content: '问 ';
+  color: var(--text-faint);
+  font-weight: 400;
+}
+
+.ask__answer {
+  margin: 0;
+  line-height: 1.75;
+  white-space: pre-wrap;
+}
+
+.ask__pending,
+.ask__miss,
+.ask__error {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.ask__miss {
+  margin-bottom: var(--space-2);
+  color: var(--warn);
+}
+
+.ask__error {
+  color: var(--error);
+}
+
+.ask__cites {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
+}
+
+.ask__meta {
+  margin: var(--space-2) 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+/* --- the dossier ---------------------------------------------------------- */
+
+.export {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin: 0 0 var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.export__path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
 }

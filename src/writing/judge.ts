@@ -88,6 +88,27 @@ export type JudgeResult = Judgement & {
   replyFailures: number
 }
 
+/** Why a candidate was left unjudged when the whole-run ceiling was reached. */
+export const RUN_BUDGET_CUT_REASON = 'cut by run token budget'
+
+/**
+ * What has been judged so far, in a shape that can be written and read back.
+ *
+ * It is written after every candidate, because the expensive stage is the one that
+ * can be interrupted: a machine that sleeps, a provider that starts refusing, a
+ * user who closes the laptop. The points here are pre-validation on purpose —
+ * validation needs the tree, and the tree is re-acquired on resume.
+ */
+export type JudgeProgress = {
+  done: string[]
+  points: LearningPoint[]
+  skipped: SkippedCandidate[]
+  replyFailures: number
+  usage: Usage
+}
+
+export type JudgeResume = Omit<JudgeProgress, 'usage'>
+
 export type JudgeDeps = {
   client: ModelClient
   root: string
@@ -120,6 +141,19 @@ export type JudgeDeps = {
    * indistinguishable from a hang.
    */
   onCandidate?: (done: number, total: number, path: string) => void
+  /**
+   * The whole-run token ceiling, measured against what the provider reported.
+   *
+   * The per-request budget decides which candidates are affordable; this decides
+   * when the run has spent enough. It is checked before each candidate, so a run can
+   * overshoot by at most one request — the alternative, estimating the next reply
+   * before making it, would stop earlier and lie about why.
+   */
+  maxTokens?: number
+  /** Work already judged by an earlier attempt, matched on the candidate id. */
+  resume?: JudgeResume
+  /** Called after every candidate, for a checkpoint that can be resumed. */
+  onVerdict?: (progress: JudgeProgress) => void | Promise<void>
 }
 
 // --- prompt ---------------------------------------------------------------
@@ -641,9 +675,10 @@ function shortReason(reason: string): string {
 export async function judgeCandidates(deps: JudgeDeps): Promise<JudgeResult> {
   const lang: Lang = deps.lang ?? 'zh'
   const usage: Usage = { in: 0, out: 0 }
-  const points: LearningPoint[] = []
-  const skipped: SkippedCandidate[] = []
-  let replyFailures = 0
+  const points: LearningPoint[] = [...(deps.resume?.points ?? [])]
+  const skipped: SkippedCandidate[] = [...(deps.resume?.skipped ?? [])]
+  let replyFailures = deps.resume?.replyFailures ?? 0
+  const done = new Set(deps.resume?.done ?? [])
 
   const limit =
     typeof deps.limit === 'number' && Number.isFinite(deps.limit)
@@ -651,6 +686,7 @@ export async function judgeCandidates(deps: JudgeDeps): Promise<JudgeResult> {
       : deps.candidates.length
   const queue = deps.candidates.slice(0, limit)
   for (const candidate of deps.candidates.slice(queue.length)) {
+    if (done.has(candidate.id)) continue
     skipped.push({
       candidateId: candidate.id,
       path: candidate.path,
@@ -661,140 +697,183 @@ export async function judgeCandidates(deps: JudgeDeps): Promise<JudgeResult> {
 
   const ctx = await createContext(deps.root, deps.scope)
 
-  let judgedCount = 0
-  for (const candidate of queue) {
+  const record = async (): Promise<void> => {
+    await deps.onVerdict?.({
+      done: [...done],
+      points: [...points],
+      skipped: [...skipped],
+      replyFailures,
+      usage: { in: usage.in, out: usage.out },
+    })
+  }
+
+  const spent = (): number => usage.in + usage.out
+  const overBudget = (): boolean =>
+    typeof deps.maxTokens === 'number' &&
+    Number.isFinite(deps.maxTokens) &&
+    deps.maxTokens > 0 &&
+    spent() >= deps.maxTokens
+
+  let judgedCount = done.size
+  for (let index = 0; index < queue.length; index += 1) {
+    const candidate = queue[index] as Candidate
+    if (done.has(candidate.id)) continue
+
+    if (overBudget()) {
+      // Everything left is reported, not silently dropped. The reason says which
+      // ceiling was hit, so the report's tail can be acted on.
+      for (const rest of queue.slice(index)) {
+        if (done.has(rest.id)) continue
+        skipped.push({
+          candidateId: rest.id,
+          path: rest.path,
+          line: rest.line,
+          reason: `${RUN_BUDGET_CUT_REASON} (${deps.maxTokens ?? 0} tokens)`,
+        })
+        done.add(rest.id)
+      }
+      await record()
+      break
+    }
+
     deps.onCandidate?.(judgedCount, queue.length, candidate.path)
     judgedCount += 1
-    const relative = repoRelative(ctx.root, candidate.path)
-    if (relative === null) {
-      skipped.push({
-        candidateId: candidate.id,
-        path: candidate.path,
-        line: candidate.line,
-        reason: 'candidate path is outside the analysed root',
-      })
-      continue
-    }
 
-    const line =
-      Number.isFinite(candidate.line) && candidate.line >= 1 ? Math.floor(candidate.line) : 1
-
-    let slices: Slice[]
     try {
-      slices = await contextSlices(ctx, relative, line)
-    } catch (error) {
-      skipped.push({
-        candidateId: candidate.id,
-        path: candidate.path,
-        line: candidate.line,
-        reason: `candidate file cannot be read: ${messageOf(error)}`,
-      })
-      continue
-    }
-    if (slices.length === 0) {
-      skipped.push({
-        candidateId: candidate.id,
-        path: candidate.path,
-        line: candidate.line,
-        reason: 'candidate file has no readable lines',
-      })
-      continue
-    }
-
-    const promptCandidate: Candidate = { ...candidate, path: relative, line }
-    const prompt = buildJudgePrompt(promptCandidate, slices, lang)
-    const windows = shownWindows(slices)
-
-    let accepted: LearningPoint | null = null
-    let skipReason = ''
-    let lastReason = ''
-    /** The last attempt produced a well-formed reply whose point failed the schema. */
-    let shapedRejection = false
-
-    for (
-      let attempt = 0;
-      attempt < MAX_REPLY_ATTEMPTS && accepted === null && skipReason === '';
-      attempt += 1
-    ) {
-      const request: ModelRequest = {
-        system: prompt.system,
-        user:
-          attempt === 0
-            ? prompt.user
-            : `${prompt.user}${repairNote(lang, shortReason(lastReason))}`,
-        schema: POINT_SCHEMA,
+      const relative = repoRelative(ctx.root, candidate.path)
+      if (relative === null) {
+        skipped.push({
+          candidateId: candidate.id,
+          path: candidate.path,
+          line: candidate.line,
+          reason: 'candidate path is outside the analysed root',
+        })
+        continue
       }
 
-      let raw: unknown
+      const line =
+        Number.isFinite(candidate.line) && candidate.line >= 1 ? Math.floor(candidate.line) : 1
+
+      let slices: Slice[]
       try {
-        const reply = await deps.client.complete(request)
-        usage.in += reply.usage.in
-        usage.out += reply.usage.out
-        raw = reply.json
+        slices = await contextSlices(ctx, relative, line)
       } catch (error) {
-        if (error instanceof MissingCredentialsError) throw error
-        if (error instanceof ModelReplyError) {
-          usage.in += error.usage.in
-          usage.out += error.usage.out
-          lastReason = error.message
-          continue
+        skipped.push({
+          candidateId: candidate.id,
+          path: candidate.path,
+          line: candidate.line,
+          reason: `candidate file cannot be read: ${messageOf(error)}`,
+        })
+        continue
+      }
+      if (slices.length === 0) {
+        skipped.push({
+          candidateId: candidate.id,
+          path: candidate.path,
+          line: candidate.line,
+          reason: 'candidate file has no readable lines',
+        })
+        continue
+      }
+
+      const promptCandidate: Candidate = { ...candidate, path: relative, line }
+      const prompt = buildJudgePrompt(promptCandidate, slices, lang)
+      const windows = shownWindows(slices)
+
+      let accepted: LearningPoint | null = null
+      let skipReason = ''
+      let lastReason = ''
+      /** The last attempt produced a well-formed reply whose point failed the schema. */
+      let shapedRejection = false
+
+      for (
+        let attempt = 0;
+        attempt < MAX_REPLY_ATTEMPTS && accepted === null && skipReason === '';
+        attempt += 1
+      ) {
+        const request: ModelRequest = {
+          system: prompt.system,
+          user:
+            attempt === 0
+              ? prompt.user
+              : `${prompt.user}${repairNote(lang, shortReason(lastReason))}`,
+          schema: POINT_SCHEMA,
         }
-        // The client has already spent its retry budget on a 429/5xx/network
-        // failure. Another attempt here would multiply the latency, not the odds.
-        if (error instanceof ModelRequestError) {
-          lastReason = error.message
-          if (error.detail !== '') {
-            deps.onProviderError?.({ status: error.status, excerpt: error.detail })
+
+        let raw: unknown
+        try {
+          const reply = await deps.client.complete(request)
+          usage.in += reply.usage.in
+          usage.out += reply.usage.out
+          raw = reply.json
+        } catch (error) {
+          if (error instanceof MissingCredentialsError) throw error
+          if (error instanceof ModelReplyError) {
+            usage.in += error.usage.in
+            usage.out += error.usage.out
+            lastReason = error.message
+            continue
           }
+          // The client has already spent its retry budget on a 429/5xx/network
+          // failure. Another attempt here would multiply the latency, not the odds.
+          if (error instanceof ModelRequestError) {
+            lastReason = error.message
+            if (error.detail !== '') {
+              deps.onProviderError?.({ status: error.status, excerpt: error.detail })
+            }
+            break
+          }
+          lastReason = `model call failed: ${messageOf(error)}`
           break
         }
-        lastReason = `model call failed: ${messageOf(error)}`
-        break
+
+        const reply = parseReply(raw)
+        if (!reply.ok) {
+          lastReason = reply.reason
+          continue
+        }
+        if (reply.value['skip'] === true) {
+          skipReason = '这段代码里没有找到可迁移的决策'
+          break
+        }
+
+        const shaped = parsePoint(reply.value, promptCandidate)
+        if (!shaped.ok) {
+          lastReason = shaped.reason
+          // The model answered, and the answer was shaped enough to be judged — it just
+          // failed the schema. That is a rejected point, not a reply the model failed to
+          // produce, and the two were being reported with the same sentence.
+          shapedRejection = true
+          continue
+        }
+        accepted = shaped.point
       }
 
-      const reply = parseReply(raw)
-      if (!reply.ok) {
-        lastReason = reply.reason
+      if (accepted !== null) {
+        // A citation the prompt did not show is not evidence, even when the
+        // snippet it names is really on disk: the model could not have read it.
+        points.push(keepShownEvidence(accepted, windows))
         continue
       }
-      if (reply.value['skip'] === true) {
-        skipReason = '这段代码里没有找到可迁移的决策'
-        break
-      }
 
-      const shaped = parsePoint(reply.value, promptCandidate)
-      if (!shaped.ok) {
-        lastReason = shaped.reason
-        // The model answered, and the answer was shaped enough to be judged — it just
-        // failed the schema. That is a rejected point, not a reply the model failed to
-        // produce, and the two were being reported with the same sentence.
-        shapedRejection = true
-        continue
-      }
-      accepted = shaped.point
+      // A skip is an answer; a reply that never parsed is a failure; a point that parsed
+      // and was rejected is neither.
+      if (skipReason === '' && lastReason !== '' && !shapedRejection) replyFailures += 1
+      skipped.push({
+        candidateId: candidate.id,
+        path: candidate.path,
+        line: candidate.line,
+        reason:
+          skipReason !== ''
+            ? skipReason
+            : shapedRejection
+              ? `model produced a point that failed the schema: ${shortReason(lastReason)}`
+              : shortReason(lastReason) || 'model produced no usable point',
+      })
+    } finally {
+      done.add(candidate.id)
+      await record()
     }
-
-    if (accepted !== null) {
-      // A citation the prompt did not show is not evidence, even when the
-      // snippet it names is really on disk: the model could not have read it.
-      points.push(keepShownEvidence(accepted, windows))
-      continue
-    }
-
-    // A skip is an answer; a reply that never parsed is a failure; a point that parsed
-    // and was rejected is neither.
-    if (skipReason === '' && lastReason !== '' && !shapedRejection) replyFailures += 1
-    skipped.push({
-      candidateId: candidate.id,
-      path: candidate.path,
-      line: candidate.line,
-      reason:
-        skipReason !== ''
-          ? skipReason
-          : shapedRejection
-            ? `model produced a point that failed the schema: ${shortReason(lastReason)}`
-            : shortReason(lastReason) || 'model produced no usable point',
-    })
   }
 
   // Always, so no caller can return unvalidated model output by forgetting.
