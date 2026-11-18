@@ -132,7 +132,7 @@ const BIN_ENTRY = /^bin\/[^/]+$/
 
 const TEST_FILE = /\.test\.|_test\./
 const PY_TEST_FILE = /(?:^|\/)test_[^/]*\.py$/
-const TESTS_DIR = /(?:^|\/)tests\//
+const TESTS_DIR = /(?:^|\/)(?:tests?|__tests__|spec)\//
 const CI_FILES = ['.gitlab-ci.yml', 'azure-pipelines.yml', 'circle.yml'] as const
 const CI_WORKFLOW_DIR = /^\.github\/workflows\//
 const DOC_FILES = /(?:^|\/)readme\.(?:md|rst)$/i
@@ -571,9 +571,12 @@ export async function profileRepo(root: string, scope: Scope): Promise<Profile> 
   for (const candidate of sortedKept) if (MAIN_MODULE.test(candidate)) addEntry(candidate)
   for (const candidate of sortedKept) if (BIN_ENTRY.test(candidate)) addEntry(candidate)
 
+  const testDirectories = await Promise.all(
+    ['test', 'tests', '__tests__', 'spec'].map((name) => isDirectoryPath(rootAbs, name)),
+  )
   const hasTests =
     sortedKept.some((file) => TEST_FILE.test(file) || PY_TEST_FILE.test(file) || TESTS_DIR.test(file)) ||
-    (await isDirectoryPath(rootAbs, 'tests'))
+    testDirectories.some(Boolean)
 
   const hasCi =
     sortedKept.some((file) => CI_WORKFLOW_DIR.test(file)) ||

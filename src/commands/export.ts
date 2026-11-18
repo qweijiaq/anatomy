@@ -185,6 +185,9 @@ function onboardingDoc(input: ReportInput, lang: Lang): string {
   const points = ordered(input)
   const dirs = new Map<string, number>()
   for (const file of input.scope.files) {
+    // Tooling and docs are not where the code sits; a `.github/` row in a
+    // "where to start" list sends the reader to the wrong place.
+    if (file.language === null) continue
     const dir = path.posix.dirname(file.path)
     if (dir === '.' || dir.startsWith('..')) continue
     const top = dir.split('/')[0] as string

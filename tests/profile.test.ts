@@ -314,7 +314,7 @@ describe('profileRepo', () => {
     expect((await profileOf(await repoOf(files))).notes).toEqual([])
   })
 
-  it('detects test files by name and by a tests/ directory', async () => {
+  it('detects test files by name and by a test directory in any common spelling', async () => {
     const withTests = async (files: Record<string, string>): Promise<boolean> =>
       (await profileOf(await repoOf(files))).hasTests
 
@@ -322,6 +322,9 @@ describe('profileRepo', () => {
     expect(await withTests({ 'src/widget_test.py': '' })).toBe(true)
     expect(await withTests({ 'test_widget.py': '' })).toBe(true)
     expect(await withTests({ 'tests/whatever.md': 'notes\n' })).toBe(true)
+    expect(await withTests({ 'test/whatever.ts': 'export {}\n' })).toBe(true)
+    expect(await withTests({ '__tests__/whatever.ts': 'export {}\n' })).toBe(true)
+    expect(await withTests({ 'spec/whatever.ts': 'export {}\n' })).toBe(true)
     expect(await withTests({ 'src/main.ts': 'export const x = 1\n' })).toBe(false)
   })
 
