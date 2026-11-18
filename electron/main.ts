@@ -348,6 +348,11 @@ ipcMain.handle('analysis:run', async (event, payload: unknown) => {
     })
     const result = await runAnalyze(repo, {
       client,
+      // The client already uses the configured model; telling the run the same
+      // name is what makes `usage.json` and a later `resume` name the model that
+      // actually answered. Without it the run recorded the CLI default, and resume
+      // asked the configured gateway for a model it does not serve (HTTP 404).
+      model: config.model,
       baseDir: runsDir(),
       top: typeof request?.top === 'number' ? request.top : settings.topN,
       reportPoints: settings.reportPoints,
